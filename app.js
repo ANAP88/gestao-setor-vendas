@@ -23,19 +23,47 @@ function fmtDt(d){ return d ? new Date(d).toLocaleString('pt-BR', {day:'2-digit'
 function mesLabel(m){ const [y,mo]=m.split('-'); return ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][mo-1]+'/'+y.slice(2); }
 
 // ---------- LOGIN ----------
-function renderLogin(msg = '') {
+const FEATURES = [
+  ['📈', 'Dashboard & Insights', 'KPIs, ranking de produtividade e alertas de SLA em tempo real.'],
+  ['📅', 'Análise de Produção', 'Metas automáticas, tendência semanal e capacidade real por analista.'],
+  ['🔄', 'Pipeline de Processos', 'Controle completo das demandas, do recebimento à conclusão.'],
+  ['🏦', 'Gestão de Repasse', 'Cadastro único do cliente com timeline automática do processo.'],
+  ['📆', 'Escala de Plantão', 'Organização mensal da equipe com alerta de cobertura diária.'],
+  ['💰', 'Fechamento Mensal', 'Extrato por analista e canal, pronto para exportação.'],
+];
+function renderLogin(msg = '', tipo = 'erro') {
   app.innerHTML = `
-  <div id="login">
-    <div class="brand">🏢</div>
-    <h2>Gestão Setor de Secretaria de Vendas - Neo Service</h2>
-    <div class="sub">Painel interno da equipe</div>
-    <div class="card">
-      <label>E-mail</label><input id="email" type="email" autocomplete="username" placeholder="voce@empresa.com">
-      <label>Senha</label><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••">
-      <button id="btnLogin">Entrar</button>
-      <button id="btnSignup" class="ghost" style="margin-top:10px">Criar conta</button>
-      <div class="msg">${esc(msg)}</div>
+  <div id="login-page">
+    <div class="login-hero">
+      <div class="hero-badge">🔒 SISTEMA INTERNO</div>
+      <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
+      <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
+      <div class="hero-features">
+        ${FEATURES.map(([ic,t,d]) => `<div class="hf"><div class="hf-ic">${ic}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+      </div>
     </div>
+    <div class="login-panel">
+      <div class="card" id="login-card">
+        <div class="login-icon">🏢</div>
+        <h2>Gestão Operacional</h2>
+        <div class="login-brandline">Secretaria de Vendas</div>
+        <div class="sub">Painel interno da equipe</div>
+        <label>E-mail corporativo</label>
+        <div class="input-ic"><span>✉️</span><input id="email" type="email" autocomplete="username" placeholder="seu.email@neoservice.com.br"></div>
+        <label>Senha</label>
+        <div class="input-ic"><span>🔒</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
+        <div class="login-row">
+          <label class="chk-inline"><input type="checkbox" id="manterConectado" checked> Manter conectado</label>
+          <a href="#" id="linkEsqueci">Esqueci minha senha</a>
+        </div>
+        <button id="btnLogin">Entrar →</button>
+        <div class="login-divider"><span>ou</span></div>
+        <button id="btnSignup" class="ghost">Criar conta</button>
+        <div class="msg ${tipo}">${esc(msg)}</div>
+        <div class="login-footer-note">🛡️ Ambiente Corporativo &nbsp;·&nbsp; Versão 1.0.0</div>
+      </div>
+    </div>
+    <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
   </div>`;
   const valida = () => {
     if (!email.value.trim() || !senha.value) { renderLogin('Preencha e-mail e senha.'); return false; }
@@ -50,8 +78,16 @@ function renderLogin(msg = '') {
   btnSignup.onclick = async () => {
     if (!valida()) return;
     const { error } = await sb.auth.signUp({ email: email.value.trim(), password: senha.value });
-    renderLogin(error ? error.message : 'Conta criada! Confirme pelo link enviado ao seu e-mail e depois clique em Entrar.');
+    renderLogin(error ? error.message : 'Conta criada! Confirme pelo link enviado ao seu e-mail e depois clique em Entrar.', error ? 'erro' : 'ok');
   };
+  linkEsqueci.onclick = async (e) => {
+    e.preventDefault();
+    const em = email.value.trim();
+    if (!em) { renderLogin('Digite seu e-mail acima e clique em "Esqueci minha senha" de novo.'); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(em);
+    renderLogin(error ? error.message : 'Enviamos um link de redefinição de senha para ' + em + '.', error ? 'erro' : 'ok');
+  };
+  [email, senha].forEach(el => el && el.addEventListener('keydown', e => { if (e.key === 'Enter') btnLogin.click(); }));
 }
 
 // ---------- SHELL (4 pilares) ----------
