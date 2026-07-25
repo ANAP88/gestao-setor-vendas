@@ -1,4 +1,4 @@
-// Gestão Setor de Vendas — deploy automático via GitHub + Netlify
+// Gestão Setor de Secretaria de Vendas - Neo Service — deploy automático via GitHub + Netlify
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 const sb = createClient(
@@ -27,8 +27,8 @@ function renderLogin(msg = '') {
   app.innerHTML = `
   <div id="login">
     <div class="brand">🏢</div>
-    <h2>Gestão Setor de Vendas</h2>
-    <div class="sub">Secretaria de Vendas · Painel interno da equipe</div>
+    <h2>Gestão Setor de Secretaria de Vendas - Neo Service</h2>
+    <div class="sub">Painel interno da equipe</div>
     <div class="card">
       <label>E-mail</label><input id="email" type="email" autocomplete="username" placeholder="voce@empresa.com">
       <label>Senha</label><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••">
@@ -85,7 +85,7 @@ function shell(inner) {
   app.innerHTML = `
   <div class="layout">
     <aside>
-      <div class="side-brand"><span class="logo">🏢</span><div><b>Gestão de Vendas</b><small>Secretaria · Interna</small></div></div>
+      <div class="side-brand"><span class="logo">🏢</span><div><b>Secretaria de Vendas</b><small>Neo Service</small></div></div>
       ${PILARES.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span>${ic}</span>${l}</button>`).join('')}
