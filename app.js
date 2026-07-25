@@ -197,12 +197,14 @@ async function renderDashboard() {
         <h2 style="margin:0">🏆 Ranking de produtividade</h2>
         <select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select>
       </div>
-      <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th></tr></thead>
+      <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
         <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(r.nome)}</td><td>${r.total}</td>
         <td style="color:var(--ok)">${r.concluidas}</td><td style="color:var(--warn)">${r.pendentes}</td>
         <td>${r.pct_concl}%</td><td>${r.tempo_medio_h ?? '—'}</td>
-      </tr>`).join('') || '<tr><td colspan="7">Sem dados neste mês.</td></tr>'}</tbody></table>
+        <td><b>${r.score ?? '—'}</b></td>
+        <td><span class="tag ${r.classe==='Alta'?'CONCLUIDO':r.classe==='Média'?'RECEBIDO':'PENDENTE'}">${esc(r.classe||'—')}</span></td>
+      </tr>`).join('') || '<tr><td colspan="9">Sem dados neste mês.</td></tr>'}</tbody></table>
     </div>`);
   document.getElementById('dashMes').onchange = (e) => { state.dashMes = e.target.value; renderDashboard(); };
 }
@@ -471,11 +473,13 @@ async function renderAnalytics() {
         <h2 style="margin:0">🏆 Produtividade por analista</h2>
         <select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select>
       </div>
-      <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th></tr></thead>
+      <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Prod/dia útil</th><th>% Particip.</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
         <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(r.nome)}</td><td>${r.total}</td>
         <td style="color:var(--ok)">${r.concluidas}</td><td style="color:var(--warn)">${r.pendentes}</td>
-        <td>${r.pct_concl}%</td><td>${r.tempo_medio_h ?? '—'}</td></tr>`).join('') || '<tr><td colspan="7">Sem dados neste mês.</td></tr>'}</tbody></table>
+        <td>${r.pct_concl}%</td><td>${r.prod_dia_util ?? '—'}</td><td>${r.pct_participacao ?? '—'}%</td>
+        <td><b>${r.score ?? '—'}</b></td>
+        <td><span class="tag ${r.classe==='Alta'?'CONCLUIDO':r.classe==='Média'?'RECEBIDO':'PENDENTE'}">${esc(r.classe||'—')}</span></td></tr>`).join('') || '<tr><td colspan="10">Sem dados neste mês.</td></tr>'}</tbody></table>
     </div>
     <div class="grid-cad">
       <div class="card">
