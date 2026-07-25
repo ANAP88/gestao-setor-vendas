@@ -94,6 +94,7 @@ const PILARES = [
   ]],
   ['⚙️ Operação', [
     ['pipeline', '🔄', 'Pipeline'],
+    ['esteira', '⛓️', 'Esteira'],
     ['operacoes', '🗂️', 'Operações'],
     ['repasse', '🏦', 'Repasse'],
     ['validacao', '✅', 'Validação'],
@@ -138,7 +139,7 @@ function nomeExib(nome, rank) {
 }
 function render() {
   ({ dashboard: renderDashboard, producao: renderProducao, analytics: renderAnalytics, insights: renderInsights,
-     pipeline: renderDemandas, operacoes: renderOperacoes, repasse: renderRepasse, validacao: renderValidacao,
+     pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, validacao: renderValidacao,
      followup: renderFollowup, integracoes: () => renderStub('🔌 Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
      automacoes: () => renderStub('⚡ Automações', 'Regras de negócio e fluxos automáticos. A primeira automação ativa é o monitoramento de plantão (veja Insights). Próximas:', ['Alerta automático por e-mail/Teams às 12h e 17h', 'Distribuição automática de processos por carga de trabalho', 'Cobrança automática de follow-up sem resposta', 'Fechamento mensal gerado e enviado automaticamente']),
      documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
@@ -156,13 +157,15 @@ function renderStub(titulo, texto, itens) {
 }
 
 async function loadLookups() {
-  const [an, emp, ativ, empr] = await Promise.all([
+  const [an, emp, ativ, empr, cli] = await Promise.all([
     sb.from('analistas').select('id,nome,status').order('nome'),
     sb.from('empreendedoras').select('id,nome').order('nome'),
     sb.from('atividades').select('id,nome,ativa').order('nome'),
     sb.from('empreendimentos').select('id,nome,empreendedora_id').order('nome'),
+    sb.from('clientes').select('id,nome').order('nome'),
   ]);
   state.lookups = { analistas: an.data||[], empreendedoras: emp.data||[], atividades: ativ.data||[], empreendimentos: empr.data||[] };
+  state.clientesLookup = cli.data || [];
 }
 
 // ---------- DASHBOARD ----------
@@ -894,6 +897,210 @@ async function renderProducao() {
       renderProducao();
     };
   }
+}
+
+// ---------- ESTEIRA (fila de produção por etapa) ----------
+async function renderEsteira() {
+  const [{ data: etapas }, { data: processos }] = await Promise.all([
+    sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem'),
+    sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').neq('status', 'CONCLUIDO').order('criado_em'),
+  ]);
+  const L = state.lookups;
+  const porEtapa = {};
+  (etapas || []).forEach(e => porEtapa[e.id] = []);
+  (processos || []).forEach(p => { (porEtapa[p.etapa_atual_id] = porEtapa[p.etapa_atual_id] || []).push(p); });
+
+  shell(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">⛓️ Esteira de Produção</h2>
+        <span style="color:var(--muted);font-size:12.5px">Cada etapa é uma fila — qualquer analista disponível pode assumir o próximo processo.</span>
+        <div class="spacer"></div>
+        ${state.role !== 'leitura' ? '<button id="btnNovoEsteira">+ Novo processo na esteira</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">⚙️ Gerenciar etapas</button>' : ''}
+      </div>
+    </div>
+    <div class="esteira-board">
+      ${(etapas || []).map(et => `
+        <div class="esteira-col">
+          <div class="esteira-col-head"><b>${esc(et.nome)}</b><span class="count-badge">${(porEtapa[et.id]||[]).length}</span></div>
+          <div class="esteira-cards">
+            ${(porEtapa[et.id] || []).map(p => `
+              <div class="esteira-card" data-id="${p.id}">
+                <div class="ec-title">${esc(p.titulo)}</div>
+                ${p.clientes?.nome ? `<div class="ec-sub">👤 ${esc(p.clientes.nome)}</div>` : ''}
+                <div class="ec-foot">
+                  ${p.analista_atual_id
+                    ? `<span class="tag RECEBIDO">${esc(p.analistas.nome)}</span>`
+                    : `<span class="tag PENDENTE">Aguardando fila</span>`}
+                </div>
+              </div>`).join('') || '<div class="ec-empty">Fila vazia</div>'}
+          </div>
+        </div>`).join('')}
+    </div>`);
+
+  document.querySelectorAll('.esteira-card').forEach(c => c.onclick = () => openProcessoEsteira(c.dataset.id, etapas));
+  const bN = document.getElementById('btnNovoEsteira');
+  if (bN) bN.onclick = () => openProcessoEsteira(null, etapas);
+  const bE = document.getElementById('btnEtapas');
+  if (bE) bE.onclick = () => openGerenciarEtapas(etapas);
+}
+
+async function openProcessoEsteira(id, etapas) {
+  let p = null, historico = [], anexos = [];
+  if (id) {
+    const [pp, hh, aa] = await Promise.all([
+      sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('id', id).single(),
+      sb.from('esteira_historico').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
+      sb.from('esteira_anexos').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
+    ]);
+    p = pp.data; historico = hh.data || []; anexos = aa.data || [];
+  }
+  const L = state.lookups;
+  const etapaIdx = p ? etapas.findIndex(e => e.id === p.etapa_atual_id) : 0;
+  const proxEtapa = p ? etapas[etapaIdx + 1] : null;
+  const ro = state.role === 'leitura';
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal">
+    <h2>${id ? '⛓️ ' + esc(p.titulo) : '⛓️ Novo processo na esteira'}</h2>
+    <div class="grid2">
+      <div style="grid-column:1/-1"><label>Título / referência</label><input id="epTitulo" value="${esc(p?.titulo)}" placeholder="Ex: nome do cliente ou nº do processo" ${ro?'disabled':''}></div>
+      <div><label>Cliente vinculado (opcional)</label><select id="epCliente" ${ro?'disabled':''}><option value="">—</option>
+        ${(state.clientesLookup||[]).map(c=>`<option value="${c.id}" ${p?.cliente_id===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select></div>
+      ${id ? `<div><label>Etapa atual</label><input value="${esc(etapas[etapaIdx]?.nome)}" disabled></div>
+      <div><label>Analista responsável</label><select id="epAnalista" ${ro?'disabled':''}><option value="">Aguardando fila</option>
+        ${L.analistas.filter(a=>a.status!=='Inativo').map(a=>`<option value="${a.id}" ${p.analista_atual_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select></div>` : ''}
+    </div>
+    ${id ? `
+    <h2 style="margin-top:16px">📎 Anexos e links</h2>
+    <div class="anexo-list">${anexos.map(a => `
+      <div class="anexo-item">${a.tipo==='link' ? '🔗' : '📄'} <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a>
+        ${!ro ? `<button class="ghost del-anexo" data-id="${a.id}" data-path="${a.tipo==='arquivo'?esc(a.url):''}">✕</button>` : ''}
+      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum anexo ainda.</p>'}</div>
+    ${!ro ? `
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <input id="epLinkNome" placeholder="Nome do link" style="flex:1;min-width:140px">
+      <input id="epLinkUrl" placeholder="https://..." style="flex:2;min-width:200px">
+      <button id="btnAddLink" class="ghost">+ Adicionar link</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <input id="epArquivo" type="file" style="flex:1">
+      <button id="btnUpload" class="ghost">⬆ Enviar arquivo</button>
+      <span id="upMsg" class="msg" style="margin:0"></span>
+    </div>` : ''}
+    <h2 style="margin-top:16px">🕓 Histórico</h2>
+    <div class="timeline">${historico.map(h => `
+      <div class="tl-item"><div class="tl-dot"></div>
+        <div>${fmtDt(h.criado_em)} — ${esc(h.evento)}</div></div>`).join('')}</div>
+    ` : ''}
+    <div class="msg" id="epMsg"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
+      <button id="epCancel" class="ghost">Fechar</button>
+      ${id && !p.analista_atual_id && !ro ? '<button id="btnPegar">🙋 Pegar esta etapa</button>' : ''}
+      ${id && proxEtapa && !ro ? `<button id="btnAvancar">Concluir e enviar para "${esc(proxEtapa.nome)}" →</button>` : ''}
+      ${id && !proxEtapa && p?.status !== 'CONCLUIDO' && !ro ? '<button id="btnFinalizar">✅ Concluir processo</button>' : ''}
+      ${!id && !ro ? '<button id="epSalvar">Criar</button>' : ''}
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('epCancel').onclick = () => div.remove();
+
+  if (!id) {
+    $('epSalvar').onclick = async () => {
+      const titulo = $('epTitulo').value.trim();
+      if (!titulo) { $('epMsg').textContent = 'Informe um título.'; return; }
+      const primeiraEtapa = etapas[0];
+      const { error } = await sb.from('esteira_processos').insert({
+        titulo, cliente_id: $('epCliente').value || null, etapa_atual_id: primeiraEtapa.id,
+      });
+      if (error) { $('epMsg').textContent = error.message; return; }
+      div.remove(); renderEsteira();
+    };
+    return;
+  }
+
+  const btnPegar = $('btnPegar');
+  if (btnPegar) btnPegar.onclick = async () => {
+    const analistaId = $('epAnalista').value;
+    if (!analistaId) { $('epMsg').textContent = 'Selecione seu nome na lista de analista antes de pegar.'; return; }
+    const { error } = await sb.from('esteira_processos').update({ analista_atual_id: analistaId, status: 'EM_ANDAMENTO' }).eq('id', id);
+    if (error) { $('epMsg').textContent = error.message; return; }
+    div.remove(); renderEsteira();
+  };
+  const btnAvancar = $('btnAvancar');
+  if (btnAvancar) btnAvancar.onclick = async () => {
+    const { error } = await sb.from('esteira_processos').update({ etapa_atual_id: proxEtapa.id, analista_atual_id: null, status: 'AGUARDANDO' }).eq('id', id);
+    if (error) { $('epMsg').textContent = error.message; return; }
+    div.remove(); renderEsteira();
+  };
+  const btnFinalizar = $('btnFinalizar');
+  if (btnFinalizar) btnFinalizar.onclick = async () => {
+    const { error } = await sb.from('esteira_processos').update({ status: 'CONCLUIDO', concluido_em: new Date().toISOString() }).eq('id', id);
+    if (error) { $('epMsg').textContent = error.message; return; }
+    div.remove(); renderEsteira();
+  };
+  const epAnalista = $('epAnalista');
+  if (epAnalista && !ro) epAnalista.onchange = async () => {
+    await sb.from('esteira_processos').update({ analista_atual_id: epAnalista.value || null, status: epAnalista.value ? 'EM_ANDAMENTO' : 'AGUARDANDO' }).eq('id', id);
+  };
+  const btnAddLink = $('btnAddLink');
+  if (btnAddLink) btnAddLink.onclick = async () => {
+    const nome = $('epLinkNome').value.trim(), url = $('epLinkUrl').value.trim();
+    if (!nome || !url) return;
+    await sb.from('esteira_anexos').insert({ processo_id: id, tipo: 'link', nome, url, criado_por: state.session?.user?.email });
+    div.remove(); openProcessoEsteira(id, etapas);
+  };
+  const btnUpload = $('btnUpload');
+  if (btnUpload) btnUpload.onclick = async () => {
+    const f = $('epArquivo').files[0];
+    const msg = $('upMsg');
+    if (!f) { msg.textContent = 'Escolha um arquivo.'; return; }
+    btnUpload.disabled = true; msg.textContent = 'Enviando...';
+    const path = `${id}/${Date.now()}_${f.name}`;
+    const { error: upErr } = await sb.storage.from('esteira-documentos').upload(path, f);
+    if (upErr) { msg.textContent = upErr.message; btnUpload.disabled = false; return; }
+    const { data: signed } = await sb.storage.from('esteira-documentos').createSignedUrl(path, 60 * 60 * 24 * 365);
+    await sb.from('esteira_anexos').insert({ processo_id: id, tipo: 'arquivo', nome: f.name, url: signed?.signedUrl || path, criado_por: state.session?.user?.email });
+    div.remove(); openProcessoEsteira(id, etapas);
+  };
+  document.querySelectorAll('.del-anexo').forEach(b => b.onclick = async () => {
+    if (b.dataset.path) await sb.storage.from('esteira-documentos').remove([b.dataset.path]).catch(() => {});
+    await sb.from('esteira_anexos').delete().eq('id', b.dataset.id);
+    div.remove(); openProcessoEsteira(id, etapas);
+  });
+}
+
+async function openGerenciarEtapas(etapas) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:480px">
+    <h2>⚙️ Etapas da Esteira</h2>
+    <div id="etapasList">${etapas.map(e => `
+      <div class="cad-item">${e.ordem}. ${esc(e.nome)}
+        <button class="ghost del-etapa" data-id="${e.id}">✕</button></div>`).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="novaEtapa" placeholder="Nome da nova etapa (vai para o fim da fila)" style="flex:1">
+      <button id="btnAddEtapa" class="ghost">Adicionar</button>
+    </div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="etCancel" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#etCancel').onclick = () => div.remove();
+  div.querySelector('#btnAddEtapa').onclick = async () => {
+    const nome = div.querySelector('#novaEtapa').value.trim();
+    if (!nome) return;
+    const maxOrdem = Math.max(0, ...etapas.map(e => e.ordem));
+    await sb.from('etapas_esteira').insert({ nome, ordem: maxOrdem + 1 });
+    div.remove(); renderEsteira();
+  };
+  div.querySelectorAll('.del-etapa').forEach(b => b.onclick = async () => {
+    const { count } = await sb.from('esteira_processos').select('id', { count: 'exact', head: true }).eq('etapa_atual_id', b.dataset.id).neq('status', 'CONCLUIDO');
+    if (count > 0) { alert('Existem processos nesta etapa. Mova-os antes de remover.'); return; }
+    await sb.from('etapas_esteira').update({ ativa: false }).eq('id', b.dataset.id);
+    div.remove(); renderEsteira();
+  });
 }
 
 // ---------- REPASSE ----------
