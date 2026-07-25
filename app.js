@@ -1,3 +1,4 @@
+// Gestão Setor de Vendas — deploy automático via GitHub + Netlify
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 const sb = createClient(
