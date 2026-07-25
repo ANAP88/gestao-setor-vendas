@@ -639,93 +639,121 @@ async function renderFechamento() {
   };
 }
 
-// ---------- CADASTROS / ADMINISTRAÇÃO ----------
+// ---------- ADMINISTRAÇÃO (Usuários + Cadastros) ----------
+const ROLE_INFO = {
+  admin: { cor: 'CONCLUIDO', label: 'Admin' },
+  analista: { cor: 'RECEBIDO', label: 'Analista' },
+  leitura: { cor: 'PENDENTE', label: 'Leitura' },
+};
 async function renderCadastros() {
+  if (!state.adminTab) state.adminTab = 'usuarios';
   const L = state.lookups;
-  const { data: usuarios } = await sb.from('perfis').select('*').order('criado_em');
-  const usersBloco = `
-    <div class="card">
-      <h2>👤 Usuários e níveis de acesso</h2>
-      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
-        <b>admin</b>: tudo, inclusive metas e usuários · <b>analista</b>: opera o sistema · <b>leitura</b>: só visualiza.
-        ${state.role === 'admin' ? 'Convide por e-mail: a pessoa recebe um link, clica e cria a própria senha.' : ''}
-      </p>
-      ${state.role === 'admin' ? `
-      <div class="filters" style="margin-bottom:14px;padding:12px;background:var(--bg2);border-radius:10px">
-        <div><label>E-mail para convidar</label><input id="nuEmail" type="email" placeholder="pessoa@empresa.com"></div>
-        <div><label>Nível</label><select id="nuNivel">
-          <option value="analista">analista</option><option value="admin">admin</option><option value="leitura">leitura</option>
-        </select></div>
-        <button id="btnCriarUser">✉️ Enviar convite</button>
-        <span id="nuMsg" class="msg" style="margin:0"></span>
-      </div>` : ''}
-      <table><thead><tr><th>E-mail</th><th>Nível</th><th>Desde</th></tr></thead>
-      <tbody>${(usuarios||[]).map(u => `<tr>
-        <td>${esc(u.email)}${u.user_id === state.session.user.id ? ' <span class="tag RECEBIDO">você</span>' : ''}</td>
-        <td>${state.role === 'admin' && u.user_id !== state.session.user.id
-          ? `<select class="selRole" data-uid="${u.user_id}">
-              ${['admin','analista','leitura'].map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>`
-          : `<span class="tag ${u.role==='admin'?'CONCLUIDO':u.role==='leitura'?'PENDENTE':'RECEBIDO'}">${esc(u.role)}</span>`}</td>
-        <td>${fmtDt(u.criado_em)}</td></tr>`).join('')}</tbody></table>
-    </div>`;
-  const bloco = (titulo, items, tipo, extra) => `
-    <div class="card">
-      <h2>${titulo}</h2>
-      <div class="cad-list">${items.map(i => `
-        <div class="cad-item">${esc(i.nome)}${extra ? extra(i) : ''}
-          <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome)}">✎</button>
-        </div>`).join('')}</div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <input id="new_${tipo}" placeholder="Novo nome..." style="flex:1">
-        ${tipo === 'empreendimentos' ? `<select id="new_emp_ed">${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>` : ''}
-        <button class="ghost cad-add" data-t="${tipo}">Adicionar</button>
-      </div>
-    </div>`;
-  shell(`
-    ${usersBloco}
-    <div class="grid-cad">
-      ${bloco('👥 Analistas', L.analistas, 'analistas', i => ` <span class="tag ${i.status==='Ativo'?'CONCLUIDO':'PENDENTE'}">${esc(i.status)}</span>`)}
-      ${bloco('🏢 Empreendedoras', L.empreendedoras, 'empreendedoras')}
-      ${bloco('🏗️ Empreendimentos', L.empreendimentos.map(e => ({...e, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
-      ${bloco('📝 Atividades', L.atividades, 'atividades', i => i.ativa ? '' : ' <span class="tag PENDENTE">inativa</span>')}
-    </div>`);
-  document.querySelectorAll('.selRole').forEach(s => s.onchange = async () => {
-    const { error } = await sb.from('perfis').update({ role: s.value }).eq('user_id', s.dataset.uid);
-    if (error) alert(error.message);
-  });
-  const btnCU = document.getElementById('btnCriarUser');
-  if (btnCU) btnCU.onclick = async () => {
-    const email = nuEmail.value.trim(), nivel = nuNivel.value;
-    const msg = document.getElementById('nuMsg');
-    if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
-    btnCU.disabled = true; msg.textContent = 'Enviando convite...';
-    const { data, error } = await sb.functions.invoke('convidar-usuario', {
-      body: { email, nivel, redirectTo: window.location.origin },
+  const TABS = [['usuarios','👤 Usuários'], ['cadastros','🗂️ Cadastros operacionais']];
+  const tabsHtml = `<div class="admin-tabs">${TABS.map(([k,l]) =>
+    `<button class="admin-tab ${state.adminTab===k?'active':''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
+
+  if (state.adminTab === 'usuarios') {
+    const { data: usuarios } = await sb.from('perfis').select('*').order('criado_em');
+    shell(`
+      ${tabsHtml}
+      <div class="card">
+        <div class="admin-head">
+          <div>
+            <h2 style="margin-bottom:2px">Usuários e níveis de acesso</h2>
+            <p style="color:var(--muted);font-size:12.5px">
+              <b>Admin</b> — acesso total, inclusive metas e usuários &nbsp;·&nbsp;
+              <b>Analista</b> — opera o sistema &nbsp;·&nbsp;
+              <b>Leitura</b> — só visualiza (bloqueado no banco, não só na tela)
+            </p>
+          </div>
+          ${state.role === 'admin' ? '<button id="btnAbrirConvite">✉️ Convidar usuário</button>' : ''}
+        </div>
+        ${state.role === 'admin' ? `
+        <div id="conviteBox" class="invite-box hidden">
+          <div><label>E-mail para convidar</label><input id="nuEmail" type="email" placeholder="pessoa@neoservice.com.br"></div>
+          <div><label>Nível de acesso</label><select id="nuNivel">
+            <option value="analista">Analista</option><option value="admin">Admin</option><option value="leitura">Leitura</option>
+          </select></div>
+          <button id="btnCriarUser">Enviar convite</button>
+          <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
+        </div>` : ''}
+        <table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Desde</th></tr></thead>
+        <tbody>${(usuarios||[]).map(u => {
+          const isSelf = u.user_id === state.session.user.id;
+          const info = ROLE_INFO[u.role] || ROLE_INFO.analista;
+          return `<tr>
+          <td><div class="user-cell"><div class="user-avatar">${esc(u.email[0]?.toUpperCase() || '?')}</div>
+            <div><b>${esc(u.email)}</b>${isSelf ? ' <span class="tag RECEBIDO">você</span>' : ''}</div></div></td>
+          <td>${state.role === 'admin' && !isSelf
+            ? `<select class="selRole" data-uid="${u.user_id}">
+                ${Object.keys(ROLE_INFO).map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${ROLE_INFO[r].label}</option>`).join('')}</select>`
+            : `<span class="tag ${info.cor}">${info.label}</span>`}</td>
+          <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td></tr>`;
+        }).join('')}</tbody></table>
+      </div>`);
+    const btnAbrir = document.getElementById('btnAbrirConvite');
+    if (btnAbrir) btnAbrir.onclick = () => conviteBox.classList.toggle('hidden');
+    document.querySelectorAll('.selRole').forEach(s => s.onchange = async () => {
+      const { error } = await sb.from('perfis').update({ role: s.value }).eq('user_id', s.dataset.uid);
+      if (error) alert(error.message);
     });
-    btnCU.disabled = false;
-    if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
-    msg.textContent = `Convite enviado para ${email}.`;
-    nuEmail.value = '';
-    renderCadastros();
-  };
-  document.querySelectorAll('.cad-add').forEach(b => b.onclick = async () => {
-    const t = b.dataset.t;
-    const inp = document.getElementById('new_' + t);
-    if (!inp.value.trim()) return;
-    const rec = { nome: inp.value.trim() };
-    if (t === 'empreendimentos') rec.empreendedora_id = document.getElementById('new_emp_ed').value;
-    const { error } = await sb.from(t).insert(rec);
-    if (error) { alert(error.message); return; }
-    await loadLookups(); renderCadastros();
-  });
-  document.querySelectorAll('.cad-edit').forEach(b => b.onclick = async () => {
-    const t = b.dataset.t;
-    const nome = prompt('Novo nome (vazio para cancelar):', b.dataset.n.split(' · ')[0]);
-    if (!nome || !nome.trim()) return;
-    const { error } = await sb.from(t).update({ nome: nome.trim() }).eq('id', b.dataset.id);
-    if (error) { alert(error.message); return; }
-    await loadLookups(); renderCadastros();
-  });
+    const btnCU = document.getElementById('btnCriarUser');
+    if (btnCU) btnCU.onclick = async () => {
+      const email = nuEmail.value.trim(), nivel = nuNivel.value;
+      const msg = document.getElementById('nuMsg');
+      if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
+      btnCU.disabled = true; msg.textContent = 'Enviando convite...';
+      const { data, error } = await sb.functions.invoke('convidar-usuario', {
+        body: { email, nivel, redirectTo: window.location.origin },
+      });
+      btnCU.disabled = false;
+      if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
+      msg.textContent = `Convite enviado para ${email}.`;
+      nuEmail.value = '';
+      renderCadastros();
+    };
+  } else {
+    const bloco = (titulo, items, tipo, extra) => `
+      <div class="card">
+        <h2>${titulo} <span class="count-badge">${items.length}</span></h2>
+        <div class="cad-list">${items.map(i => `
+          <div class="cad-item">${esc(i.nome)}${extra ? extra(i) : ''}
+            <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome)}">✎</button>
+          </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum registro.</p>'}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input id="new_${tipo}" placeholder="Novo nome..." style="flex:1">
+          ${tipo === 'empreendimentos' ? `<select id="new_emp_ed">${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>` : ''}
+          <button class="ghost cad-add" data-t="${tipo}">Adicionar</button>
+        </div>
+      </div>`;
+    shell(`
+      ${tabsHtml}
+      <div class="grid-cad">
+        ${bloco('👥 Analistas', L.analistas, 'analistas', i => ` <span class="tag ${i.status==='Ativo'?'CONCLUIDO':'PENDENTE'}">${esc(i.status)}</span>`)}
+        ${bloco('🏢 Empreendedoras', L.empreendedoras, 'empreendedoras')}
+        ${bloco('🏗️ Empreendimentos', L.empreendimentos.map(e => ({...e, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
+        ${bloco('📝 Atividades', L.atividades, 'atividades', i => i.ativa ? '' : ' <span class="tag PENDENTE">inativa</span>')}
+      </div>`);
+    document.querySelectorAll('.cad-add').forEach(b => b.onclick = async () => {
+      const t = b.dataset.t;
+      const inp = document.getElementById('new_' + t);
+      if (!inp.value.trim()) return;
+      const rec = { nome: inp.value.trim() };
+      if (t === 'empreendimentos') rec.empreendedora_id = document.getElementById('new_emp_ed').value;
+      const { error } = await sb.from(t).insert(rec);
+      if (error) { alert(error.message); return; }
+      await loadLookups(); renderCadastros();
+    });
+    document.querySelectorAll('.cad-edit').forEach(b => b.onclick = async () => {
+      const t = b.dataset.t;
+      const nome = prompt('Novo nome (vazio para cancelar):', b.dataset.n.split(' · ')[0]);
+      if (!nome || !nome.trim()) return;
+      const { error } = await sb.from(t).update({ nome: nome.trim() }).eq('id', b.dataset.id);
+      if (error) { alert(error.message); return; }
+      await loadLookups(); renderCadastros();
+    });
+  }
+  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
 
 // ---------- PRODUÇÃO (análise avançada + metas) ----------

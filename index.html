@@ -205,7 +205,29 @@ table.escala td:first-child,table.escala th:first-child{text-align:left;white-sp
 .chk input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent2)}
 .chk button{padding:3px 9px;margin-left:auto}
 
-.grid-cad{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
+.admin-tabs{display:flex;gap:4px;background:var(--panel2);padding:4px;border-radius:11px;border:1px solid var(--border);width:fit-content;margin-bottom:18px}
+.admin-tab{background:transparent;color:var(--muted);border:0;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600}
+.admin-tab.active{background:var(--accent2);color:#fff}
+.admin-tab:not(.active):hover{background:var(--panel3);color:var(--text)}
+.admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.invite-box{
+  display:flex; gap:14px; flex-wrap:wrap; align-items:end;
+  background:var(--bg2); border:1px solid var(--border); border-radius:12px;
+  padding:16px; margin-bottom:18px;
+}
+.invite-box input, .invite-box select{min-width:220px}
+.users-table td{vertical-align:middle}
+.user-cell{display:flex;align-items:center;gap:10px}
+.user-avatar{
+  width:32px;height:32px;border-radius:50%;flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#04201d;
+}
+.count-badge{
+  display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;
+  background:var(--panel3);color:var(--muted);border-radius:99px;font-size:11px;font-weight:700;margin-left:4px;
+}
+.grid-cad{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start}
 .cad-list{max-height:320px;overflow:auto;margin-top:2px}
 .cad-item{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #1a2340;font-size:13px}
 .cad-item button{margin-left:auto;padding:3px 10px}
