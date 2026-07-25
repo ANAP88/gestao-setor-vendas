@@ -57,8 +57,7 @@ function renderLogin(msg = '', tipo = 'erro') {
           <a href="#" id="linkEsqueci">Esqueci minha senha</a>
         </div>
         <button id="btnLogin">Entrar →</button>
-        <div class="login-divider"><span>ou</span></div>
-        <button id="btnSignup" class="ghost">Criar conta</button>
+        <p style="color:var(--muted2);font-size:11.5px;text-align:center;margin-top:12px">Acesso somente por convite do administrador.</p>
         <div class="msg ${tipo}">${esc(msg)}</div>
         <div class="login-footer-note">🛡️ Ambiente Corporativo &nbsp;·&nbsp; Versão 1.0.0</div>
       </div>
@@ -74,11 +73,6 @@ function renderLogin(msg = '', tipo = 'erro') {
     if (!valida()) return;
     const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: senha.value });
     if (error) renderLogin(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message); else init();
-  };
-  btnSignup.onclick = async () => {
-    if (!valida()) return;
-    const { error } = await sb.auth.signUp({ email: email.value.trim(), password: senha.value });
-    renderLogin(error ? error.message : 'Conta criada! Confirme pelo link enviado ao seu e-mail e depois clique em Entrar.', error ? 'erro' : 'ok');
   };
   linkEsqueci.onclick = async (e) => {
     e.preventDefault();
@@ -654,16 +648,15 @@ async function renderCadastros() {
       <h2>👤 Usuários e níveis de acesso</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
         <b>admin</b>: tudo, inclusive metas e usuários · <b>analista</b>: opera o sistema · <b>leitura</b>: só visualiza.
-        ${state.role === 'admin' ? 'Novos usuários criam conta na tela de login (ou você cria no painel Supabase) e aparecem aqui para você definir o nível.' : ''}
+        ${state.role === 'admin' ? 'Convide por e-mail: a pessoa recebe um link, clica e cria a própria senha.' : ''}
       </p>
       ${state.role === 'admin' ? `
       <div class="filters" style="margin-bottom:14px;padding:12px;background:var(--bg2);border-radius:10px">
-        <div><label>E-mail do novo usuário</label><input id="nuEmail" type="email" placeholder="pessoa@empresa.com"></div>
-        <div><label>Senha inicial</label><input id="nuSenha" type="text" placeholder="mín. 6 caracteres"></div>
+        <div><label>E-mail para convidar</label><input id="nuEmail" type="email" placeholder="pessoa@empresa.com"></div>
         <div><label>Nível</label><select id="nuNivel">
           <option value="analista">analista</option><option value="admin">admin</option><option value="leitura">leitura</option>
         </select></div>
-        <button id="btnCriarUser">+ Criar usuário</button>
+        <button id="btnCriarUser">✉️ Enviar convite</button>
         <span id="nuMsg" class="msg" style="margin:0"></span>
       </div>` : ''}
       <table><thead><tr><th>E-mail</th><th>Nível</th><th>Desde</th></tr></thead>
@@ -702,14 +695,17 @@ async function renderCadastros() {
   });
   const btnCU = document.getElementById('btnCriarUser');
   if (btnCU) btnCU.onclick = async () => {
-    const email = nuEmail.value.trim(), senha = nuSenha.value, nivel = nuNivel.value;
+    const email = nuEmail.value.trim(), nivel = nuNivel.value;
     const msg = document.getElementById('nuMsg');
-    if (!email || !senha) { msg.textContent = 'Preencha e-mail e senha.'; return; }
-    btnCU.disabled = true; msg.textContent = 'Criando...';
-    const { data, error } = await sb.functions.invoke('criar-usuario', { body: { email, senha, nivel } });
+    if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
+    btnCU.disabled = true; msg.textContent = 'Enviando convite...';
+    const { data, error } = await sb.functions.invoke('convidar-usuario', {
+      body: { email, nivel, redirectTo: window.location.origin },
+    });
     btnCU.disabled = false;
     if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
-    msg.textContent = '';
+    msg.textContent = `Convite enviado para ${email}.`;
+    nuEmail.value = '';
     renderCadastros();
   };
   document.querySelectorAll('.cad-add').forEach(b => b.onclick = async () => {
@@ -1010,7 +1006,49 @@ async function exportarPlanilhaCompleta() {
   }
 }
 
+// ---------- DEFINIR SENHA (link de convite / recuperação) ----------
+function renderDefinirSenha(email, msg = '') {
+  app.innerHTML = `
+  <div id="login-page">
+    <div class="login-hero">
+      <div class="hero-badge">✉️ CONVITE</div>
+      <h1>Bem-vindo(a) à<br>Secretaria de Vendas<br><span>Neo Service.</span></h1>
+      <p class="hero-sub">Você foi convidado(a) para acessar o painel interno da equipe. Crie sua senha para começar.</p>
+    </div>
+    <div class="login-panel">
+      <div class="card" id="login-card">
+        <div class="login-icon">🔑</div>
+        <h2>Criar sua senha</h2>
+        <div class="login-brandline">${esc(email || '')}</div>
+        <div class="sub">Escolha uma senha para acessar o sistema</div>
+        <label>Nova senha</label>
+        <div class="input-ic"><span>🔒</span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"></div>
+        <label>Confirmar senha</label>
+        <div class="input-ic"><span>🔒</span><input id="confSenha" type="password" placeholder="repita a senha"></div>
+        <button id="btnDefinirSenha">Criar senha e entrar →</button>
+        <div class="msg">${esc(msg)}</div>
+      </div>
+    </div>
+    <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
+  </div>`;
+  btnDefinirSenha.onclick = async () => {
+    const s1 = novaSenha.value, s2 = confSenha.value;
+    if (!s1 || s1.length < 6) { renderDefinirSenha(email, 'A senha precisa ter pelo menos 6 caracteres.'); return; }
+    if (s1 !== s2) { renderDefinirSenha(email, 'As senhas não coincidem.'); return; }
+    const { error } = await sb.auth.updateUser({ password: s1 });
+    if (error) { renderDefinirSenha(email, error.message); return; }
+    history.replaceState(null, '', window.location.pathname);
+    init();
+  };
+}
+
 async function init() {
+  // usuário chegou por link de convite/recuperação: precisa criar a senha antes de entrar
+  const hash = window.location.hash;
+  if (hash.includes('type=invite') || hash.includes('type=recovery')) {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) { renderDefinirSenha(session.user.email); return; }
+  }
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { renderLogin(); return; }
   state.session = session;
