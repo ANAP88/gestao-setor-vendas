@@ -111,12 +111,20 @@ const PILARES = [
     ['cadastros', '🛠️', 'Administração'],
   ]],
 ];
+// Telas restritas a gestão (admin = supervisor/coordenador). Analistas não veem inteligência nem administração.
+const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'cadastros', 'integracoes', 'automacoes'];
+function podeVer(view) {
+  return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
+}
 function shell(inner) {
+  const pilaresVisiveis = PILARES
+    .map(([grp, items]) => [grp, items.filter(([v]) => podeVer(v))])
+    .filter(([, items]) => items.length);
   app.innerHTML = `
   <div class="layout">
     <aside>
       <div class="side-brand"><span class="logo">🏢</span><div><b>Secretaria de Vendas</b><small>Neo Service</small></div></div>
-      ${PILARES.map(([grp, items]) => `
+      ${pilaresVisiveis.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span>${ic}</span>${l}</button>`).join('')}
       `).join('')}
@@ -137,6 +145,7 @@ function nomeExib(nome, rank) {
   return state.modoApresentacao ? `Colaborador ${rank}` : nome;
 }
 function render() {
+  if (!podeVer(state.view)) state.view = 'pipeline';
   ({ dashboard: renderDashboard, analytics: renderAnalytics, insights: renderInsights,
      pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, validacao: renderValidacao,
      followup: renderFollowup, integracoes: () => renderStub('🔌 Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
@@ -157,7 +166,7 @@ function renderStub(titulo, texto, itens) {
 
 async function loadLookups() {
   const [an, emp, ativ, empr, cli] = await Promise.all([
-    sb.from('analistas').select('id,nome,status').order('nome'),
+    sb.from('analistas').select('id,nome,status,cargo').order('nome'),
     sb.from('empreendedoras').select('id,nome').order('nome'),
     sb.from('atividades').select('id,nome,ativa').order('nome'),
     sb.from('empreendimentos').select('id,nome,empreendedora_id').order('nome'),
@@ -898,24 +907,25 @@ function svgLine(points, w, h, color, dash) {
   return `<polyline fill="none" stroke="${color}" stroke-width="2" ${dash ? 'stroke-dasharray="5 4"' : ''} points="${xs.map((x, i) => x + ',' + ys[i]).join(' ')}"/>`;
 }
 // ---------- ESTEIRA (fila de produção por etapa) ----------
+const PRIORIDADES = ['NORMAL', 'ALTA', 'URGENTE'];
 async function renderEsteira() {
   const [{ data: etapas }, { data: processos }] = await Promise.all([
     sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem'),
     sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').neq('status', 'CONCLUIDO').order('criado_em'),
   ]);
-  const L = state.lookups;
   const porEtapa = {};
   (etapas || []).forEach(e => porEtapa[e.id] = []);
   (processos || []).forEach(p => { (porEtapa[p.etapa_atual_id] = porEtapa[p.etapa_atual_id] || []).push(p); });
+  const meuNome = state.perfilNome || '';
 
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <h2 style="margin:0">⛓️ Esteira de Produção</h2>
-        <span style="color:var(--muted);font-size:12.5px">Cada etapa é uma fila — qualquer analista disponível pode assumir o próximo processo.</span>
+        <span style="color:var(--muted);font-size:12.5px">Conclua sua etapa e transfira o processo para o próximo colega, anexando os documentos.</span>
         <div class="spacer"></div>
-        ${state.role !== 'leitura' ? '<button id="btnNovoEsteira">+ Novo processo na esteira</button>' : ''}
-        ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">⚙️ Gerenciar etapas</button>' : ''}
+        ${state.role !== 'leitura' ? '<button id="btnNovoEsteira">+ Novo processo</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">⚙️ Etapas</button>' : ''}
       </div>
     </div>
     <div class="esteira-board">
@@ -924,13 +934,15 @@ async function renderEsteira() {
           <div class="esteira-col-head"><b>${esc(et.nome)}</b><span class="count-badge">${(porEtapa[et.id]||[]).length}</span></div>
           <div class="esteira-cards">
             ${(porEtapa[et.id] || []).map(p => `
-              <div class="esteira-card" data-id="${p.id}">
+              <div class="esteira-card ${p.prioridade==='URGENTE'?'urgente':p.prioridade==='ALTA'?'alta':''}" data-id="${p.id}">
                 <div class="ec-title">${esc(p.titulo)}</div>
                 ${p.clientes?.nome ? `<div class="ec-sub">👤 ${esc(p.clientes.nome)}</div>` : ''}
+                ${p.unidade ? `<div class="ec-sub">🏠 ${esc(p.unidade)}</div>` : ''}
                 <div class="ec-foot">
                   ${p.analista_atual_id
-                    ? `<span class="tag RECEBIDO">${esc(p.analistas.nome)}</span>`
-                    : `<span class="tag PENDENTE">Aguardando fila</span>`}
+                    ? `<span class="tag ${p.analistas?.nome===meuNome?'CONCLUIDO':'RECEBIDO'}">${esc(p.analistas.nome)}</span>`
+                    : `<span class="tag PENDENTE">Sem responsável</span>`}
+                  ${p.prioridade && p.prioridade !== 'NORMAL' ? `<span class="tag ${p.prioridade==='URGENTE'?'ERRO':'PENDENTE'}" style="margin-left:auto">${esc(p.prioridade)}</span>` : ''}
                 </div>
               </div>`).join('') || '<div class="ec-empty">Fila vazia</div>'}
           </div>
@@ -955,81 +967,107 @@ async function openProcessoEsteira(id, etapas) {
     p = pp.data; historico = hh.data || []; anexos = aa.data || [];
   }
   const L = state.lookups;
+  const equipe = L.analistas.filter(a => a.status !== 'Inativo');
   const etapaIdx = p ? etapas.findIndex(e => e.id === p.etapa_atual_id) : 0;
-  const proxEtapa = p ? etapas[etapaIdx + 1] : null;
   const ro = state.role === 'leitura';
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal">
     <h2>${id ? '⛓️ ' + esc(p.titulo) : '⛓️ Novo processo na esteira'}</h2>
     <div class="grid2">
-      <div style="grid-column:1/-1"><label>Título / referência</label><input id="epTitulo" value="${esc(p?.titulo)}" placeholder="Ex: nome do cliente ou nº do processo" ${ro?'disabled':''}></div>
-      <div><label>Cliente vinculado (opcional)</label><select id="epCliente" ${ro?'disabled':''}><option value="">—</option>
+      <div style="grid-column:1/-1"><label>Título / referência do processo</label><input id="epTitulo" value="${esc(p?.titulo)}" placeholder="Ex.: nome do proponente ou nº do processo" ${ro?'disabled':''}></div>
+      <div><label>Cliente (cadastro de Repasse)</label><select id="epCliente" ${ro?'disabled':''}><option value="">—</option>
         ${(state.clientesLookup||[]).map(c=>`<option value="${c.id}" ${p?.cliente_id===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select></div>
-      ${id ? `<div><label>Etapa atual</label><input value="${esc(etapas[etapaIdx]?.nome)}" disabled></div>
-      <div><label>Analista responsável</label><select id="epAnalista" ${ro?'disabled':''}><option value="">Aguardando fila</option>
-        ${L.analistas.filter(a=>a.status!=='Inativo').map(a=>`<option value="${a.id}" ${p.analista_atual_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select></div>` : ''}
+      <div><label>Empreendimento</label><select id="epEmp" ${ro?'disabled':''}><option value="">—</option>
+        ${L.empreendimentos.map(e=>`<option value="${e.id}" ${p?.empreendimento_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
+      <div><label>Unidade</label><input id="epUnidade" value="${esc(p?.unidade)}" placeholder="Ex.: QD5LT12" ${ro?'disabled':''}></div>
+      <div><label>Prioridade</label><select id="epPrioridade" ${ro?'disabled':''}>
+        ${PRIORIDADES.map(x=>`<option ${(p?.prioridade||'NORMAL')===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div><label>Responsável atual</label><select id="epAnalista" ${ro?'disabled':''}><option value="">Sem responsável (na fila)</option>
+        ${equipe.map(a=>`<option value="${a.id}" ${p?.analista_atual_id===a.id?'selected':''}>${esc(a.nome)}${a.cargo && a.cargo!=='analista' ? ' ('+esc(a.cargo)+')' : ''}</option>`).join('')}</select></div>
+      ${id ? `<div><label>Etapa atual</label><input value="${esc(etapas[etapaIdx]?.nome)}" disabled></div>` : ''}
+      <div style="grid-column:1/-1"><label>Observações</label><input id="epObs" value="${esc(p?.obs)}" placeholder="Informações para o próximo responsável" ${ro?'disabled':''}></div>
     </div>
     ${id ? `
-    <h2 style="margin-top:16px">📎 Anexos e links</h2>
+    <h2 style="margin-top:18px">📎 Documentos e links</h2>
     <div class="anexo-list">${anexos.map(a => `
-      <div class="anexo-item">${a.tipo==='link' ? '🔗' : '📄'} <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a>
-        ${!ro ? `<button class="ghost del-anexo" data-id="${a.id}" data-path="${a.tipo==='arquivo'?esc(a.url):''}">✕</button>` : ''}
-      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum anexo ainda.</p>'}</div>
+      <div class="anexo-item">${a.tipo==='link' ? '🔗' : iconeArquivo(a.nome)}
+        <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a>
+        <span style="color:var(--muted2);font-size:11px">${esc(a.criado_por||'')}</span>
+        ${!ro ? `<button class="ghost del-anexo" data-id="${a.id}" data-path="${a.tipo==='arquivo'?esc(a.storage_path||''):''}">✕</button>` : ''}
+      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum documento anexado.</p>'}</div>
     ${!ro ? `
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-      <input id="epLinkNome" placeholder="Nome do link" style="flex:1;min-width:140px">
-      <input id="epLinkUrl" placeholder="https://..." style="flex:2;min-width:200px">
-      <button id="btnAddLink" class="ghost">+ Adicionar link</button>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-      <input id="epArquivo" type="file" style="flex:1">
-      <button id="btnUpload" class="ghost">⬆ Enviar arquivo</button>
-      <span id="upMsg" class="msg" style="margin:0"></span>
+    <div class="upload-box">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input id="epLinkNome" placeholder="Nome do link (ex.: Pasta do processo)" style="flex:1;min-width:150px">
+        <input id="epLinkUrl" placeholder="https://... (SharePoint, Drive, etc.)" style="flex:2;min-width:200px">
+        <button id="btnAddLink" class="ghost">+ Link</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="epArquivo" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip" style="flex:1;min-width:200px">
+        <button id="btnUpload" class="ghost">⬆ Enviar documento</button>
+      </div>
+      <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">PDF, Word, Excel, imagens e ZIP · até 50 MB · armazenado de forma privada no sistema</p>
+      <div id="upMsg" class="msg" style="margin-top:4px"></div>
     </div>` : ''}
-    <h2 style="margin-top:16px">🕓 Histórico</h2>
+    <h2 style="margin-top:18px">🕓 Histórico do processo</h2>
     <div class="timeline">${historico.map(h => `
       <div class="tl-item"><div class="tl-dot"></div>
-        <div>${fmtDt(h.criado_em)} — ${esc(h.evento)}</div></div>`).join('')}</div>
+        <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}${h.autor ? ` <span style="color:var(--muted2);font-size:11px">· ${esc(h.autor)}</span>` : ''}</div></div>`).join('')}</div>
     ` : ''}
     <div class="msg" id="epMsg"></div>
+    ${id && !ro ? `
+    <div class="transfer-box">
+      <b style="font-size:13px">➡️ Concluir minha etapa e transferir</b>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <div style="flex:1;min-width:160px"><label>Próxima etapa</label><select id="epProxEtapa">
+          ${etapas.map((e,i)=>`<option value="${e.id}" ${i===etapaIdx+1?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:160px"><label>Enviar para</label><select id="epProxAnalista">
+          <option value="">Deixar na fila (qualquer um pega)</option>
+          ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+        <button id="btnTransferir" style="align-self:end">Transferir →</button>
+      </div>
+    </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
       <button id="epCancel" class="ghost">Fechar</button>
-      ${id && !p.analista_atual_id && !ro ? '<button id="btnPegar">🙋 Pegar esta etapa</button>' : ''}
-      ${id && proxEtapa && !ro ? `<button id="btnAvancar">Concluir e enviar para "${esc(proxEtapa.nome)}" →</button>` : ''}
-      ${id && !proxEtapa && p?.status !== 'CONCLUIDO' && !ro ? '<button id="btnFinalizar">✅ Concluir processo</button>' : ''}
-      ${!id && !ro ? '<button id="epSalvar">Criar</button>' : ''}
+      ${id && !ro ? '<button id="btnFinalizar" class="ghost">✅ Concluir processo</button>' : ''}
+      ${!ro ? `<button id="epSalvar">${id ? 'Salvar alterações' : 'Criar processo'}</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(div);
   const $ = (i) => div.querySelector('#' + i);
   $('epCancel').onclick = () => div.remove();
 
-  if (!id) {
-    $('epSalvar').onclick = async () => {
-      const titulo = $('epTitulo').value.trim();
-      if (!titulo) { $('epMsg').textContent = 'Informe um título.'; return; }
-      const primeiraEtapa = etapas[0];
-      const { error } = await sb.from('esteira_processos').insert({
-        titulo, cliente_id: $('epCliente').value || null, etapa_atual_id: primeiraEtapa.id,
-      });
-      if (error) { $('epMsg').textContent = error.message; return; }
-      div.remove(); renderEsteira();
-    };
-    return;
-  }
+  const coletar = () => ({
+    titulo: $('epTitulo').value.trim(),
+    cliente_id: $('epCliente').value || null,
+    empreendimento_id: $('epEmp').value || null,
+    unidade: $('epUnidade').value || null,
+    prioridade: $('epPrioridade').value,
+    analista_atual_id: $('epAnalista').value || null,
+    obs: $('epObs').value || null,
+  });
 
-  const btnPegar = $('btnPegar');
-  if (btnPegar) btnPegar.onclick = async () => {
-    const analistaId = $('epAnalista').value;
-    if (!analistaId) { $('epMsg').textContent = 'Selecione seu nome na lista de analista antes de pegar.'; return; }
-    const { error } = await sb.from('esteira_processos').update({ analista_atual_id: analistaId, status: 'EM_ANDAMENTO' }).eq('id', id);
-    if (error) { $('epMsg').textContent = error.message; return; }
+  const btnSalvar = $('epSalvar');
+  if (btnSalvar) btnSalvar.onclick = async () => {
+    const rec = coletar();
+    if (!rec.titulo) { $('epMsg').textContent = 'Informe o título do processo.'; return; }
+    rec.status = rec.analista_atual_id ? 'EM_ANDAMENTO' : 'AGUARDANDO';
+    let r;
+    if (id) r = await sb.from('esteira_processos').update(rec).eq('id', id);
+    else { rec.etapa_atual_id = etapas[0].id; r = await sb.from('esteira_processos').insert(rec); }
+    if (r.error) { $('epMsg').textContent = r.error.message; return; }
     div.remove(); renderEsteira();
   };
-  const btnAvancar = $('btnAvancar');
-  if (btnAvancar) btnAvancar.onclick = async () => {
-    const { error } = await sb.from('esteira_processos').update({ etapa_atual_id: proxEtapa.id, analista_atual_id: null, status: 'AGUARDANDO' }).eq('id', id);
+  if (!id) return;
+
+  const btnTransferir = $('btnTransferir');
+  if (btnTransferir) btnTransferir.onclick = async () => {
+    const proxEtapaId = $('epProxEtapa').value;
+    const proxAnalista = $('epProxAnalista').value || null;
+    const rec = { ...coletar(), etapa_atual_id: proxEtapaId, analista_atual_id: proxAnalista,
+      status: proxAnalista ? 'EM_ANDAMENTO' : 'AGUARDANDO' };
+    const { error } = await sb.from('esteira_processos').update(rec).eq('id', id);
     if (error) { $('epMsg').textContent = error.message; return; }
     div.remove(); renderEsteira();
   };
@@ -1039,14 +1077,11 @@ async function openProcessoEsteira(id, etapas) {
     if (error) { $('epMsg').textContent = error.message; return; }
     div.remove(); renderEsteira();
   };
-  const epAnalista = $('epAnalista');
-  if (epAnalista && !ro) epAnalista.onchange = async () => {
-    await sb.from('esteira_processos').update({ analista_atual_id: epAnalista.value || null, status: epAnalista.value ? 'EM_ANDAMENTO' : 'AGUARDANDO' }).eq('id', id);
-  };
   const btnAddLink = $('btnAddLink');
   if (btnAddLink) btnAddLink.onclick = async () => {
-    const nome = $('epLinkNome').value.trim(), url = $('epLinkUrl').value.trim();
-    if (!nome || !url) return;
+    const nome = $('epLinkNome').value.trim(); let url = $('epLinkUrl').value.trim();
+    if (!nome || !url) { $('upMsg').textContent = 'Informe nome e endereço do link.'; return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
     await sb.from('esteira_anexos').insert({ processo_id: id, tipo: 'link', nome, url, criado_por: state.session?.user?.email });
     div.remove(); openProcessoEsteira(id, etapas);
   };
@@ -1055,19 +1090,30 @@ async function openProcessoEsteira(id, etapas) {
     const f = $('epArquivo').files[0];
     const msg = $('upMsg');
     if (!f) { msg.textContent = 'Escolha um arquivo.'; return; }
+    if (f.size > 50 * 1024 * 1024) { msg.textContent = 'Arquivo muito grande (máx. 50 MB).'; return; }
     btnUpload.disabled = true; msg.textContent = 'Enviando...';
-    const path = `${id}/${Date.now()}_${f.name}`;
+    const path = `${id}/${Date.now()}_${f.name.replace(/[^\w.\-]/g, '_')}`;
     const { error: upErr } = await sb.storage.from('esteira-documentos').upload(path, f);
     if (upErr) { msg.textContent = upErr.message; btnUpload.disabled = false; return; }
     const { data: signed } = await sb.storage.from('esteira-documentos').createSignedUrl(path, 60 * 60 * 24 * 365);
-    await sb.from('esteira_anexos').insert({ processo_id: id, tipo: 'arquivo', nome: f.name, url: signed?.signedUrl || path, criado_por: state.session?.user?.email });
+    await sb.from('esteira_anexos').insert({ processo_id: id, tipo: 'arquivo', nome: f.name,
+      url: signed?.signedUrl || path, storage_path: path, criado_por: state.session?.user?.email });
     div.remove(); openProcessoEsteira(id, etapas);
   };
-  document.querySelectorAll('.del-anexo').forEach(b => b.onclick = async () => {
-    if (b.dataset.path) await sb.storage.from('esteira-documentos').remove([b.dataset.path]).catch(() => {});
+  div.querySelectorAll('.del-anexo').forEach(b => b.onclick = async () => {
+    if (b.dataset.path) { try { await sb.storage.from('esteira-documentos').remove([b.dataset.path]); } catch (e) {} }
     await sb.from('esteira_anexos').delete().eq('id', b.dataset.id);
     div.remove(); openProcessoEsteira(id, etapas);
   });
+}
+function iconeArquivo(nome) {
+  const ext = (nome.split('.').pop() || '').toLowerCase();
+  if (ext === 'pdf') return '📕';
+  if (['doc','docx'].includes(ext)) return '📘';
+  if (['xls','xlsx','csv'].includes(ext)) return '📗';
+  if (['png','jpg','jpeg','gif'].includes(ext)) return '🖼️';
+  if (ext === 'zip') return '🗜️';
+  return '📄';
 }
 
 async function openGerenciarEtapas(etapas) {
@@ -1079,7 +1125,7 @@ async function openGerenciarEtapas(etapas) {
       <div class="cad-item">${e.ordem}. ${esc(e.nome)}
         <button class="ghost del-etapa" data-id="${e.id}">✕</button></div>`).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <input id="novaEtapa" placeholder="Nome da nova etapa (vai para o fim da fila)" style="flex:1">
+      <input id="novaEtapa" placeholder="Nome da nova etapa" style="flex:1">
       <button id="btnAddEtapa" class="ghost">Adicionar</button>
     </div>
     <div style="display:flex;justify-content:end;margin-top:14px"><button id="etCancel" class="ghost">Fechar</button></div>
@@ -1298,6 +1344,8 @@ async function init() {
   await sb.from('perfis').upsert({ user_id: session.user.id, email: session.user.email }, { onConflict: 'user_id', ignoreDuplicates: true });
   const { data: perfil } = await sb.from('perfis').select('role,nome').eq('user_id', session.user.id).single();
   state.role = perfil?.role || 'analista';
+  state.perfilNome = perfil?.nome || '';
+  if (!podeVer(state.view)) state.view = 'pipeline';
   await loadLookups();
   render();
 }
