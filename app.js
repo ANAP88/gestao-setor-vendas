@@ -121,6 +121,7 @@ function shell(inner) {
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span>${ic}</span>${l}</button>`).join('')}
       `).join('')}
       <div class="side-footer">
+        <button id="btnApresentacao" class="ghost">${state.modoApresentacao ? '👁️ Modo Normal' : '📺 Modo Apresentação'}</button>
         <button id="btnExportAll" class="ghost">⬇ Exportar planilha</button>
         <button id="btnSair" class="ghost">Sair</button>
       </div>
@@ -130,6 +131,10 @@ function shell(inner) {
   document.querySelectorAll('.side-item').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
   btnSair.onclick = async () => { await sb.auth.signOut(); renderLogin(); };
   btnExportAll.onclick = exportarPlanilhaCompleta;
+  btnApresentacao.onclick = () => { state.modoApresentacao = !state.modoApresentacao; render(); };
+}
+function nomeExib(nome, rank) {
+  return state.modoApresentacao ? `Colaborador ${rank}` : nome;
 }
 function render() {
   ({ dashboard: renderDashboard, producao: renderProducao, analytics: renderAnalytics, insights: renderInsights,
@@ -199,7 +204,7 @@ async function renderDashboard() {
       </div>
       <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
-        <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(r.nome)}</td><td>${r.total}</td>
+        <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
         <td style="color:var(--ok)">${r.concluidas}</td><td style="color:var(--warn)">${r.pendentes}</td>
         <td>${r.pct_concl}%</td><td>${r.tempo_medio_h ?? '—'}</td>
         <td><b>${r.score ?? '—'}</b></td>
@@ -475,7 +480,7 @@ async function renderAnalytics() {
       </div>
       <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Prod/dia útil</th><th>% Particip.</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
-        <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(r.nome)}</td><td>${r.total}</td>
+        <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
         <td style="color:var(--ok)">${r.concluidas}</td><td style="color:var(--warn)">${r.pendentes}</td>
         <td>${r.pct_concl}%</td><td>${r.prod_dia_util ?? '—'}</td><td>${r.pct_participacao ?? '—'}%</td>
         <td><b>${r.score ?? '—'}</b></td>
