@@ -1358,7 +1358,13 @@ async function renderQualidade() {
   const meuId = (state.lookups.analistas.find(a => a.nome === state.perfilNome) || {}).id;
   const visiveis = souGestao ? lista : lista.filter(a => a.analista_id === meuId);
   const porCat = {}; visiveis.forEach(a => porCat[a.categoria] = (porCat[a.categoria]||0)+1);
-  const porAnalista = {}; visiveis.forEach(a => { const n = a.analistas?.nome || '—'; porAnalista[n] = (porAnalista[n]||0)+1; });
+  const porAnalista = {};
+  visiveis.forEach(a => {
+    const n = a.analistas?.nome || '—';
+    const reg = porAnalista[n] = porAnalista[n] || { total: 0, cats: {} };
+    reg.total++;
+    reg.cats[a.categoria] = (reg.cats[a.categoria]||0) + 1;
+  });
   const maxCat = Math.max(1, ...Object.values(porCat));
   const abertos = visiveis.filter(a => !a.resolvido).length;
   const porOrigem = { cliente: visiveis.filter(a=>a.origem==='cliente').length,
@@ -1390,9 +1396,17 @@ async function renderQualidade() {
       </div>
       ${souGestao ? `<div class="card">
         <h2>👥 Por analista</h2>
-        ${Object.entries(porAnalista).sort((a,b)=>b[1]-a[1]).map(([n,q],i)=>`
-          <div class="hbar-row"><span class="hbar-lbl">${esc(nomeExib(n,i+1))}</span>
-          <div class="hbar"><div style="width:${Math.round(100*q/Math.max(1,...Object.values(porAnalista)))}%"></div></div><b>${q}</b></div>`).join('')
+        ${Object.entries(porAnalista).sort((a,b)=>b[1].total-a[1].total).map(([n,reg],i)=>`
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+              <b>${esc(nomeExib(n,i+1))}</b><span style="color:var(--muted)">${reg.total} apontamento${reg.total>1?'s':''}</span>
+            </div>
+            ${Object.entries(reg.cats).sort((a,b)=>b[1]-a[1]).map(([cat,q])=>`
+              <div class="hbar-row" style="padding-left:10px">
+                <span class="hbar-lbl" style="font-size:11.5px;color:var(--muted)">${esc(cat)}</span>
+                <div class="hbar"><div style="width:${Math.round(100*q/reg.total)}%"></div></div><b style="font-size:12px">${q}</b>
+              </div>`).join('')}
+          </div>`).join('')
           || '<p style="color:var(--muted);font-size:12.5px">Sem registros.</p>'}
       </div>` : ''}
     </div>
