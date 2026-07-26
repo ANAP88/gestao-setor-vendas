@@ -692,12 +692,24 @@ async function renderValidacao() {
 
 // ---------- FOLLOW-UP ----------
 async function renderFollowup() {
-  const { data: fups } = await sb.from('fups')
+  if (state.followupBusca === undefined) state.followupBusca = '';
+  const { data: fupsAll } = await sb.from('fups')
     .select('id,criado_em,autor,texto,demanda_id,demandas(numero,proponente1_nome,status)')
-    .order('criado_em', { ascending: false }).limit(60);
+    .order('criado_em', { ascending: false }).limit(300);
+  const termo = state.followupBusca.trim().toLowerCase();
+  const fups = !termo ? (fupsAll||[]).slice(0,60) : (fupsAll||[]).filter(f =>
+    (f.texto||'').toLowerCase().includes(termo) ||
+    (f.autor||'').toLowerCase().includes(termo) ||
+    (f.demandas?.proponente1_nome||'').toLowerCase().includes(termo) ||
+    String(f.demandas?.numero||'').includes(termo));
   shell(`
+    <div class="card filters">
+      <div style="flex:1"><label>Buscar (proponente, nº processo, autor ou texto)</label><input id="fupBusca" value="${esc(state.followupBusca)}" placeholder="Digite para buscar..."></div>
+      <button id="btnFupBuscar">Buscar</button>
+      ${state.followupBusca ? '<button id="btnFupLimpar" class="ghost">Limpar</button>' : ''}
+    </div>
     <div class="card">
-      <h2>💬 Follow-ups recentes</h2>
+      <h2>💬 Follow-ups ${termo ? `— ${fups.length} resultado(s)` : 'recentes'}</h2>
       <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Registros feitos dentro de cada processo (Pipeline → Abrir → Follow-ups).</p>
       ${(fups||[]).length ? (fups||[]).map(f => `
         <div class="fup">
@@ -708,9 +720,13 @@ async function renderFollowup() {
             <button class="ghost btnEdit" data-id="${f.demanda_id}" style="padding:2px 8px">Abrir</button>
           </div>
           ${esc(f.texto)}
-        </div>`).join('') : '<div class="ok-box">Nenhum follow-up registrado ainda.</div>'}
+        </div>`).join('') : `<div class="ok-box">${termo ? 'Nenhum follow-up encontrado para essa busca.' : 'Nenhum follow-up registrado ainda.'}</div>`}
     </div>`);
   document.querySelectorAll('.btnEdit').forEach(b => b.onclick = () => openForm(b.dataset.id));
+  btnFupBuscar.onclick = () => { state.followupBusca = fupBusca.value; renderFollowup(); };
+  fupBusca.addEventListener('keydown', e => { if (e.key === 'Enter') btnFupBuscar.click(); });
+  const bL = document.getElementById('btnFupLimpar');
+  if (bL) bL.onclick = () => { state.followupBusca = ''; renderFollowup(); };
 }
 
 // ---------- CHAMADOS (Demandas internas) ----------
@@ -825,18 +841,22 @@ async function renderCadastros() {
           <button id="btnCriarUser">Enviar convite</button>
           <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
         </div>` : ''}
-        <table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Desde</th></tr></thead>
+        <table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Desde</th><th>Ações</th></tr></thead>
         <tbody>${(usuarios||[]).map(u => {
           const isSelf = u.user_id === state.session.user.id;
           const info = ROLE_INFO[u.role] || ROLE_INFO.analista;
-          return `<tr>
+          return `<tr style="${u.ativo===false?'opacity:.5':''}">
           <td><div class="user-cell"><div class="user-avatar">${esc(u.email[0]?.toUpperCase() || '?')}</div>
-            <div><b>${esc(u.email)}</b>${isSelf ? ' <span class="tag RECEBIDO">você</span>' : ''}</div></div></td>
+            <div><b>${esc(u.email)}</b>${isSelf ? ' <span class="tag RECEBIDO">você</span>' : ''}${u.ativo===false ? ' <span class="tag PENDENTE">inativo</span>' : ''}</div></div></td>
           <td>${state.role === 'admin' && !isSelf
             ? `<select class="selRole" data-uid="${u.user_id}">
                 ${Object.keys(ROLE_INFO).map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${ROLE_INFO[r].label}</option>`).join('')}</select>`
             : `<span class="tag ${info.cor}">${info.label}</span>`}</td>
-          <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td></tr>`;
+          <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td>
+          <td>${state.role === 'admin' && !isSelf ? `
+            <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}" style="font-size:12px;padding:4px 9px">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
+            <button class="ghost btn-excluir-user" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px;color:var(--err)">🗑 Excluir</button>`
+            : ''}</td></tr>`;
         }).join('')}</tbody></table>
       </div>`);
     const btnAbrir = document.getElementById('btnAbrirConvite');
@@ -844,6 +864,18 @@ async function renderCadastros() {
     document.querySelectorAll('.selRole').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('perfis').update({ role: s.value }).eq('user_id', s.dataset.uid);
       if (error) alert(error.message);
+    });
+    document.querySelectorAll('.btn-toggle-ativo').forEach(b => b.onclick = async () => {
+      const ativoAtual = b.dataset.ativo === 'true';
+      const { error } = await sb.from('perfis').update({ ativo: !ativoAtual }).eq('user_id', b.dataset.uid);
+      if (error) { alert(error.message); return; }
+      renderCadastros();
+    });
+    document.querySelectorAll('.btn-excluir-user').forEach(b => b.onclick = async () => {
+      if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
+      const { data, error } = await sb.functions.invoke('excluir-usuario', { body: { user_id: b.dataset.uid } });
+      if (error || data?.error) { alert(data?.error || error.message); return; }
+      renderCadastros();
     });
     const btnCU = document.getElementById('btnCriarUser');
     if (btnCU) btnCU.onclick = async () => {
@@ -1155,13 +1187,23 @@ async function openGerenciarEtapas(etapas) {
 
 // ---------- REPASSE ----------
 async function renderRepasse() {
-  const { data: rows } = await sb.from('clientes').select('*, empreendimentos(nome), analistas(nome)').order('criado_em', { ascending: false }).limit(100);
+  if (state.repasseBusca === undefined) state.repasseBusca = '';
+  const { data: rowsAll } = await sb.from('clientes').select('*, empreendimentos(nome), analistas(nome)').order('criado_em', { ascending: false }).limit(500);
+  const termo = state.repasseBusca.trim().toLowerCase();
+  const rows = !termo ? (rowsAll||[]).slice(0,100) : (rowsAll||[]).filter(c =>
+    (c.nome||'').toLowerCase().includes(termo) || (c.cpf||'').includes(termo) ||
+    (c.unidade||'').toLowerCase().includes(termo) || (c.empreendimentos?.nome||'').toLowerCase().includes(termo));
   const STATUS_REP = ['PROPOSTA','CREDITO','PENDENCIA','CONTRATO','ASSINATURA','REPASSE_CONCLUIDO'];
   const tagCor = (s) => s === 'REPASSE_CONCLUIDO' ? 'CONCLUIDO' : s === 'PENDENCIA' ? 'PENDENTE' : 'RECEBIDO';
   shell(`
+    <div class="card filters">
+      <div style="flex:1"><label>Buscar (nome, CPF, unidade ou empreendimento)</label><input id="repBusca" value="${esc(state.repasseBusca)}" placeholder="Digite para buscar..."></div>
+      <button id="btnRepBuscar">Buscar</button>
+      ${state.repasseBusca ? '<button id="btnRepLimpar" class="ghost">Limpar</button>' : ''}
+    </div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <h2 style="margin:0">🏦 Gestão de Repasse — cadastro único do cliente</h2>
+        <h2 style="margin:0">🏦 Gestão de Repasse — cadastro único do cliente ${termo ? `— ${rows.length} resultado(s)` : ''}</h2>
         ${state.role !== 'leitura' ? '<button id="btnNovoCli">+ Novo cliente</button>' : ''}
       </div>
       ${(rows||[]).length ? `<table><thead><tr><th>Cliente</th><th>CPF</th><th>Empreendimento</th><th>Unidade</th><th>Banco</th><th>Responsável</th><th>Status</th><th></th></tr></thead>
@@ -1170,11 +1212,15 @@ async function renderRepasse() {
         <td>${esc(c.banco)}</td><td>${esc(c.analistas?.nome)}</td>
         <td><span class="tag ${tagCor(c.status)}">${esc(c.status)}</span></td>
         <td><button class="ghost btnCli" data-id="${c.id}">Abrir</button></td></tr>`).join('')}</tbody></table>`
-      : '<div class="ok-box">Nenhum cliente cadastrado ainda. O cadastro único alimenta a timeline e os formulários automaticamente.</div>'}
+      : `<div class="ok-box">${termo ? 'Nenhum cliente encontrado para essa busca.' : 'Nenhum cliente cadastrado ainda. O cadastro único alimenta a timeline e os formulários automaticamente.'}</div>`}
     </div>`);
   const btnNovo = document.getElementById('btnNovoCli');
   if (btnNovo) btnNovo.onclick = () => openCliente(null);
   document.querySelectorAll('.btnCli').forEach(b => b.onclick = () => openCliente(b.dataset.id));
+  btnRepBuscar.onclick = () => { state.repasseBusca = repBusca.value; renderRepasse(); };
+  repBusca.addEventListener('keydown', e => { if (e.key === 'Enter') btnRepBuscar.click(); });
+  const bRL = document.getElementById('btnRepLimpar');
+  if (bRL) bRL.onclick = () => { state.repasseBusca = ''; renderRepasse(); };
 
   async function openCliente(id) {
     let c = { status: 'PROPOSTA' }, eventos = [];
@@ -1348,7 +1394,12 @@ async function init() {
   state.session = session;
   // garante perfil e carrega nível de acesso
   await sb.from('perfis').upsert({ user_id: session.user.id, email: session.user.email }, { onConflict: 'user_id', ignoreDuplicates: true });
-  const { data: perfil } = await sb.from('perfis').select('role,nome').eq('user_id', session.user.id).single();
+  const { data: perfil } = await sb.from('perfis').select('role,nome,ativo').eq('user_id', session.user.id).single();
+  if (perfil?.ativo === false) {
+    await sb.auth.signOut();
+    renderLogin('Sua conta foi desativada. Fale com o administrador do sistema.');
+    return;
+  }
   state.role = perfil?.role || 'analista';
   state.perfilNome = perfil?.nome || '';
   if (!podeVer(state.view)) state.view = 'pipeline';
