@@ -1058,10 +1058,16 @@ function svgLine(points, w, h, color, dash) {
 }
 // ---------- ESTEIRA (fila de produção por etapa) ----------
 const PRIORIDADES = ['NORMAL', 'ALTA', 'URGENTE'];
+const ESTEIRA_TIPOS = [
+  ['analise_credito', 'Análise de Crédito'],
+  ['emissao_contrato', 'Emissão de Contrato'],
+  ['validacao_documento', 'Validação de Documento'],
+];
 async function renderEsteira() {
+  if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
   const [{ data: etapas }, { data: processos }] = await Promise.all([
-    sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem'),
-    sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').neq('status', 'CONCLUIDO').order('criado_em'),
+    sb.from('etapas_esteira').select('*').eq('ativa', true).eq('esteira_tipo', state.esteiraTipo).order('ordem'),
+    sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
   ]);
   const porEtapa = {};
   (etapas || []).forEach(e => porEtapa[e.id] = []);
@@ -1076,6 +1082,9 @@ async function renderEsteira() {
         <div class="spacer"></div>
         ${state.role !== 'leitura' ? '<button id="btnNovoEsteira">+ Novo processo</button>' : ''}
         ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">⚙️ Etapas</button>' : ''}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        ${ESTEIRA_TIPOS.map(([k,l]) => `<button class="ghost esteira-tab ${state.esteiraTipo===k?'active':''}" data-tipo="${k}">${l}</button>`).join('')}
       </div>
     </div>
     <div class="esteira-board">
@@ -1104,10 +1113,11 @@ async function renderEsteira() {
   if (bN) bN.onclick = () => openProcessoEsteira(null, etapas);
   const bE = document.getElementById('btnEtapas');
   if (bE) bE.onclick = () => openGerenciarEtapas(etapas);
+  document.querySelectorAll('.esteira-tab').forEach(b => b.onclick = () => { state.esteiraTipo = b.dataset.tipo; renderEsteira(); });
 }
 
 async function openProcessoEsteira(id, etapas) {
-  let p = null, historico = [], anexos = [];
+  let p = null, historico = [], anexos = [], transicoes = [];
   if (id) {
     const [pp, hh, aa] = await Promise.all([
       sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('id', id).single(),
@@ -1115,6 +1125,8 @@ async function openProcessoEsteira(id, etapas) {
       sb.from('esteira_anexos').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
     ]);
     p = pp.data; historico = hh.data || []; anexos = aa.data || [];
+    const { data: tt } = await sb.from('esteira_transicoes').select('*').eq('etapa_origem_id', p.etapa_atual_id).order('ordem_botao');
+    transicoes = tt || [];
   }
   const L = state.lookups;
   const equipe = L.analistas.filter(a => a.status !== 'Inativo');
@@ -1169,13 +1181,12 @@ async function openProcessoEsteira(id, etapas) {
     ${id && !ro ? `
     <div class="transfer-box">
       <b style="font-size:13px">➡️ Concluir minha etapa e transferir</b>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-        <div style="flex:1;min-width:160px"><label>Próxima etapa</label><select id="epProxEtapa">
-          ${etapas.map((e,i)=>`<option value="${e.id}" ${i===etapaIdx+1?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
-        <div style="flex:1;min-width:160px"><label>Enviar para</label><select id="epProxAnalista">
-          <option value="">Deixar na fila (qualquer um pega)</option>
-          ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
-        <button id="btnTransferir" style="align-self:end">Transferir →</button>
+      <div style="margin-top:8px"><label>Enviar para (responsável pela próxima etapa)</label><select id="epProxAnalista">
+        <option value="">Deixar na fila (qualquer um pega)</option>
+        ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        ${transicoes.map(t => `<button class="btn-transicao" data-destino="${t.etapa_destino_id||''}" data-rotulo="${esc(t.rotulo)}">${esc(t.rotulo)}</button>`).join('')
+          || '<span style="color:var(--muted);font-size:12.5px">Nenhuma transição configurada para esta etapa.</span>'}
       </div>
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
@@ -1205,22 +1216,29 @@ async function openProcessoEsteira(id, etapas) {
     rec.status = rec.analista_atual_id ? 'EM_ANDAMENTO' : 'AGUARDANDO';
     let r;
     if (id) r = await sb.from('esteira_processos').update(rec).eq('id', id);
-    else { rec.etapa_atual_id = etapas[0].id; r = await sb.from('esteira_processos').insert(rec); }
+    else { rec.etapa_atual_id = etapas[0].id; rec.esteira_tipo = state.esteiraTipo; r = await sb.from('esteira_processos').insert(rec); }
     if (r.error) { $('epMsg').textContent = r.error.message; return; }
     div.remove(); renderEsteira();
   };
   if (!id) return;
 
-  const btnTransferir = $('btnTransferir');
-  if (btnTransferir) btnTransferir.onclick = async () => {
-    const proxEtapaId = $('epProxEtapa').value;
+  div.querySelectorAll('.btn-transicao').forEach(btn => btn.onclick = async () => {
+    const destino = btn.dataset.destino || null;
+    const rotulo = btn.dataset.rotulo;
     const proxAnalista = $('epProxAnalista').value || null;
-    const rec = { ...coletar(), etapa_atual_id: proxEtapaId, analista_atual_id: proxAnalista,
+    if (!destino) {
+      const { error } = await sb.from('esteira_processos').update({ status: 'CONCLUIDO', concluido_em: new Date().toISOString() }).eq('id', id);
+      if (error) { $('epMsg').textContent = error.message; return; }
+      await sb.from('esteira_historico').insert({ processo_id: id, evento: rotulo, autor: state.session?.user?.email });
+      div.remove(); renderEsteira(); return;
+    }
+    const rec = { ...coletar(), etapa_atual_id: destino, analista_atual_id: proxAnalista,
       status: proxAnalista ? 'EM_ANDAMENTO' : 'AGUARDANDO' };
     const { error } = await sb.from('esteira_processos').update(rec).eq('id', id);
     if (error) { $('epMsg').textContent = error.message; return; }
+    await sb.from('esteira_historico').insert({ processo_id: id, evento: rotulo, autor: state.session?.user?.email });
     div.remove(); renderEsteira();
-  };
+  });
   const btnFinalizar = $('btnFinalizar');
   if (btnFinalizar) btnFinalizar.onclick = async () => {
     const { error } = await sb.from('esteira_processos').update({ status: 'CONCLUIDO', concluido_em: new Date().toISOString() }).eq('id', id);
@@ -1286,7 +1304,7 @@ async function openGerenciarEtapas(etapas) {
     const nome = div.querySelector('#novaEtapa').value.trim();
     if (!nome) return;
     const maxOrdem = Math.max(0, ...etapas.map(e => e.ordem));
-    await sb.from('etapas_esteira').insert({ nome, ordem: maxOrdem + 1 });
+    await sb.from('etapas_esteira').insert({ nome, ordem: maxOrdem + 10, esteira_tipo: state.esteiraTipo });
     div.remove(); renderEsteira();
   };
   div.querySelectorAll('.del-etapa').forEach(b => b.onclick = async () => {
