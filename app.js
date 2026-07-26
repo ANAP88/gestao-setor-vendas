@@ -182,20 +182,45 @@ function pctFmt(num, den) {
   const p = 100 * num / den;
   return (p >= 99.995 ? '100' : p.toFixed(2)) + '%';
 }
+const PERIODO_LABELS = {
+  hoje:'Hoje', ontem:'Ontem', '7d':'Últimos 7 dias', '15d':'Últimos 15 dias', '30d':'Últimos 30 dias',
+  '60d':'Últimos 60 dias', '90d':'Últimos 90 dias', mes_atual:'Este mês', mes_anterior:'Mês anterior',
+  '3m':'Últimos 3 meses', '6m':'Últimos 6 meses', '12m':'Últimos 12 meses', ano_atual:'Este ano',
+  ano_anterior:'Ano anterior', personalizado:'Personalizado...',
+};
 async function renderDashboard() {
   const hoje0 = new Date();
   const ymAdd = (ym, n) => { const [y,m]=ym.split('-').map(Number); const d=new Date(y,m-1+n,1); return d.toISOString().slice(0,7); };
-  const thisYm = hoje0.toISOString().slice(0,7);
   const dAdd = (dt, n) => { const d=new Date(dt+'T12:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
   const todayStr = hoje0.toISOString().slice(0,10);
   if (!state.dashAnalista) state.dashAnalista = '';
-  if (!state.volAte) state.volAte = thisYm;
-  if (!state.volDe) state.volDe = ymAdd(thisYm, -11);
-  if (!state.diaAte) state.diaAte = todayStr;
-  if (!state.diaDe) state.diaDe = dAdd(todayStr, -59);
+  if (!state.periodoPreset) state.periodoPreset = '12m';
+  if (!state.periodoAgrupamento) state.periodoAgrupamento = 'automatico';
 
-  const [{ data: vol }, rkAll, { data: pd }, { data: pad }, { data: solo }, { data: metaF }, { data: cfg }, { data: ativs }, { data: tops }] = await Promise.all([
-    sb.from('volume_mensal').select('*'),
+  const computePeriodo = (preset) => {
+    const hoje = todayStr;
+    switch (preset) {
+      case 'hoje': return [hoje, hoje];
+      case 'ontem': { const y = dAdd(hoje,-1); return [y,y]; }
+      case '7d': return [dAdd(hoje,-6), hoje];
+      case '15d': return [dAdd(hoje,-14), hoje];
+      case '30d': return [dAdd(hoje,-29), hoje];
+      case '60d': return [dAdd(hoje,-59), hoje];
+      case '90d': return [dAdd(hoje,-89), hoje];
+      case 'mes_atual': return [hoje.slice(0,7)+'-01', hoje];
+      case 'mes_anterior': { const pm = ymAdd(hoje.slice(0,7),-1); const [y,m]=pm.split('-').map(Number); const ult = new Date(y,m,0).getDate(); return [pm+'-01', pm+'-'+String(ult).padStart(2,'0')]; }
+      case '3m': return [ymAdd(hoje.slice(0,7),-2)+'-01', hoje];
+      case '6m': return [ymAdd(hoje.slice(0,7),-5)+'-01', hoje];
+      case 'ano_atual': return [hoje.slice(0,4)+'-01-01', hoje];
+      case 'ano_anterior': { const y=Number(hoje.slice(0,4))-1; return [y+'-01-01', y+'-12-31']; }
+      case 'personalizado': return [state.periodoCustomDe || dAdd(hoje,-29), state.periodoCustomAte || hoje];
+      default: return [ymAdd(hoje.slice(0,7),-11)+'-01', hoje]; // '12m'
+    }
+  };
+  const diffDias = (de,ate) => Math.round((new Date(ate+'T12:00') - new Date(de+'T12:00'))/86400000)+1;
+  const agrupamentoAuto = (de,ate) => { const n = diffDias(de,ate); return n<=31?'dia':n<=180?'semana':n<=1095?'mes':'ano'; };
+
+  const [rkAll, { data: pd }, { data: pad }, { data: solo }, { data: metaF }, { data: cfg }, { data: ativs }, { data: tops }, { data: eventos }] = await Promise.all([
     sb.from('ranking_analistas').select('*'),
     sb.from('producao_diaria').select('*'),
     sb.from('producao_analista_dia').select('*'),
@@ -204,8 +229,8 @@ async function renderDashboard() {
     sb.from('metas_config').select('*'),
     sb.from('volume_atividades').select('*'),
     sb.from('top_empreendedoras').select('*'),
+    sb.from('eventos_especiais').select('*'),
   ]);
-  const { data: eventos } = await sb.from('eventos_especiais').select('*');
   const diasLancamento = new Set((eventos||[]).map(e => e.data));
   const meses = [...new Set((rkAll.data||[]).map(r => r.mes.slice(0,7)))].sort().reverse();
   if (!state.dashMes && meses.length) state.dashMes = meses[0];
@@ -213,29 +238,44 @@ async function renderDashboard() {
   if (state.dashAnalista) rk = rk.filter(r => r.nome === state.dashAnalista);
   const todosAnalistas = [...new Set((rkAll.data||[]).map(r => r.nome))].sort();
 
-  const totAll = (vol||[]).reduce((s,v)=>s+v.total,0);
-  const concAll = (vol||[]).reduce((s,v)=>s+v.concluidas,0);
-  const volPorMes = {}; (vol||[]).forEach(v => volPorMes[v.mes.slice(0,7)] = v);
-  const primeiroMesComDado = (vol||[]).map(v=>v.mes.slice(0,7)).filter(k=>volPorMes[k].total>0).sort()[0];
-
-  // --- Volume mensal: intervalo livre (De/Até), não só presets ---
-  // meses anteriores ao primeiro registro real não entram no gráfico (evita parede de barras zeradas)
-  const volDeEfetivo = primeiroMesComDado && state.volDe < primeiroMesComDado ? primeiroMesComDado : state.volDe;
-  const mesesLista = [];
-  { let cur = volDeEfetivo; let guard = 0;
-    while (cur <= state.volAte && guard++ < 120) { mesesLista.push(cur); cur = ymAdd(cur, 1); } }
-  const volSerie = mesesLista.map(k => volPorMes[k] || { mes: k+'-01', total: 0, concluidas: 0 });
-  const maxVol = Math.max(...volSerie.map(v=>v.total), 1);
-  const avisoRecorte = primeiroMesComDado && state.volDe < primeiroMesComDado;
-
-  // --- produção diária: intervalo livre (De/Até) ---
+  const dowOf = (k) => ((new Date(k+'T12:00').getDay()+6)%7)+1;
   const dias = pd || [];
   const porDia = {}; dias.forEach(d => porDia[d.dia] = d);
+  const diasComDadoOrdenados = dias.map(d=>d.dia).sort();
+  const primeiroDiaComDado = diasComDadoOrdenados[0];
+  const fmtDia = (d) => d ? new Date(d+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+
+  // --- Período unificado: dirige gráfico de volume, KPIs, semanal e média por dia da semana ---
+  const [deRaw, ateRaw] = computePeriodo(state.periodoPreset);
+  const deEfetivo = primeiroDiaComDado && deRaw < primeiroDiaComDado ? primeiroDiaComDado : deRaw;
+  const ateEfetivo = ateRaw;
+  const avisoRecorte = primeiroDiaComDado && deRaw < primeiroDiaComDado;
+  const agrupamentoEfetivo = state.periodoAgrupamento === 'automatico' ? agrupamentoAuto(deEfetivo, ateEfetivo) : state.periodoAgrupamento;
+
   const diasLista = [];
-  { let cur = state.diaDe; let guard = 0;
-    while (cur <= state.diaAte && guard++ < 400) { diasLista.push(cur); cur = dAdd(cur, 1); } }
-  const dowOf = (k) => ((new Date(k+'T12:00').getDay()+6)%7)+1;
+  { let cur = deEfetivo; let guard = 0;
+    while (cur <= ateEfetivo && guard++ < 1600) { diasLista.push(cur); cur = dAdd(cur, 1); } }
   const serieDias = diasLista.map(k => porDia[k] || { dia: k, total: 0, dow: dowOf(k) });
+
+  // KPIs de topo (Total/Concluídos/Pendentes/%) escopados ao período selecionado
+  const ateExclusivo = dAdd(ateEfetivo, 1);
+  const [{ count: totAll }, { count: concAll }] = await Promise.all([
+    sb.from('demandas').select('id', { count: 'exact', head: true }).gte('recebido_em', deEfetivo).lt('recebido_em', ateExclusivo),
+    sb.from('demandas').select('id', { count: 'exact', head: true }).gte('recebido_em', deEfetivo).lt('recebido_em', ateExclusivo).eq('status', 'CONCLUIDO'),
+  ]);
+
+  // Volume: agrupamento automático (dia/semana/mês/ano) pra nunca virar parede de barras
+  const bucketKey = (d) => agrupamentoEfetivo==='dia' ? d.dia
+    : agrupamentoEfetivo==='semana' ? (() => { const dt=new Date(d.dia+'T12:00'); const seg=new Date(dt); seg.setDate(dt.getDate()-((dt.getDay()+6)%7)); return seg.toISOString().slice(0,10); })()
+    : agrupamentoEfetivo==='mes' ? d.dia.slice(0,7) : d.dia.slice(0,4);
+  const bucketLabel = (k) => agrupamentoEfetivo==='dia' ? fmtDia(k)
+    : agrupamentoEfetivo==='semana' ? new Date(k+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})
+    : agrupamentoEfetivo==='mes' ? mesLabel(k) : k;
+  const volBuckets = {};
+  serieDias.forEach(d => { const k = bucketKey(d); volBuckets[k] = (volBuckets[k]||0) + d.total; });
+  const volSerie = Object.keys(volBuckets).sort().map(k => ({ key: k, label: bucketLabel(k), total: volBuckets[k] }));
+  const maxVol = Math.max(...volSerie.map(v=>v.total), 1);
+  const AGRUP_LABEL = { dia:'dia', semana:'semana', mes:'mês', ano:'ano' };
 
   // headcount (nº de analistas distintos que lançaram algo naquele dia) — usado pra normalizar a produção
   const porDiaHeadcount = {};
@@ -272,7 +312,6 @@ async function renderDashboard() {
   const soloPorAnalista = {};
   (solo || []).forEach(s => { const a = soloPorAnalista[s.analista] = soloPorAnalista[s.analista] || { n: 0, tot: 0 }; a.n++; a.tot += s.producao; });
   const soloDatas = (solo||[]).map(s=>s.dia).sort();
-  const fmtDia = (d) => d ? new Date(d+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
   const soloPeriodo = soloDatas.length ? `${fmtDia(soloDatas[0])} até ${fmtDia(soloDatas[soloDatas.length-1])}` : '—';
   const tend = semVals.length >= 3 ? semVals[semVals.length - 2] - semVals[semVals.length - 3] : 0;
   const meta = (metaF || [])[0] || {};
@@ -285,8 +324,6 @@ async function renderDashboard() {
   const pctDia = metaDia ? Math.round(100 * prodHoje / metaDia) : null;
   const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
 
-  const presetBtn = (id, label) => `<button class="ghost preset-btn" data-target="${id}">${label}</button>`;
-
   shell(`
     <div class="kpis">
       <div class="kpi"><div class="v">${totAll}</div><div class="l">📋 Total de processos</div></div>
@@ -294,26 +331,35 @@ async function renderDashboard() {
       <div class="kpi"><div class="v" style="color:var(--warn)">${totAll-concAll}</div><div class="l">⚠️ Pendentes</div></div>
       <div class="kpi"><div class="v" style="color:var(--accent)">${pctFmt(concAll, totAll)}</div><div class="l">📊 % conclusão</div></div>
     </div>
+    <div class="card filters" style="align-items:end">
+      <div><label>Período</label><select id="perPreset">
+        ${Object.entries(PERIODO_LABELS).map(([k,l])=>`<option value="${k}" ${state.periodoPreset===k?'selected':''}>${l}</option>`).join('')}</select></div>
+      ${state.periodoPreset === 'personalizado' ? `
+      <div><label>Data Inicial</label><input id="perCustomDe" type="date" value="${state.periodoCustomDe || deEfetivo}"></div>
+      <div><label>Data Final</label><input id="perCustomAte" type="date" value="${state.periodoCustomAte || ateEfetivo}"></div>
+      <button id="perAplicar">Aplicar</button>
+      <button id="perLimpar" class="ghost">Limpar</button>
+      <button id="perCancelar" class="ghost">Cancelar</button>
+      ` : ''}
+      <div><label>Agrupamento</label><select id="perAgrupamento">
+        ${[['automatico','Automático'],['dia','Dia'],['semana','Semana'],['mes','Mês'],['ano','Ano']].map(([k,l])=>
+          `<option value="${k}" ${state.periodoAgrupamento===k?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="spacer"></div>
+      ${state.role === 'admin' ? '<button id="btnMarcarLanc" class="ghost">🚀 Marcar dia de lançamento</button>' : ''}
+    </div>
     <div class="card filters" style="align-items:center">
       <div><label>Mês do ranking</label><select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select></div>
       <div><label>Analista (ranking)</label><select id="dashAnalista"><option value="">Todos</option>
         ${todosAnalistas.map(n=>`<option value="${esc(n)}" ${state.dashAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
     </div>
     <div class="card">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <h2 style="margin:0">Volume mensal — ${mesLabel(volDeEfetivo)} a ${mesLabel(state.volAte)}</h2>
-        <div class="spacer"></div>
-        ${[3,6,12,24].map(n=>presetBtn('vol'+n, n+'m')).join('')}
-        <input id="volDe" type="month" value="${state.volDe}" style="min-width:120px">
-        <span style="color:var(--muted)">até</span>
-        <input id="volAte" type="month" value="${state.volAte}" style="min-width:120px">
-      </div>
-      ${avisoRecorte ? `<p style="color:var(--muted);font-size:12px;margin:-4px 0 8px">Sem produção registrada antes de ${mesLabel(primeiroMesComDado)} — meses anteriores foram ocultados do gráfico.</p>` : ''}
+      <h2 style="margin:0 0 10px">Volume — ${PERIODO_LABELS[state.periodoPreset]} (por ${AGRUP_LABEL[agrupamentoEfetivo]}) · ${fmtDia(deEfetivo)} a ${fmtDia(ateEfetivo)}</h2>
+      ${avisoRecorte ? `<p style="color:var(--muted);font-size:12px;margin:-4px 0 8px">Sem produção registrada antes de ${fmtDia(primeiroDiaComDado)} — período anterior foi ocultado do gráfico.</p>` : ''}
       <div class="chart">${volSerie.map(v => `
-        <div class="bar-wrap" title="${mesLabel(v.mes.slice(0,7))}: ${v.total}">
+        <div class="bar-wrap" title="${v.label}: ${v.total}">
           <div class="bar-val">${v.total}</div>
           <div class="bar" style="height:${Math.round(140*v.total/maxVol)}px"></div>
-          <div class="bar-lbl">${mesLabel(v.mes.slice(0,7))}</div>
+          <div class="bar-lbl">${v.label}</div>
         </div>`).join('')}
       </div>
     </div>
@@ -336,15 +382,7 @@ async function renderDashboard() {
       </div>
     </div>` : ''}
     <div class="card">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-        <h2 style="margin:0">📈 Produção — ${fmtDia(state.diaDe)} a ${fmtDia(state.diaAte)}</h2>
-        ${state.role === 'admin' ? '<button id="btnMarcarLanc" class="ghost" style="font-size:11.5px;padding:4px 8px">🚀 Marcar dia de lançamento</button>' : ''}
-        <div class="spacer"></div>
-        ${[30,60,90,180].map(n=>presetBtn('dia'+n, n+'d')).join('')}
-        <input id="diaDe" type="date" value="${state.diaDe}">
-        <span style="color:var(--muted)">até</span>
-        <input id="diaAte" type="date" value="${state.diaAte}">
-      </div>
+      <h2 style="margin:0 0 6px">📈 Produção diária — ${fmtDia(deEfetivo)} a ${fmtDia(ateEfetivo)}</h2>
       <p style="color:var(--muted);font-size:12px;margin-bottom:6px">Total por dia (topo) e <b>produção média por analista ativo naquele dia</b> (embaixo) — essa segunda linha não distorce quando um fim de semana teve mais gente escalada que o normal.</p>
       <svg viewBox="0 0 700 100" style="width:100%;height:100px">
         ${svgLine(serieDias.map(d => d.total), 700, 100, '#6d8bff', false)}
@@ -431,20 +469,29 @@ async function renderDashboard() {
     </div>`);
   document.getElementById('dashMes').onchange = (e) => { state.dashMes = e.target.value; renderDashboard(); };
   document.getElementById('dashAnalista').onchange = (e) => { state.dashAnalista = e.target.value; renderDashboard(); };
-  document.getElementById('volDe').onchange = (e) => { state.volDe = e.target.value; renderDashboard(); };
-  document.getElementById('volAte').onchange = (e) => { state.volAte = e.target.value; renderDashboard(); };
-  document.getElementById('diaDe').onchange = (e) => { state.diaDe = e.target.value; renderDashboard(); };
-  document.getElementById('diaAte').onchange = (e) => { state.diaAte = e.target.value; renderDashboard(); };
+  document.getElementById('perPreset').onchange = (e) => {
+    state.periodoPresetAnterior = state.periodoPreset;
+    state.periodoPreset = e.target.value;
+    if (state.periodoPreset === 'personalizado' && !state.periodoCustomDe) {
+      state.periodoCustomDe = deEfetivo; state.periodoCustomAte = ateEfetivo;
+    }
+    renderDashboard();
+  };
+  document.getElementById('perAgrupamento').onchange = (e) => { state.periodoAgrupamento = e.target.value; renderDashboard(); };
+  const bAplicar = document.getElementById('perAplicar');
+  if (bAplicar) bAplicar.onclick = () => {
+    state.periodoCustomDe = document.getElementById('perCustomDe').value;
+    state.periodoCustomAte = document.getElementById('perCustomAte').value;
+    renderDashboard();
+  };
+  const bLimpar = document.getElementById('perLimpar');
+  if (bLimpar) bLimpar.onclick = () => { state.periodoPreset = '12m'; state.periodoCustomDe = null; state.periodoCustomAte = null; renderDashboard(); };
+  const bCancelarPer = document.getElementById('perCancelar');
+  if (bCancelarPer) bCancelarPer.onclick = () => { state.periodoPreset = state.periodoPresetAnterior || '12m'; renderDashboard(); };
   const bTL = document.getElementById('btnToggleLanc');
   if (bTL) bTL.onclick = () => { state.excluirLancamentos = !state.excluirLancamentos; renderDashboard(); };
   const bML = document.getElementById('btnMarcarLanc');
   if (bML) bML.onclick = () => openMarcarLancamento(eventos || []);
-  document.querySelectorAll('.preset-btn').forEach(b => b.onclick = () => {
-    const t = b.dataset.target;
-    if (t.startsWith('vol')) { const n = Number(t.slice(3)); state.volAte = thisYm; state.volDe = ymAdd(thisYm, -(n-1)); }
-    else { const n = Number(t.slice(3)); state.diaAte = todayStr; state.diaDe = dAdd(todayStr, -(n-1)); }
-    renderDashboard();
-  });
   if (state.role === 'admin') {
     const btn = document.getElementById('btnSalvarMetas');
     if (btn) btn.onclick = async () => {
