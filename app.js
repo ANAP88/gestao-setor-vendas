@@ -90,7 +90,7 @@ const PILARES = [
     ['qualidade', '🔁', 'Qualidade / Retrabalho'],
     ['operacoes', '🗂️', 'Operações'],
     ['repasse', '🏦', 'Repasse'],
-    ['validacao', '✅', 'Validação'],
+    ['fluxogramas', '🗺️', 'Fluxograma dos Empreendimentos'],
     ['followup', '💬', 'Follow-up'],
   ]],
   ['🤖 Plataforma', [
@@ -146,14 +146,47 @@ function nomeExib(nome, rank) {
 function render() {
   if (!podeVer(state.view)) state.view = 'pipeline';
   ({ dashboard: renderDashboard, analytics: renderAnalytics, insights: renderInsights,
-     pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, validacao: renderValidacao,
+     pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, fluxogramas: renderFluxogramas,
      followup: renderFollowup, integracoes: () => renderStub('🔌 Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
-     automacoes: () => renderStub('⚡ Automações', 'Regras de negócio e fluxos automáticos. A primeira automação ativa é o monitoramento de plantão (veja Insights). Próximas:', ['Alerta automático por e-mail/Teams às 12h e 17h', 'Distribuição automática de processos por carga de trabalho', 'Cobrança automática de follow-up sem resposta', 'Fechamento mensal gerado e enviado automaticamente']),
+     automacoes: renderAutomacoes,
      documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      cadastros: renderCadastros })[state.view]();
 }
+async function renderAutomacoes() {
+  const { data: log } = await sb.from('alerta_teams_log').select('*').order('disparado_em', { ascending: false }).limit(30);
+  shell(`
+    <div class="card" style="max-width:820px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">⚡ Automações</h2>
+        <span style="color:var(--muted);font-size:12.5px">O lembrete de plantão roda sozinho às 12h e 17h — cada disparo fica registrado abaixo.</span>
+        <div class="spacer"></div>
+        ${state.role === 'admin' ? '<button id="btnDispararManual" class="ghost">🔔 Enviar lembrete agora</button>' : ''}
+      </div>
+      <div class="msg" id="autoMsg" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h2>Histórico de disparos (últimos 30)</h2>
+      <table><thead><tr><th>Data/Hora</th><th>Tipo</th><th>Disparado por</th><th>Mensagem</th></tr></thead>
+      <tbody>${(log||[]).map(l => `<tr>
+        <td>${fmtDt(l.disparado_em)}</td>
+        <td><span class="tag ${l.tipo==='automatico'?'CONCLUIDO':'PENDENTE'}">${l.tipo==='automatico'?'Automático (12h/17h)':'Manual'}</span></td>
+        <td>${esc(l.usuario_email || '—')}</td>
+        <td style="max-width:380px;font-size:12px">${esc(l.mensagem||'')}</td>
+      </tr>`).join('') || '<tr><td colspan="4">Nenhum disparo registrado ainda.</td></tr>'}</tbody></table>
+    </div>`);
+  const bD = document.getElementById('btnDispararManual');
+  if (bD) bD.onclick = async () => {
+    bD.disabled = true;
+    const msgEl = document.getElementById('autoMsg');
+    msgEl.textContent = 'Enviando...';
+    const { data, error } = await sb.functions.invoke('disparar-lembrete-manual', { method: 'POST' });
+    msgEl.textContent = error ? `Erro: ${error.message}` : '✅ Lembrete enviado ao Teams.';
+    renderAutomacoes();
+  };
+}
+
 function renderStub(titulo, texto, itens) {
   shell(`
     <div class="card" style="max-width:720px">
@@ -232,10 +265,6 @@ async function renderDashboard() {
     sb.from('eventos_especiais').select('*'),
   ]);
   const diasLancamento = new Set((eventos||[]).map(e => e.data));
-  const meses = [...new Set((rkAll.data||[]).map(r => r.mes.slice(0,7)))].sort().reverse();
-  if (!state.dashMes && meses.length) state.dashMes = meses[0];
-  let rk = (rkAll.data||[]).filter(r => r.mes.slice(0,7) === state.dashMes).sort((a,b) => b.total - a.total);
-  if (state.dashAnalista) rk = rk.filter(r => r.nome === state.dashAnalista);
   const todosAnalistas = [...new Set((rkAll.data||[]).map(r => r.nome))].sort();
 
   const dowOf = (k) => ((new Date(k+'T12:00').getDay()+6)%7)+1;
@@ -251,6 +280,28 @@ async function renderDashboard() {
   const ateEfetivo = ateRaw;
   const avisoRecorte = primeiroDiaComDado && deRaw < primeiroDiaComDado;
   const agrupamentoEfetivo = state.periodoAgrupamento === 'automatico' ? agrupamentoAuto(deEfetivo, ateEfetivo) : state.periodoAgrupamento;
+
+  // Ranking agora segue o MESMO período selecionado (em vez de um "mês do ranking" separado).
+  // Se o período cobre só 1 mês, o resultado é idêntico ao antigo comportamento por mês.
+  const mesesNoPeriodo = new Set();
+  { let cur = deEfetivo.slice(0,7); const fim = ateEfetivo.slice(0,7); let guard = 0;
+    while (cur <= fim && guard++ < 600) { mesesNoPeriodo.add(cur); cur = ymAdd(cur, 1); } }
+  let rkFiltrado = (rkAll.data||[]).filter(r => mesesNoPeriodo.has(r.mes.slice(0,7)));
+  if (state.dashAnalista) rkFiltrado = rkFiltrado.filter(r => r.nome === state.dashAnalista);
+  const porAnalistaRk = {};
+  rkFiltrado.forEach(r => {
+    const a = porAnalistaRk[r.nome] = porAnalistaRk[r.nome] || { nome: r.nome, total: 0, concluidas: 0, pendentes: 0, tempos: [] };
+    a.total += r.total; a.concluidas += r.concluidas; a.pendentes += r.pendentes;
+    if (r.tempo_medio_h != null) a.tempos.push(r.tempo_medio_h);
+  });
+  const maxTotalRk = Math.max(...Object.values(porAnalistaRk).map(a=>a.total), 1);
+  const rk = Object.values(porAnalistaRk).map(a => {
+    const pct_concl = a.total ? Math.round(1000*a.concluidas/a.total)/10 : 0;
+    const tempo_medio_h = a.tempos.length ? Math.round(10*a.tempos.reduce((s,x)=>s+x,0)/a.tempos.length)/10 : null;
+    const score = Math.round(10*(100*(0.4*(a.total?a.concluidas/a.total:0) + 0.6*(a.total/maxTotalRk))))/10;
+    const classe = score>=90?'Alta':score>=78?'Média':'Baixa';
+    return { ...a, pct_concl, tempo_medio_h, score, classe };
+  }).sort((a,b)=>b.total-a.total);
 
   const diasLista = [];
   { let cur = deEfetivo; let guard = 0;
@@ -348,7 +399,6 @@ async function renderDashboard() {
       ${state.role === 'admin' ? '<button id="btnMarcarLanc" class="ghost">🚀 Marcar dia de lançamento</button>' : ''}
     </div>
     <div class="card filters" style="align-items:center">
-      <div><label>Mês do ranking</label><select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select></div>
       <div><label>Analista (ranking)</label><select id="dashAnalista"><option value="">Todos</option>
         ${todosAnalistas.map(n=>`<option value="${esc(n)}" ${state.dashAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
     </div>
@@ -439,8 +489,8 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="card">
-      <h2 style="margin:0">🏆 Ranking de produtividade — ${mesLabel(state.dashMes)}${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
-      <p style="color:var(--muted);font-size:12px;margin:2px 0 8px">Usa o filtro "Mês do ranking" acima, independente do período dos gráficos.</p>
+      <h2 style="margin:0">🏆 Ranking de produtividade — ${PERIODO_LABELS[state.periodoPreset]}${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
+      <p style="color:var(--muted);font-size:12px;margin:2px 0 8px">Segue o mesmo filtro "Período" do topo da página.</p>
       <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
         <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
@@ -467,7 +517,6 @@ async function renderDashboard() {
         </div>
       </div>
     </div>`);
-  document.getElementById('dashMes').onchange = (e) => { state.dashMes = e.target.value; renderDashboard(); };
   document.getElementById('dashAnalista').onchange = (e) => { state.dashAnalista = e.target.value; renderDashboard(); };
   document.getElementById('perPreset').onchange = (e) => {
     state.periodoPresetAnterior = state.periodoPreset;
@@ -846,6 +895,32 @@ async function renderOperacoes() {
 }
 
 // ---------- VALIDAÇÃO ----------
+// ---------- FLUXOGRAMA DOS EMPREENDIMENTOS ----------
+const FLUXOGRAMA_PAGINAS = [
+  ['0', 'Fluxograma Operacional'], ['1', 'ZS Urbanismo'], ['2', 'SDI'], ['3', 'Global Realty'],
+  ['4', 'Fazenda Lucrian / Pq. Cidade Nova'], ['5', 'Guestier I/II/III / Mercadão'], ['6', 'Vilas'],
+  ['7', 'Vega'], ['8', 'Solicitação Interna'], ['9', '3z / ApMais / Saint Anne / Sequoia'],
+  ['10', 'Financiamento Bancário'], ['11', 'Fluxograma Gerencial'],
+];
+async function renderFluxogramas() {
+  if (!state.fluxoPagina) state.fluxoPagina = '1';
+  const url = `${location.origin}/fluxogramas/sec-e-vendas3.drawio`;
+  const src = `https://viewer.diagrams.net/?highlight=0000ff&edit=_blank&layers=1&nav=1&page-id=${state.fluxoPagina}#U${encodeURIComponent(url)}`;
+  shell(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">🗺️ Fluxograma dos Empreendimentos</h2>
+        <span style="color:var(--muted);font-size:12.5px">Um fluxo por empreendedora/grupo, conforme desenhado.</span>
+        <div class="spacer"></div>
+        <select id="fluxoSelect">${FLUXOGRAMA_PAGINAS.map(([id,nome]) => `<option value="${id}" ${state.fluxoPagina===id?'selected':''}>${esc(nome)}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <iframe id="fluxoFrame" src="${src}" style="width:100%;height:78vh;border:0;display:block"></iframe>
+    </div>`);
+  document.getElementById('fluxoSelect').onchange = (e) => { state.fluxoPagina = e.target.value; renderFluxogramas(); };
+}
+
 async function renderValidacao() {
   const { data: itens } = await sb.from('validacao_itens')
     .select('demanda_id, ok, demandas(id,numero,proponente1_nome,status,analistas(nome))');
@@ -874,6 +949,13 @@ async function renderValidacao() {
 // ---------- FOLLOW-UP ----------
 async function renderFollowup() {
   if (state.followupBusca === undefined) state.followupBusca = '';
+  if (state.clienteBusca === undefined) state.clienteBusca = '';
+  const termoCli = state.clienteBusca.trim();
+  let clientesEncontrados = [];
+  if (termoCli.length >= 2) {
+    const { data } = await sb.from('clientes').select('id,nome,unidade,status,empreendimentos(nome)').ilike('nome', `%${termoCli}%`).limit(15);
+    clientesEncontrados = data || [];
+  }
   const { data: fupsAll } = await sb.from('fups')
     .select('id,criado_em,autor,texto,demanda_id,demandas(numero,proponente1_nome,status)')
     .order('criado_em', { ascending: false }).limit(300);
@@ -884,6 +966,19 @@ async function renderFollowup() {
     (f.demandas?.proponente1_nome||'').toLowerCase().includes(termo) ||
     String(f.demandas?.numero||'').includes(termo));
   shell(`
+    <div class="card filters" style="align-items:end">
+      <div style="flex:1"><label>🔎 Perfil do cliente (nome completo, unidade, esteira e linha do tempo)</label>
+        <input id="cliBusca" value="${esc(state.clienteBusca)}" placeholder="Digite o nome do cliente..."></div>
+      ${state.clienteBusca ? '<button id="btnCliLimpar" class="ghost">Limpar</button>' : ''}
+    </div>
+    ${termoCli.length >= 2 ? `
+    <div class="card">
+      ${clientesEncontrados.length ? clientesEncontrados.map(c => `
+        <div class="cad-item" style="cursor:pointer" data-cliente-id="${c.id}">
+          <b>${esc(c.nome)}</b> — ${esc(c.empreendimentos?.nome || 'sem empreendimento')} ${c.unidade ? '· '+esc(c.unidade) : ''}
+          <span class="tag ${c.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}" style="margin-left:8px">${esc(c.status||'—')}</span>
+        </div>`).join('') : '<p style="color:var(--muted);font-size:13px">Nenhum cliente encontrado com esse nome.</p>'}
+    </div>` : ''}
     <div class="card filters">
       <div style="flex:1"><label>Buscar (proponente, nº processo, autor ou texto)</label><input id="fupBusca" value="${esc(state.followupBusca)}" placeholder="Digite para buscar..."></div>
       <button id="btnFupBuscar">Buscar</button>
@@ -908,6 +1003,63 @@ async function renderFollowup() {
   fupBusca.addEventListener('keydown', e => { if (e.key === 'Enter') btnFupBuscar.click(); });
   const bL = document.getElementById('btnFupLimpar');
   if (bL) bL.onclick = () => { state.followupBusca = ''; renderFollowup(); };
+  const cliBusca = document.getElementById('cliBusca');
+  let cliTimer;
+  cliBusca.addEventListener('input', () => { clearTimeout(cliTimer); cliTimer = setTimeout(() => { state.clienteBusca = cliBusca.value; renderFollowup(); }, 400); });
+  const bCL = document.getElementById('btnCliLimpar');
+  if (bCL) bCL.onclick = () => { state.clienteBusca = ''; renderFollowup(); };
+  document.querySelectorAll('[data-cliente-id]').forEach(el => el.onclick = () => openPerfilCliente(el.dataset.clienteId));
+}
+
+async function openPerfilCliente(clienteId) {
+  const [{ data: c }, { data: procs }, { data: eventos }] = await Promise.all([
+    sb.from('clientes').select('*, empreendimentos(nome), analistas(nome)').eq('id', clienteId).single(),
+    sb.from('esteira_processos').select('*, etapas_esteira(nome), analistas(nome)').eq('cliente_id', clienteId).order('criado_em', { ascending: false }),
+    sb.from('eventos_repasse').select('*').eq('cliente_id', clienteId).order('criado_em', { ascending: false }),
+  ]);
+  // follow-ups não têm vínculo direto com cliente (fups referenciam demanda) — casamento por nome, melhor esforço
+  const { data: fupsPossiveis } = await sb.from('fups')
+    .select('id,criado_em,autor,texto,demandas(numero,proponente1_nome)')
+    .order('criado_em', { ascending: false }).limit(500);
+  const fupsDoCliente = (fupsPossiveis||[]).filter(f => (f.demandas?.proponente1_nome||'').toLowerCase().trim() === (c?.nome||'').toLowerCase().trim());
+
+  const linha = [
+    ...procs.map(p => ({ data: p.criado_em, tipo: 'Esteira', texto: `${p.titulo} — etapa atual: ${p.etapas_esteira?.nome || '—'} (${p.status})` })),
+    ...(eventos||[]).map(e => ({ data: e.criado_em, tipo: 'Repasse', texto: e.evento || e.descricao || '—' })),
+    ...fupsDoCliente.map(f => ({ data: f.criado_em, tipo: 'Follow-up', texto: `${esc(f.autor||'')}: ${f.texto}` })),
+  ].sort((a,b) => new Date(b.data) - new Date(a.data));
+
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:720px">
+    <h2>👤 ${esc(c?.nome)}</h2>
+    <div class="grid2" style="margin-bottom:14px">
+      <div><label>CPF</label><input value="${esc(c?.cpf)}" disabled></div>
+      <div><label>RG</label><input value="${esc(c?.rg)}" disabled></div>
+      <div><label>Estado civil</label><input value="${esc(c?.estado_civil)}" disabled></div>
+      <div><label>Renda</label><input value="${c?.renda ?? '—'}" disabled></div>
+      <div><label>Telefone(s)</label><input value="${esc([c?.telefone1,c?.telefone2].filter(Boolean).join(' / '))}" disabled></div>
+      <div><label>E-mail</label><input value="${esc(c?.email)}" disabled></div>
+      <div style="grid-column:1/-1"><label>Endereço</label><input value="${esc(c?.endereco)}" disabled></div>
+      <div><label>Empreendimento</label><input value="${esc(c?.empreendimentos?.nome)}" disabled></div>
+      <div><label>Unidade</label><input value="${esc(c?.unidade)}" disabled></div>
+      <div><label>Imobiliária</label><input value="${esc(c?.imobiliaria)}" disabled></div>
+      <div><label>Corretor</label><input value="${esc(c?.corretor)}" disabled></div>
+      <div><label>Banco / Correspondente</label><input value="${esc([c?.banco,c?.correspondente].filter(Boolean).join(' / '))}" disabled></div>
+      <div><label>Responsável</label><input value="${esc(c?.analistas?.nome)}" disabled></div>
+      <div><label>Status</label><input value="${esc(c?.status)}" disabled></div>
+      ${c?.obs ? `<div style="grid-column:1/-1"><label>Observações</label><input value="${esc(c.obs)}" disabled></div>` : ''}
+    </div>
+    <h2 style="margin-top:6px">🕓 Linha do tempo — tudo que já foi feito com este cliente</h2>
+    <div class="timeline" style="max-height:340px;overflow-y:auto">
+      ${linha.length ? linha.map(l => `<div class="tl-item"><div class="tl-dot"></div>
+        <div><b>${fmtDt(l.data)}</b> <span class="tag ${l.tipo==='Esteira'?'RECEBIDO':l.tipo==='Repasse'?'CONCLUIDO':'PENDENTE'}">${l.tipo}</span><br>${esc(l.texto)}</div></div>`).join('')
+        : '<p style="color:var(--muted);font-size:12.5px">Nenhum evento registrado ainda para este cliente.</p>'}
+    </div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="pcFechar" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#pcFechar').onclick = () => div.remove();
 }
 
 // ---------- CHAMADOS (Demandas internas) ----------
@@ -1182,13 +1334,14 @@ async function openImplantacao(id) {
 // ---------- QUALIDADE / RETRABALHO ----------
 // Categorias padronizadas: o "porquê" do erro, que vira plano de ação/treinamento.
 const CATEGORIAS_ERRO = {
-  'Dados cadastrais': ['Nome/grafia', 'CPF/RG', 'E-mail', 'Telefone', 'Endereço', 'Estado civil', 'Profissão/renda'],
-  'Documental': ['Documento faltante', 'Documento ilegível', 'Documento vencido', 'Assinatura ausente', 'Documento incorreto'],
-  'Contratual': ['Cláusula incorreta', 'Quadro resumo divergente', 'Minuta desatualizada', 'Testemunha/assinante errado'],
+  'Dados cadastrais': ['Nome/grafia', 'CPF/RG', 'E-mail faltante', 'E-mails trocados', 'Telefone', 'Endereço', 'Estado civil', 'Profissão/renda'],
+  'Documental': ['Documento faltante', 'Documento ilegível', 'Documento vencido', 'Assinatura ausente', 'Documento incorreto', 'Falta de documento na análise do processo'],
+  'Contratual': ['Envio para assinatura errado', 'Cláusula incorreta', 'Quadro resumo divergente', 'Minuta desatualizada', 'Testemunha/assinante errado', 'Validação de contrato incorreta'],
   'Cálculo / Valores': ['Valor da unidade', 'Fluxo de pagamento', 'Comissionamento', 'Correção/juros', 'Desconto indevido'],
+  'Análise de Crédito': ['Informação faltante', 'Validação de renda divergente', 'Verificação de proposta com informação divergente'],
   'Sistema / Cadastro': ['Cadastro no ERP', 'Cadastro no CRM', 'Unidade errada', 'Status incorreto'],
-  'Prazo / SLA': ['Fora do prazo de emissão', 'Fora do prazo de resposta', 'Follow-up não realizado'],
-  'Outro': ['Outro'],
+  'Prazo / SLA': ['Fora do prazo de emissão', 'Atraso no SLA', 'Resposta errada', 'Follow-up não realizado'],
+  'Outro': ['Digitar manualmente…'],
 };
 async function renderQualidade() {
   const mesAtual = new Date().toISOString().slice(0,7);
@@ -1254,7 +1407,10 @@ async function renderQualidade() {
         <td>${esc(a.categoria)}</td><td>${esc(a.subcategoria||'—')}</td>
         <td style="max-width:260px">${esc(a.descricao||'—')}</td>
         <td><span class="tag ${a.resolvido?'CONCLUIDO':'PENDENTE'}">${a.resolvido?'Resolvido':'Em aberto'}</span></td>
-        <td>${state.role!=='leitura' && !a.resolvido ? `<button class="ghost btn-resolver" data-id="${a.id}">Resolver</button>` : ''}</td>
+        <td>
+          ${state.role!=='leitura' && !a.resolvido ? `<button class="ghost btn-resolver" data-id="${a.id}">Resolver</button>` : ''}
+          ${state.role!=='leitura' ? `<button class="ghost btn-excluir-apont" data-id="${a.id}" title="Excluir (apontamento indevido)">✕</button>` : ''}
+        </td>
       </tr>`).join('') || '<tr><td colspan="9">Nenhum apontamento registrado neste mês.</td></tr>'}</tbody></table>
     </div>`);
   document.getElementById('qualMes').onchange = (e) => { state.qualMes = e.target.value; renderQualidade(); };
@@ -1262,6 +1418,11 @@ async function renderQualidade() {
   if (bN) bN.onclick = () => openApontamento();
   document.querySelectorAll('.btn-resolver').forEach(b => b.onclick = async () => {
     await sb.from('apontamentos_erro').update({ resolvido: true }).eq('id', b.dataset.id);
+    renderQualidade();
+  });
+  document.querySelectorAll('.btn-excluir-apont').forEach(b => b.onclick = async () => {
+    if (!confirm('Excluir este apontamento? Use quando foi registrado por engano (ex.: informação divergente, não era erro real).')) return;
+    await sb.from('apontamentos_erro').delete().eq('id', b.dataset.id);
     renderQualidade();
   });
 }
@@ -1281,8 +1442,11 @@ async function openApontamento() {
       <div><label>Analista responsável</label><select id="apAnalista"><option value="">—</option>
         ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
       <div><label>Categoria do erro</label><select id="apCat">
-        ${Object.keys(CATEGORIAS_ERRO).map(c=>`<option>${c}</option>`).join('')}</select></div>
+        ${Object.keys(CATEGORIAS_ERRO).map(c=>`<option>${c}</option>`).join('')}
+        <option value="__custom__">✏️ Digitar categoria manualmente…</option></select></div>
       <div><label>Detalhe</label><select id="apSub"></select></div>
+      <div id="apCatCustomWrap" style="display:none;grid-column:1/-1"><label>Categoria (digitada)</label><input id="apCatCustom" placeholder="Ex.: Falha de comunicação com imobiliária"></div>
+      <div id="apSubCustomWrap" style="display:none;grid-column:1/-1"><label>Detalhe (digitado)</label><input id="apSubCustom" placeholder="Descreva o detalhe específico"></div>
       <div style="grid-column:1/-1"><label>Nº do processo (opcional)</label><input id="apProc" placeholder="Busque pelo número do processo"></div>
       <div style="grid-column:1/-1"><label>Descrição do que ocorreu</label><input id="apDesc" placeholder="Ex.: e-mail do comprador digitado errado, contrato voltou para correção"></div>
     </div>
@@ -1294,10 +1458,19 @@ async function openApontamento() {
   document.body.appendChild(div);
   const subs = () => {
     const c = div.querySelector('#apCat').value;
-    div.querySelector('#apSub').innerHTML = (CATEGORIAS_ERRO[c]||[]).map(s=>`<option>${s}</option>`).join('');
+    const custom = c === '__custom__';
+    div.querySelector('#apCatCustomWrap').style.display = custom ? '' : 'none';
+    div.querySelector('#apSub').style.display = custom ? 'none' : '';
+    div.querySelector('#apSub').innerHTML = custom ? '' : (CATEGORIAS_ERRO[c]||[]).map(s=>`<option>${s}</option>`).join('') + '<option value="__custom__">✏️ Digitar detalhe manualmente…</option>';
+    subSub();
+  };
+  const subSub = () => {
+    const s = div.querySelector('#apSub').value;
+    div.querySelector('#apSubCustomWrap').style.display = (s === '__custom__' && div.querySelector('#apCat').value !== '__custom__') ? '' : 'none';
   };
   subs();
   div.querySelector('#apCat').onchange = subs;
+  div.querySelector('#apSub').onchange = subSub;
   div.querySelector('#apCancel').onclick = () => div.remove();
   div.querySelector('#apSalvar').onclick = async () => {
     const num = div.querySelector('#apProc').value.trim();
@@ -1307,12 +1480,22 @@ async function openApontamento() {
       demandaId = data?.id || null;
       if (!demandaId) { div.querySelector('#apMsg').textContent = `Processo nº ${num} não encontrado. Deixe em branco ou corrija.`; return; }
     }
+    const catRaw = div.querySelector('#apCat').value;
+    const subRaw = div.querySelector('#apSub').value;
+    let categoria, subcategoria;
+    if (catRaw === '__custom__') {
+      categoria = div.querySelector('#apCatCustom').value.trim();
+      if (!categoria) { div.querySelector('#apMsg').textContent = 'Digite a categoria.'; return; }
+      subcategoria = null;
+    } else {
+      categoria = catRaw;
+      subcategoria = subRaw === '__custom__' ? (div.querySelector('#apSubCustom').value.trim() || null) : subRaw;
+    }
     const { error } = await sb.from('apontamentos_erro').insert({
       demanda_id: demandaId,
+      categoria, subcategoria,
       analista_id: div.querySelector('#apAnalista').value || null,
       origem: div.querySelector('#apOrigem').value,
-      categoria: div.querySelector('#apCat').value,
-      subcategoria: div.querySelector('#apSub').value,
       descricao: div.querySelector('#apDesc').value || null,
       registrado_por: state.session?.user?.id,
     });
@@ -1371,6 +1554,8 @@ async function renderMetas() {
     : a.media === null ? '—' : a.media >= 1.05 ? '🟢 Excelente' : a.media >= 0.95 ? '🟢 Ótimo' : a.media >= 0.90 ? '🟡 Atenção' : '🔴 Abaixo da meta';
   const naMeta = ranking.filter(a => a.status === 'Ativo' && a.media !== null && a.media >= 0.95).length;
   const ativosComDado = ranking.filter(a => a.status === 'Ativo' && a.media !== null).length;
+  if (!state.metaColaborador && ranking.length) state.metaColaborador = ranking[0].nome;
+  const dashInd = ranking.find(a => a.nome === state.metaColaborador) || ranking[0];
 
   shell(`
     <div class="card" style="margin-bottom:14px">
@@ -1395,6 +1580,33 @@ async function renderMetas() {
         <td>${statusTag(a)}</td>
       </tr>`).join('') || '<tr><td colspan="8">Sem dados ainda.</td></tr>'}</tbody></table>
     </div>
+    ${dashInd ? `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0">📊 Dash individual</h2>
+        <select id="metaColaborador">${ranking.map(a=>`<option value="${esc(a.nome)}" ${state.metaColaborador===a.nome?'selected':''}>${esc(a.nome)}</option>`).join('')}</select>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="v">${pctTxt(dashInd.media)}</div><div class="l">Atingimento médio</div></div>
+        <div class="kpi"><div class="v">${pctTxt(dashInd.ultimoPct)}</div><div class="l">Último mês</div></div>
+        <div class="kpi"><div class="v">${dashInd.proc}</div><div class="l">Processos</div></div>
+        <div class="kpi"><div class="v" style="color:${dashInd.err>0?'var(--warn)':'var(--ok)'}">${dashInd.err}</div><div class="l">Erros</div></div>
+        <div class="kpi"><div class="v" style="font-size:13px">${statusTag(dashInd)}</div><div class="l">Status</div></div>
+      </div>
+      <svg viewBox="0 0 700 90" style="width:100%;height:90px;margin-top:10px">
+        ${svgLine(meses.map(m => { const r = (dashInd.meses||{})[m]; return r && r.quantidade_processos ? 100*(1-r.quantidade_erros/r.quantidade_processos) : null; }).map(v=>v??0), 700, 90, '#2dd4bf', false)}
+      </svg>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">— atingimento (%) mês a mês em ${state.metaAno}</div>
+      <p style="color:var(--muted);font-size:12.5px"><b>Pontos de atenção:</b> ${
+        dashInd.status==='Desligado' ? 'Colaborador desligado — histórico mantido para referência.'
+        : dashInd.status==='Em licença' ? 'Colaborador em licença — sem cobrança de meta no período.'
+        : dashInd.media===null ? 'Sem dados suficientes ainda.'
+        : dashInd.media>=1.05 ? 'Desempenho excelente — acima da meta. Reforçar e reconhecer.'
+        : dashInd.media>=0.95 ? 'Dentro da meta, desempenho ótimo. Manter o padrão.'
+        : dashInd.media>=0.90 ? 'Atenção: perto do limite da meta (90%). Acompanhar de perto.'
+        : 'Abaixo da meta — priorizar plano de ação/treinamento com este colaborador.'
+      }</p>
+    </div>` : ''}
     ${(kpis||[]).map(k => {
       const serie = meses.map(m => atingimento((porInd[k.id]||{})[m]));
       const comDado = serie.filter(v => v !== null);
@@ -1429,6 +1641,8 @@ async function renderMetas() {
       </div>`;
     }).join('')}`);
   document.getElementById('metaAno').onchange = (e) => { state.metaAno = Number(e.target.value); renderMetas(); };
+  const mc = document.getElementById('metaColaborador');
+  if (mc) mc.onchange = (e) => { state.metaColaborador = e.target.value; renderMetas(); };
   const bE = document.getElementById('btnEditarMetas');
   if (bE) bE.onclick = () => openLancarIndicadores(kpis, porInd);
 }
@@ -1668,7 +1882,6 @@ const PRIORIDADES = ['NORMAL', 'ALTA', 'URGENTE'];
 const ESTEIRA_TIPOS = [
   ['analise_credito', 'Análise de Crédito'],
   ['emissao_contrato', 'Emissão de Contrato'],
-  ['validacao_documento', 'Validação de Documento'],
 ];
 async function renderEsteira() {
   if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
@@ -1681,6 +1894,10 @@ async function renderEsteira() {
   (processos || []).forEach(p => { (porEtapa[p.etapa_atual_id] = porEtapa[p.etapa_atual_id] || []).push(p); });
   const meuNome = state.perfilNome || '';
 
+  // quantos processos cada analista tem em aberto nesta esteira
+  const porAnalistaCount = {};
+  (processos || []).forEach(p => { const n = p.analistas?.nome || 'Sem responsável'; porAnalistaCount[n] = (porAnalistaCount[n]||0)+1; });
+
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1692,6 +1909,9 @@ async function renderEsteira() {
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         ${ESTEIRA_TIPOS.map(([k,l]) => `<button class="ghost esteira-tab ${state.esteiraTipo===k?'active':''}" data-tipo="${k}">${l}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
+        ${Object.entries(porAnalistaCount).sort((a,b)=>b[1]-a[1]).map(([n,q]) => `<span>👤 ${esc(n)}: <b style="color:var(--text)">${q}</b></span>`).join('') || '<span>Nenhum processo em aberto nesta esteira.</span>'}
       </div>
     </div>
     <div class="esteira-board">
@@ -1798,6 +2018,7 @@ async function openProcessoEsteira(id, etapas) {
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
       <button id="epCancel" class="ghost">Fechar</button>
+      ${id && state.role === 'admin' ? '<button id="btnExcluirProc" class="ghost" style="color:var(--err)">🗑️ Excluir processo</button>' : ''}
       ${id && !ro ? '<button id="btnFinalizar" class="ghost">✅ Concluir processo</button>' : ''}
       ${!ro ? `<button id="epSalvar">${id ? 'Salvar alterações' : 'Criar processo'}</button>` : ''}
     </div>
@@ -1837,6 +2058,14 @@ async function openProcessoEsteira(id, etapas) {
       const { error } = await sb.from('esteira_processos').update({ status: 'CONCLUIDO', concluido_em: new Date().toISOString() }).eq('id', id);
       if (error) { $('epMsg').textContent = error.message; return; }
       await sb.from('esteira_historico').insert({ processo_id: id, evento: rotulo, autor: state.session?.user?.email });
+      if (p.esteira_tipo === 'analise_credito' && confirm('Crédito aprovado! Encaminhar este processo para a esteira de Emissão de Contrato?')) {
+        const { data: primeiraEtapa } = await sb.from('etapas_esteira').select('id').eq('esteira_tipo','emissao_contrato').eq('ativa',true).order('ordem').limit(1).single();
+        await sb.from('esteira_processos').insert({
+          titulo: p.titulo, cliente_id: p.cliente_id, empreendimento_id: p.empreendimento_id, unidade: p.unidade,
+          prioridade: p.prioridade, esteira_tipo: 'emissao_contrato', etapa_atual_id: primeiraEtapa.id,
+          status: 'AGUARDANDO', processo_origem_id: id, obs: `Encaminhado da Análise de Crédito — ${p.titulo}`,
+        });
+      }
       div.remove(); renderEsteira(); return;
     }
     const rec = { ...coletar(), etapa_atual_id: destino, analista_atual_id: proxAnalista,
@@ -1849,6 +2078,15 @@ async function openProcessoEsteira(id, etapas) {
   const btnFinalizar = $('btnFinalizar');
   if (btnFinalizar) btnFinalizar.onclick = async () => {
     const { error } = await sb.from('esteira_processos').update({ status: 'CONCLUIDO', concluido_em: new Date().toISOString() }).eq('id', id);
+    if (error) { $('epMsg').textContent = error.message; return; }
+    div.remove(); renderEsteira();
+  };
+  const btnExcluirProc = $('btnExcluirProc');
+  if (btnExcluirProc) btnExcluirProc.onclick = async () => {
+    if (!confirm(`Excluir definitivamente o processo "${p.titulo}"? Essa ação não pode ser desfeita.`)) return;
+    await sb.from('esteira_anexos').delete().eq('processo_id', id);
+    await sb.from('esteira_historico').delete().eq('processo_id', id);
+    const { error } = await sb.from('esteira_processos').delete().eq('id', id);
     if (error) { $('epMsg').textContent = error.message; return; }
     div.remove(); renderEsteira();
   };
