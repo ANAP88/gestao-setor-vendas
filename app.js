@@ -214,13 +214,17 @@ async function renderDashboard() {
   const totAll = (vol||[]).reduce((s,v)=>s+v.total,0);
   const concAll = (vol||[]).reduce((s,v)=>s+v.concluidas,0);
   const volPorMes = {}; (vol||[]).forEach(v => volPorMes[v.mes.slice(0,7)] = v);
+  const primeiroMesComDado = (vol||[]).map(v=>v.mes.slice(0,7)).filter(k=>volPorMes[k].total>0).sort()[0];
 
   // --- Volume mensal: intervalo livre (De/Até), não só presets ---
+  // meses anteriores ao primeiro registro real não entram no gráfico (evita parede de barras zeradas)
+  const volDeEfetivo = primeiroMesComDado && state.volDe < primeiroMesComDado ? primeiroMesComDado : state.volDe;
   const mesesLista = [];
-  { let cur = state.volDe; let guard = 0;
+  { let cur = volDeEfetivo; let guard = 0;
     while (cur <= state.volAte && guard++ < 120) { mesesLista.push(cur); cur = ymAdd(cur, 1); } }
   const volSerie = mesesLista.map(k => volPorMes[k] || { mes: k+'-01', total: 0, concluidas: 0 });
   const maxVol = Math.max(...volSerie.map(v=>v.total), 1);
+  const avisoRecorte = primeiroMesComDado && state.volDe < primeiroMesComDado;
 
   // --- produção diária: intervalo livre (De/Até) ---
   const dias = pd || [];
@@ -292,13 +296,14 @@ async function renderDashboard() {
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <h2 style="margin:0">Volume mensal — ${mesLabel(state.volDe)} a ${mesLabel(state.volAte)}</h2>
+        <h2 style="margin:0">Volume mensal — ${mesLabel(volDeEfetivo)} a ${mesLabel(state.volAte)}</h2>
         <div class="spacer"></div>
         ${[3,6,12,24].map(n=>presetBtn('vol'+n, n+'m')).join('')}
         <input id="volDe" type="month" value="${state.volDe}" style="min-width:120px">
         <span style="color:var(--muted)">até</span>
         <input id="volAte" type="month" value="${state.volAte}" style="min-width:120px">
       </div>
+      ${avisoRecorte ? `<p style="color:var(--muted);font-size:12px;margin:-4px 0 8px">Sem produção registrada antes de ${mesLabel(primeiroMesComDado)} — meses anteriores foram ocultados do gráfico.</p>` : ''}
       <div class="chart">${volSerie.map(v => `
         <div class="bar-wrap" title="${mesLabel(v.mes.slice(0,7))}: ${v.total}">
           <div class="bar-val">${v.total}</div>
