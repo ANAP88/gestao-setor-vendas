@@ -183,10 +183,18 @@ function pctFmt(num, den) {
   return (p >= 99.995 ? '100' : p.toFixed(2)) + '%';
 }
 async function renderDashboard() {
+  const hoje0 = new Date();
+  const ymAdd = (ym, n) => { const [y,m]=ym.split('-').map(Number); const d=new Date(y,m-1+n,1); return d.toISOString().slice(0,7); };
+  const thisYm = hoje0.toISOString().slice(0,7);
+  const dAdd = (dt, n) => { const d=new Date(dt+'T12:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+  const todayStr = hoje0.toISOString().slice(0,10);
   if (!state.dashAnalista) state.dashAnalista = '';
-  if (!state.mesesJanela) state.mesesJanela = 12;
-  if (!state.diasJanela) state.diasJanela = 60;
-  const [{ data: vol }, rkAll, { data: pd }, { data: pad }, { data: solo }, { data: metaF }, { data: cfg }] = await Promise.all([
+  if (!state.volAte) state.volAte = thisYm;
+  if (!state.volDe) state.volDe = ymAdd(thisYm, -11);
+  if (!state.diaAte) state.diaAte = todayStr;
+  if (!state.diaDe) state.diaDe = dAdd(todayStr, -59);
+
+  const [{ data: vol }, rkAll, { data: pd }, { data: pad }, { data: solo }, { data: metaF }, { data: cfg }, { data: ativs }, { data: tops }] = await Promise.all([
     sb.from('volume_mensal').select('*'),
     sb.from('ranking_analistas').select('*'),
     sb.from('producao_diaria').select('*'),
@@ -194,6 +202,8 @@ async function renderDashboard() {
     sb.from('fds_solo').select('*'),
     sb.from('metas_fds').select('*'),
     sb.from('metas_config').select('*'),
+    sb.from('volume_atividades').select('*'),
+    sb.from('top_empreendedoras').select('*'),
   ]);
   const meses = [...new Set((rkAll.data||[]).map(r => r.mes.slice(0,7)))].sort().reverse();
   if (!state.dashMes && meses.length) state.dashMes = meses[0];
@@ -204,26 +214,34 @@ async function renderDashboard() {
   const totAll = (vol||[]).reduce((s,v)=>s+v.total,0);
   const concAll = (vol||[]).reduce((s,v)=>s+v.concluidas,0);
   const volPorMes = {}; (vol||[]).forEach(v => volPorMes[v.mes.slice(0,7)] = v);
-  const hoje0 = new Date();
-  const nMeses = state.mesesJanela;
-  const last12 = Array.from({length:nMeses}, (_, i) => {
-    const d = new Date(hoje0.getFullYear(), hoje0.getMonth() - (nMeses - 1 - i), 1);
-    const k = d.toISOString().slice(0,7);
-    return volPorMes[k] || { mes: k + '-01', total: 0, concluidas: 0 };
-  });
-  const max = Math.max(...last12.map(v=>v.total), 1);
 
-  // --- produção diária / semanal / dia-da-semana / capacidade solo / metas (fundido do antigo "Produção") ---
+  // --- Volume mensal: intervalo livre (De/Até), não só presets ---
+  const mesesLista = [];
+  { let cur = state.volDe; let guard = 0;
+    while (cur <= state.volAte && guard++ < 120) { mesesLista.push(cur); cur = ymAdd(cur, 1); } }
+  const volSerie = mesesLista.map(k => volPorMes[k] || { mes: k+'-01', total: 0, concluidas: 0 });
+  const maxVol = Math.max(...volSerie.map(v=>v.total), 1);
+
+  // --- produção diária: intervalo livre (De/Até) ---
   const dias = pd || [];
   const porDia = {}; dias.forEach(d => porDia[d.dia] = d);
-  const nDias = state.diasJanela;
-  const ult60 = Array.from({length:nDias}, (_, i) => {
-    const d = new Date(hoje0); d.setDate(hoje0.getDate() - (nDias - 1 - i));
-    const k = d.toISOString().slice(0,10);
-    return porDia[k] || { dia: k, total: 0, dow: ((d.getDay()+6)%7)+1 };
+  const diasLista = [];
+  { let cur = state.diaDe; let guard = 0;
+    while (cur <= state.diaAte && guard++ < 400) { diasLista.push(cur); cur = dAdd(cur, 1); } }
+  const dowOf = (k) => ((new Date(k+'T12:00').getDay()+6)%7)+1;
+  const serieDias = diasLista.map(k => porDia[k] || { dia: k, total: 0, dow: dowOf(k) });
+
+  // headcount (nº de analistas distintos que lançaram algo naquele dia) — usado pra normalizar a produção
+  const porDiaHeadcount = {};
+  (pad || []).forEach(p => { const s = porDiaHeadcount[p.dia] = porDiaHeadcount[p.dia] || new Set(); s.add(p.analista); });
+  const serieNormalizada = serieDias.map(d => {
+    const n = porDiaHeadcount[d.dia] ? porDiaHeadcount[d.dia].size : 0;
+    return { ...d, nAnalistas: n, porAnalista: n ? Math.round(d.total/n*10)/10 : 0 };
   });
+
+  // acumulado semanal — deriva do mesmo intervalo escolhido (não mais fixo em 12 semanas)
   const semanas = {};
-  dias.forEach(d => {
+  serieDias.forEach(d => {
     const dt = new Date(d.dia + 'T12:00');
     const seg = new Date(dt); seg.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
     const k = seg.toISOString().slice(0, 10);
@@ -233,19 +251,15 @@ async function renderDashboard() {
   });
   const semKeys = Object.keys(semanas).sort();
   const semVals = semKeys.map(k => semanas[k].total);
-  const ult12sem = semKeys.slice(-12);
-  const mm7 = ult60.map((_, i) => {
-    const win = ult60.slice(Math.max(0, i - 6), i + 1);
-    return win.reduce((s, x) => s + x.total, 0) / win.length;
-  });
+
   const dowNames = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
   const porDow = [1,2,3,4,5,6,7].map(dw => {
-    const ds = dias.filter(d => d.dow == dw);
+    const ds = serieDias.filter(d => d.dow == dw);
     return ds.length ? Math.round(ds.reduce((s, x) => s + x.total, 0) / ds.length * 10) / 10 : 0;
   });
   const maxDow = Math.max(...porDow, 1);
-  const totalGeral = dias.reduce((s, d) => s + d.total, 0);
-  const totalFds = dias.filter(d => d.dow >= 6).reduce((s, d) => s + d.total, 0);
+  const totalGeral = serieDias.reduce((s, d) => s + d.total, 0);
+  const totalFds = serieDias.filter(d => d.dow >= 6).reduce((s, d) => s + d.total, 0);
   const soloPorAnalista = {};
   (solo || []).forEach(s => { const a = soloPorAnalista[s.analista] = soloPorAnalista[s.analista] || { n: 0, tot: 0 }; a.n++; a.tot += s.producao; });
   const soloDatas = (solo||[]).map(s=>s.dia).sort();
@@ -254,11 +268,15 @@ async function renderDashboard() {
   const tend = semVals.length >= 3 ? semVals[semVals.length - 2] - semVals[semVals.length - 3] : 0;
   const meta = (metaF || [])[0] || {};
   const cfgMap = {}; (cfg || []).forEach(c => cfgMap[c.id] = c.valor);
-  const hojeStr = new Date().toISOString().slice(0, 10);
-  const prodHoje = (dias.find(d => d.dia === hojeStr) || {}).total || 0;
-  const metaDia = cfgMap.diaria || 0;
+  const hojeStr = todayStr;
+  const ehFds = dowOf(hojeStr) >= 6;
+  const prodHoje = (serieDias.find(d => d.dia === hojeStr) || {}).total || (porDia[hojeStr]?.total || 0);
+  const metaFdsEfetiva = cfgMap.fds_esperada ?? meta.meta_esperada ?? 0;
+  const metaDia = ehFds ? metaFdsEfetiva : (cfgMap.diaria || 0);
   const pctDia = metaDia ? Math.round(100 * prodHoje / metaDia) : null;
   const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
+
+  const presetBtn = (id, label) => `<button class="ghost preset-btn" data-target="${id}">${label}</button>`;
 
   shell(`
     <div class="kpis">
@@ -271,46 +289,59 @@ async function renderDashboard() {
       <div><label>Mês do ranking</label><select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select></div>
       <div><label>Analista (ranking)</label><select id="dashAnalista"><option value="">Todos</option>
         ${todosAnalistas.map(n=>`<option value="${esc(n)}" ${state.dashAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
-      <div><label>Janela do gráfico de volume</label><select id="mesesJanela">
-        ${[3,6,12,24].map(n=>`<option value="${n}" ${state.mesesJanela===n?'selected':''}>Últimos ${n} meses</option>`).join('')}</select></div>
-      <div><label>Janela da produção diária</label><select id="diasJanela">
-        ${[30,60,90].map(n=>`<option value="${n}" ${state.diasJanela===n?'selected':''}>Últimos ${n} dias</option>`).join('')}</select></div>
     </div>
     <div class="card">
-      <h2>Volume mensal (últimos ${nMeses} meses — ${mesLabel(last12[0].mes.slice(0,7))} a ${mesLabel(last12[last12.length-1].mes.slice(0,7))})</h2>
-      <div class="chart">${last12.map(v => `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0">Volume mensal — ${mesLabel(state.volDe)} a ${mesLabel(state.volAte)}</h2>
+        <div class="spacer"></div>
+        ${[3,6,12,24].map(n=>presetBtn('vol'+n, n+'m')).join('')}
+        <input id="volDe" type="month" value="${state.volDe}" style="min-width:120px">
+        <span style="color:var(--muted)">até</span>
+        <input id="volAte" type="month" value="${state.volAte}" style="min-width:120px">
+      </div>
+      <div class="chart">${volSerie.map(v => `
         <div class="bar-wrap" title="${mesLabel(v.mes.slice(0,7))}: ${v.total}">
           <div class="bar-val">${v.total}</div>
-          <div class="bar" style="height:${Math.round(140*v.total/max)}px"></div>
+          <div class="bar" style="height:${Math.round(140*v.total/maxVol)}px"></div>
           <div class="bar-lbl">${mesLabel(v.mes.slice(0,7))}</div>
         </div>`).join('')}
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${prodHoje}</div><div class="l">📥 Produção hoje ${metaDia ? '/ meta ' + metaDia : ''}</div></div>
+      <div class="kpi"><div class="v">${prodHoje}</div><div class="l">📥 Produção hoje ${metaDia ? '/ meta ' + metaDia + (ehFds ? ' (fds)' : '') : ''}</div></div>
       <div class="kpi"><div class="v">${pctDia !== null ? pctDia + '%' : '—'}</div><div class="l">${farol(pctDia)}</div></div>
       <div class="kpi"><div class="v" style="color:${tend >= 0 ? 'var(--ok)' : 'var(--err)'}">${tend >= 0 ? '▲' : '▼'} ${Math.abs(tend)}</div><div class="l">Tendência semanal</div></div>
-      <div class="kpi"><div class="v">${totalGeral ? Math.round(100 * totalFds / totalGeral) : 0}%</div><div class="l">🗓️ Peso do fim de semana</div></div>
+      <div class="kpi"><div class="v">${totalGeral ? Math.round(100 * totalFds / totalGeral) : 0}%</div><div class="l">🗓️ Peso do fim de semana (no período)</div></div>
     </div>
     <div class="card">
-      <h2>📈 Produção diária (últimos ${nDias} dias: ${fmtDia(ult60[0].dia)} a ${fmtDia(ult60[ult60.length-1].dia)}) + média móvel 7d</h2>
-      <svg viewBox="0 0 700 180" style="width:100%;height:180px">
-        ${svgLine(ult60.map(d => d.total), 700, 180, 'url(#g1)' , false)}
-        ${svgLine(mm7, 700, 180, '#ffb84d', true)}
-        <defs><linearGradient id="g1"><stop offset="0%" stop-color="#6d8bff"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <h2 style="margin:0">📈 Produção — ${fmtDia(state.diaDe)} a ${fmtDia(state.diaAte)}</h2>
+        <div class="spacer"></div>
+        ${[30,60,90,180].map(n=>presetBtn('dia'+n, n+'d')).join('')}
+        <input id="diaDe" type="date" value="${state.diaDe}">
+        <span style="color:var(--muted)">até</span>
+        <input id="diaAte" type="date" value="${state.diaAte}">
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:6px">Total por dia (topo) e <b>produção média por analista ativo naquele dia</b> (embaixo) — essa segunda linha não distorce quando um fim de semana teve mais gente escalada que o normal.</p>
+      <svg viewBox="0 0 700 100" style="width:100%;height:100px">
+        ${svgLine(serieDias.map(d => d.total), 700, 100, '#6d8bff', false)}
       </svg>
-      <div style="font-size:12px;color:var(--muted)">— produção diária &nbsp;&nbsp; ‑ ‑ média móvel 7 dias</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">— produção total por dia</div>
+      <svg viewBox="0 0 700 100" style="width:100%;height:100px">
+        ${svgLine(serieNormalizada.map(d => d.porAnalista), 700, 100, '#2dd4bf', false)}
+      </svg>
+      <div style="font-size:11px;color:var(--muted)">— produção média por analista ativo no dia (total ÷ nº de analistas que lançaram algo)</div>
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>📊 Acumulado semanal (últimas 12 semanas)</h2>
-        ${ult12sem.map(k => { const v = semanas[k]; const maxS = Math.max(...ult12sem.map(x => semanas[x].total), 1);
+        <h2>📊 Acumulado semanal (dentro do período escolhido acima)</h2>
+        ${semKeys.map(k => { const v = semanas[k]; const maxS = Math.max(...semKeys.map(x => semanas[x].total), 1);
           return `<div class="hbar-row"><span class="hbar-lbl">${new Date(k+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</span>
           <div class="hbar"><div style="width:${Math.round(100*v.total/maxS)}%"></div></div><b>${v.total}</b>
-          <span style="color:var(--muted);font-size:11px">(fds: ${v.fds})</span></div>`; }).join('')}
+          <span style="color:var(--muted);font-size:11px">(fds: ${v.fds})</span></div>`; }).join('') || '<p style="color:var(--muted);font-size:12.5px">Sem semanas completas no período.</p>'}
       </div>
       <div class="card">
-        <h2>📆 Média por dia da semana</h2>
+        <h2>📆 Média por dia da semana (no período escolhido)</h2>
         ${dowNames.map((n, i) => `<div class="hbar-row"><span class="hbar-lbl">${n}</span>
           <div class="hbar"><div style="width:${Math.round(100*porDow[i]/maxDow)}%"></div></div><b>${porDow[i]}</b></div>`).join('')}
         <p style="color:var(--muted);font-size:12px;margin-top:8px">Melhor dia: <b>${dowNames[porDow.indexOf(Math.max(...porDow))]}</b> · Menor: <b>${dowNames[porDow.indexOf(Math.min(...porDow.filter(x=>x>0)))]}</b></p>
@@ -326,24 +357,29 @@ async function renderDashboard() {
         : '<div class="msg">Sem fins de semana com analista único no histórico.</div>'}
       </div>
       <div class="card">
-        <h2>🎯 Metas de fim de semana (automáticas)</h2>
-        <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Calculadas do histórico de ${meta.amostras || 0} fins de semana solo.</p>
+        <h2>🎯 Meta de fim de semana</h2>
+        <p style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Sugestão automática (média histórica de ${meta.amostras || 0} fins de semana solo) — usada só como referência:</p>
         <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-          <div class="kpi"><div class="v" style="color:var(--warn)">${meta.meta_minima ?? '—'}</div><div class="l">Meta mínima</div></div>
-          <div class="kpi"><div class="v" style="color:var(--accent)">${meta.meta_esperada ?? '—'}</div><div class="l">Meta esperada</div></div>
-          <div class="kpi"><div class="v" style="color:var(--ok)">${meta.meta_excelente ?? '—'}</div><div class="l">Meta excelente</div></div>
+          <div class="kpi"><div class="v" style="color:var(--warn)">${meta.meta_minima ?? '—'}</div><div class="l">Sugestão mínima</div></div>
+          <div class="kpi"><div class="v" style="color:var(--accent)">${meta.meta_esperada ?? '—'}</div><div class="l">Sugestão esperada</div></div>
+          <div class="kpi"><div class="v" style="color:var(--ok)">${meta.meta_excelente ?? '—'}</div><div class="l">Sugestão excelente</div></div>
         </div>
         ${state.role === 'admin' ? `
-        <h2 style="margin-top:14px">⚙️ Metas configuráveis</h2>
+        <h2 style="margin-top:14px">✏️ Meta oficial (definida por você — vale mais que a sugestão)</h2>
+        <div class="filters">
+          ${[['fds_minima','Mínima'],['fds_esperada','Esperada'],['fds_excelente','Excelente']].map(([k,l]) =>
+            `<div><label>${l}</label><input id="meta_${k}" type="number" value="${cfgMap[k] ?? ''}" placeholder="${meta['meta_'+k.split('_')[1]] ?? ''}" style="min-width:100px"></div>`).join('')}
+        </div>
+        <h2 style="margin-top:14px">⚙️ Outras metas configuráveis</h2>
         <div class="filters">
           ${['diaria','semanal','mensal'].map(k => `<div><label>Meta ${k}</label><input id="meta_${k}" type="number" value="${cfgMap[k] ?? ''}" style="min-width:100px"></div>`).join('')}
-          <button id="btnSalvarMetas">Salvar</button>
+          <button id="btnSalvarMetas">Salvar todas</button>
         </div>` : ''}
       </div>
     </div>
     <div class="card">
       <h2 style="margin:0">🏆 Ranking de produtividade — ${mesLabel(state.dashMes)}${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
-      <p style="color:var(--muted);font-size:12px;margin:2px 0 8px">Usa o filtro "Mês do ranking" acima, independente da janela do gráfico de volume.</p>
+      <p style="color:var(--muted);font-size:12px;margin:2px 0 8px">Usa o filtro "Mês do ranking" acima, independente do período dos gráficos.</p>
       <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
         <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
@@ -352,17 +388,42 @@ async function renderDashboard() {
         <td><b>${r.score ?? '—'}</b></td>
         <td><span class="tag ${r.classe==='Alta'?'CONCLUIDO':r.classe==='Média'?'RECEBIDO':'PENDENTE'}">${esc(r.classe||'—')}</span></td>
       </tr>`).join('') || '<tr><td colspan="9">Sem dados neste mês.</td></tr>'}</tbody></table>
+    </div>
+    <div class="grid-cad">
+      <div class="card">
+        <h2>📝 Todas as atividades (todo o histórico)</h2>
+        <div style="max-height:420px;overflow-y:auto">
+        ${(ativs||[]).map(a => `<div class="hbar-row"><span class="hbar-lbl">${esc(a.nome)}</span>
+          <div class="hbar"><div style="width:${Math.round(100*a.total/Math.max(...(ativs||[]).map(x=>x.total),1))}%"></div></div>
+          <b>${a.total}</b></div>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h2>🏢 Todas as empreendedoras (todo o histórico)</h2>
+        <div style="max-height:420px;overflow-y:auto">
+        <table><thead><tr><th>Empreendedora</th><th>Total</th><th>Pendentes</th></tr></thead>
+        <tbody>${(tops||[]).map(t => `<tr><td>${esc(t.nome)}</td><td>${t.total}</td><td>${t.pendentes}</td></tr>`).join('')}</tbody></table>
+        </div>
+      </div>
     </div>`);
   document.getElementById('dashMes').onchange = (e) => { state.dashMes = e.target.value; renderDashboard(); };
   document.getElementById('dashAnalista').onchange = (e) => { state.dashAnalista = e.target.value; renderDashboard(); };
-  document.getElementById('mesesJanela').onchange = (e) => { state.mesesJanela = Number(e.target.value); renderDashboard(); };
-  document.getElementById('diasJanela').onchange = (e) => { state.diasJanela = Number(e.target.value); renderDashboard(); };
+  document.getElementById('volDe').onchange = (e) => { state.volDe = e.target.value; renderDashboard(); };
+  document.getElementById('volAte').onchange = (e) => { state.volAte = e.target.value; renderDashboard(); };
+  document.getElementById('diaDe').onchange = (e) => { state.diaDe = e.target.value; renderDashboard(); };
+  document.getElementById('diaAte').onchange = (e) => { state.diaAte = e.target.value; renderDashboard(); };
+  document.querySelectorAll('.preset-btn').forEach(b => b.onclick = () => {
+    const t = b.dataset.target;
+    if (t.startsWith('vol')) { const n = Number(t.slice(3)); state.volAte = thisYm; state.volDe = ymAdd(thisYm, -(n-1)); }
+    else { const n = Number(t.slice(3)); state.diaAte = todayStr; state.diaDe = dAdd(todayStr, -(n-1)); }
+    renderDashboard();
+  });
   if (state.role === 'admin') {
     const btn = document.getElementById('btnSalvarMetas');
     if (btn) btn.onclick = async () => {
-      for (const k of ['diaria','semanal','mensal']) {
-        const v = document.getElementById('meta_' + k).value;
-        if (v) await sb.from('metas_config').upsert({ id: k, valor: Number(v), atualizado_em: new Date().toISOString() });
+      for (const k of ['diaria','semanal','mensal','fds_minima','fds_esperada','fds_excelente']) {
+        const el = document.getElementById('meta_' + k);
+        if (el && el.value !== '') await sb.from('metas_config').upsert({ id: k, valor: Number(el.value), atualizado_em: new Date().toISOString() });
       }
       renderDashboard();
     };
@@ -612,51 +673,78 @@ async function renderInsights() {
 // ---------- ANALYTICS ----------
 async function renderAnalytics() {
   if (!state.anaAnalista) state.anaAnalista = '';
-  const [rkAll, { data: ativs }, { data: tops }] = await Promise.all([
-    sb.from('ranking_analistas').select('*'),
-    sb.from('volume_atividades').select('*'),
-    sb.from('top_empreendedoras').select('*'),
+  const [{ data: evo }, { data: tempoAtiv }, { data: mix }, { data: empMes }] = await Promise.all([
+    sb.from('evolucao_analista_mes').select('*'),
+    sb.from('tempo_por_atividade').select('*'),
+    sb.from('mix_atividade_analista').select('*'),
+    sb.from('empreendedora_mes').select('*'),
   ]);
-  const meses = [...new Set((rkAll.data||[]).map(r => r.mes.slice(0,7)))].sort().reverse();
-  if (!state.dashMes && meses.length) state.dashMes = meses[0];
-  let rk = (rkAll.data||[]).filter(r => r.mes.slice(0,7) === state.dashMes).sort((a,b) => b.total - a.total);
-  const todosAnalistas = [...new Set((rkAll.data||[]).map(r => r.nome))].sort();
-  if (state.anaAnalista) rk = rk.filter(r => r.nome === state.anaAnalista);
-  const maxA = Math.max(...(ativs||[]).map(a=>a.total), 1);
+  const mesesEvo = [...new Set((evo||[]).map(e => e.mes.slice(0,7)))].sort();
+  const ult6 = mesesEvo.slice(-6);
+  const analistas = [...new Set((evo||[]).map(e => e.analista))].sort();
+  const evoMap = {}; (evo||[]).forEach(e => evoMap[e.analista + '|' + e.mes.slice(0,7)] = e.total);
+
+  // gargalos: atividades mais lentas
+  const lentas = [...(tempoAtiv||[])].sort((a,b) => b.horas_medias - a.horas_medias).slice(0,12);
+  const maxH = Math.max(...lentas.map(a=>a.horas_medias), 1);
+
+  // concentração de clientes no último mês com dado
+  const ultMesEmp = [...new Set((empMes||[]).map(e=>e.mes.slice(0,7)))].sort().pop();
+  const empUlt = (empMes||[]).filter(e => e.mes.slice(0,7) === ultMesEmp).sort((a,b)=>b.total-a.total);
+  const totalEmpUlt = empUlt.reduce((s,e)=>s+e.total,0);
+  const top5share = totalEmpUlt ? Math.round(100 * empUlt.slice(0,5).reduce((s,e)=>s+e.total,0) / totalEmpUlt) : 0;
+
+  // mix do analista selecionado
+  const mixSel = state.anaAnalista ? (mix||[]).filter(m => m.analista === state.anaAnalista).sort((a,b)=>b.total-a.total).slice(0,15) : [];
+  const maxMix = Math.max(...mixSel.map(m=>m.total), 1);
+
   shell(`
     <div class="card">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-        <h2 style="margin:0">🏆 Produtividade por analista — análise completa</h2>
-        <div><label style="margin:0 6px 0 0;display:inline">Período</label><select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select></div>
-        <div><label style="margin:0 6px 0 0;display:inline">Analista</label><select id="anaAnalista"><option value="">Todos</option>
-          ${todosAnalistas.map(n=>`<option value="${esc(n)}" ${state.anaAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
-      </div>
-      <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Prod/dia útil</th><th>% Particip.</th><th>Score</th><th>Classe</th></tr></thead>
-      <tbody>${rk.map((r,i) => `<tr>
-        <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
-        <td style="color:var(--ok)">${r.concluidas}</td><td style="color:var(--warn)">${r.pendentes}</td>
-        <td>${r.pct_concl}%</td><td>${r.prod_dia_util ?? '—'}</td><td>${r.pct_participacao ?? '—'}%</td>
-        <td><b>${r.score ?? '—'}</b></td>
-        <td><span class="tag ${r.classe==='Alta'?'CONCLUIDO':r.classe==='Média'?'RECEBIDO':'PENDENTE'}">${esc(r.classe||'—')}</span></td></tr>`).join('') || '<tr><td colspan="10">Sem dados neste mês.</td></tr>'}</tbody></table>
+      <h2>📈 Evolução por analista (últimos 6 meses)</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Mostra quem está crescendo ou caindo mês a mês — útil para conversas de performance.</p>
+      <table><thead><tr><th>Analista</th>${ult6.map(m=>`<th>${mesLabel(m)}</th>`).join('')}<th>Tendência</th></tr></thead>
+      <tbody>${analistas.map(a => {
+        const vals = ult6.map(m => evoMap[a+'|'+m] || 0);
+        const metadeA = vals.slice(0, 3).reduce((s,v)=>s+v,0), metadeB = vals.slice(3).reduce((s,v)=>s+v,0);
+        const dir = metadeB > metadeA * 1.1 ? '<span style="color:var(--ok)">▲ subindo</span>'
+                  : metadeB < metadeA * 0.9 ? '<span style="color:var(--err)">▼ caindo</span>'
+                  : '<span style="color:var(--muted)">— estável</span>';
+        return `<tr><td><b>${esc(nomeExib(a, 1))}</b></td>${vals.map(v=>`<td>${v||'—'}</td>`).join('')}<td>${dir}</td></tr>`;
+      }).join('')}</tbody></table>
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>📝 Todas as atividades (todo o histórico)</h2>
-        <div style="max-height:420px;overflow-y:auto">
-        ${(ativs||[]).map(a => `<div class="hbar-row"><span class="hbar-lbl">${esc(a.nome)}</span>
-          <div class="hbar"><div style="width:${Math.round(100*a.total/maxA)}%"></div></div>
-          <b>${a.total}</b></div>`).join('')}
-        </div>
+        <h2>🐢 Gargalos — atividades que mais demoram</h2>
+        <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Tempo médio entre receber e concluir. Só atividades com 5+ casos. Onde atacar para ganhar velocidade.</p>
+        ${lentas.map(a => `<div class="hbar-row"><span class="hbar-lbl">${esc(a.atividade)}</span>
+          <div class="hbar"><div style="width:${Math.round(100*a.horas_medias/maxH)}%"></div></div>
+          <b>${a.horas_medias}h</b><span style="color:var(--muted);font-size:11px">(${a.total}x)</span></div>`).join('')
+          || '<p style="color:var(--muted);font-size:12.5px">Sem dados suficientes.</p>'}
       </div>
       <div class="card">
-        <h2>🏢 Todas as empreendedoras (todo o histórico)</h2>
-        <div style="max-height:420px;overflow-y:auto">
-        <table><thead><tr><th>Empreendedora</th><th>Total</th><th>Pendentes</th></tr></thead>
-        <tbody>${(tops||[]).map(t => `<tr><td>${esc(t.nome)}</td><td>${t.total}</td><td>${t.pendentes}</td></tr>`).join('')}</tbody></table>
+        <h2>🎯 Concentração de clientes — ${ultMesEmp ? mesLabel(ultMesEmp) : '—'}</h2>
+        <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">O quanto o volume depende de poucas empreendedoras (risco de concentração).</p>
+        <div class="kpis" style="grid-template-columns:1fr 1fr;margin-bottom:10px">
+          <div class="kpi"><div class="v" style="color:${top5share>70?'var(--warn)':'var(--accent)'}">${top5share}%</div><div class="l">Top 5 clientes</div></div>
+          <div class="kpi"><div class="v">${empUlt.length}</div><div class="l">Clientes ativos no mês</div></div>
         </div>
+        <table><thead><tr><th>Empreendedora</th><th>Volume</th><th>% do mês</th></tr></thead>
+        <tbody>${empUlt.slice(0,10).map(e => `<tr><td>${esc(e.nome ?? e.empreendedora)}</td><td>${e.total}</td>
+          <td>${totalEmpUlt ? Math.round(100*e.total/totalEmpUlt) : 0}%</td></tr>`).join('')}</tbody></table>
       </div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0">🧩 Perfil de trabalho do analista</h2>
+        <select id="anaAnalista"><option value="">Escolha um analista...</option>
+          ${analistas.map(n=>`<option value="${esc(n)}" ${state.anaAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select>
+      </div>
+      ${state.anaAnalista ? `
+        <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Quais atividades ${esc(state.anaAnalista)} mais executa — mostra especialização ou sobrecarga em um tipo só.</p>
+        ${mixSel.map(m => `<div class="hbar-row"><span class="hbar-lbl">${esc(m.atividade)}</span>
+          <div class="hbar"><div style="width:${Math.round(100*m.total/maxMix)}%"></div></div><b>${m.total}</b></div>`).join('')}`
+      : '<p style="color:var(--muted);font-size:12.5px">Selecione um analista acima para ver o perfil de atividades dele.</p>'}
     </div>`);
-  document.getElementById('dashMes').onchange = (e) => { state.dashMes = e.target.value; renderAnalytics(); };
   document.getElementById('anaAnalista').onchange = (e) => { state.anaAnalista = e.target.value; renderAnalytics(); };
 }
 
