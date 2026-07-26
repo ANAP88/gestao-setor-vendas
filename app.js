@@ -1282,9 +1282,10 @@ async function openApontamento() {
 async function renderMetas() {
   const anoAtual = new Date().getFullYear();
   if (!state.metaAno) state.metaAno = anoAtual;
-  const [{ data: kpis }, { data: mensal }] = await Promise.all([
+  const [{ data: kpis }, { data: mensal }, { data: porAnalistaRaw }] = await Promise.all([
     sb.from('indicadores_kpi').select('*').eq('ativo', true).order('ordem'),
     sb.from('indicador_mensal').select('*'),
+    sb.from('indicador_analista_mensal').select('*, analistas(nome, status)'),
   ]);
   const porInd = {};
   (mensal || []).forEach(r => { (porInd[r.indicador_id] = porInd[r.indicador_id] || {})[r.mes.slice(0,7)] = r; });
@@ -1304,6 +1305,28 @@ async function renderMetas() {
   };
   const anos = [...new Set([anoAtual, anoAtual-1, ...(mensal||[]).map(r=>+r.mes.slice(0,4))])].sort((a,b)=>b-a);
 
+  // ranking individual — hoje só "Emissão de contrato sem erro" tem granularidade por analista
+  const porAnalista = {};
+  (porAnalistaRaw||[]).forEach(r => {
+    const n = r.analistas?.nome || '—';
+    const a = porAnalista[n] = porAnalista[n] || { nome: n, status: r.analistas?.status, meses: {} };
+    a.meses[r.mes.slice(0,7)] = r;
+  });
+  const ranking = Object.values(porAnalista).map(a => {
+    const rs = meses.map(m => a.meses[m]).filter(Boolean);
+    const proc = rs.reduce((s,r)=>s+r.quantidade_processos,0);
+    const err = rs.reduce((s,r)=>s+r.quantidade_erros,0);
+    const media = proc ? 1 - err/proc : null;
+    const ultimo = rs[rs.length-1], penultimo = rs[rs.length-2];
+    const tend = (ultimo && penultimo && penultimo.quantidade_processos)
+      ? (1-ultimo.quantidade_erros/ultimo.quantidade_processos) - (1-penultimo.quantidade_erros/penultimo.quantidade_processos) : null;
+    return { ...a, proc, err, media, ultimoPct: ultimo ? 1-ultimo.quantidade_erros/ultimo.quantidade_processos : null, tend };
+  }).sort((a,b) => (b.media??-1) - (a.media??-1));
+  const statusTag = (a) => a.status === 'Desligado' ? '⚫ Desligado' : a.status === 'Em licença' ? '🔵 Em licença'
+    : a.media === null ? '—' : a.media >= 1.05 ? '🟢 Excelente' : a.media >= 0.95 ? '🟢 Ótimo' : a.media >= 0.90 ? '🟡 Atenção' : '🔴 Abaixo da meta';
+  const naMeta = ranking.filter(a => a.status === 'Ativo' && a.media !== null && a.media >= 0.95).length;
+  const ativosComDado = ranking.filter(a => a.status === 'Ativo' && a.media !== null).length;
+
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1313,6 +1336,19 @@ async function renderMetas() {
         <select id="metaAno">${anos.map(a=>`<option ${a===state.metaAno?'selected':''}>${a}</option>`).join('')}</select>
         ${state.role === 'admin' ? '<button id="btnEditarMetas" class="ghost">✏️ Lançar dados do mês</button>' : ''}
       </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2 style="margin:0 0 4px">🏆 Ranking individual — Emissão de contrato sem erro</h2>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px">Colaboradores na meta (≥95%): <b>${naMeta} / ${ativosComDado}</b></p>
+      <table><thead><tr><th>#</th><th>Colaborador</th><th>Atingimento</th><th>Último mês</th><th>Tendência</th><th>Processos</th><th>Erros</th><th>Status</th></tr></thead>
+      <tbody>${ranking.map((a,i) => `<tr>
+        <td>${i+1}</td><td>${esc(nomeExib(a.nome, i+1))}</td>
+        <td style="font-weight:600">${pctTxt(a.media)}</td>
+        <td>${pctTxt(a.ultimoPct)}</td>
+        <td style="color:${a.tend===null?'var(--muted)':a.tend>=0?'var(--ok)':'var(--err)'}">${a.tend===null?'—':(a.tend>=0?'▲':'▼')+' '+Math.abs(a.tend*100).toFixed(1)+'%'}</td>
+        <td>${a.proc}</td><td>${a.err}</td>
+        <td>${statusTag(a)}</td>
+      </tr>`).join('') || '<tr><td colspan="8">Sem dados ainda.</td></tr>'}</tbody></table>
     </div>
     ${(kpis||[]).map(k => {
       const serie = meses.map(m => atingimento((porInd[k.id]||{})[m]));
