@@ -184,6 +184,8 @@ function pctFmt(num, den) {
 }
 async function renderDashboard() {
   if (!state.dashAnalista) state.dashAnalista = '';
+  if (!state.mesesJanela) state.mesesJanela = 12;
+  if (!state.diasJanela) state.diasJanela = 60;
   const [{ data: vol }, rkAll, { data: pd }, { data: pad }, { data: solo }, { data: metaF }, { data: cfg }] = await Promise.all([
     sb.from('volume_mensal').select('*'),
     sb.from('ranking_analistas').select('*'),
@@ -203,8 +205,9 @@ async function renderDashboard() {
   const concAll = (vol||[]).reduce((s,v)=>s+v.concluidas,0);
   const volPorMes = {}; (vol||[]).forEach(v => volPorMes[v.mes.slice(0,7)] = v);
   const hoje0 = new Date();
-  const last12 = Array.from({length:12}, (_, i) => {
-    const d = new Date(hoje0.getFullYear(), hoje0.getMonth() - (11 - i), 1);
+  const nMeses = state.mesesJanela;
+  const last12 = Array.from({length:nMeses}, (_, i) => {
+    const d = new Date(hoje0.getFullYear(), hoje0.getMonth() - (nMeses - 1 - i), 1);
     const k = d.toISOString().slice(0,7);
     return volPorMes[k] || { mes: k + '-01', total: 0, concluidas: 0 };
   });
@@ -212,7 +215,13 @@ async function renderDashboard() {
 
   // --- produção diária / semanal / dia-da-semana / capacidade solo / metas (fundido do antigo "Produção") ---
   const dias = pd || [];
-  const ult60 = dias.slice(-60);
+  const porDia = {}; dias.forEach(d => porDia[d.dia] = d);
+  const nDias = state.diasJanela;
+  const ult60 = Array.from({length:nDias}, (_, i) => {
+    const d = new Date(hoje0); d.setDate(hoje0.getDate() - (nDias - 1 - i));
+    const k = d.toISOString().slice(0,10);
+    return porDia[k] || { dia: k, total: 0, dow: ((d.getDay()+6)%7)+1 };
+  });
   const semanas = {};
   dias.forEach(d => {
     const dt = new Date(d.dia + 'T12:00');
@@ -239,6 +248,9 @@ async function renderDashboard() {
   const totalFds = dias.filter(d => d.dow >= 6).reduce((s, d) => s + d.total, 0);
   const soloPorAnalista = {};
   (solo || []).forEach(s => { const a = soloPorAnalista[s.analista] = soloPorAnalista[s.analista] || { n: 0, tot: 0 }; a.n++; a.tot += s.producao; });
+  const soloDatas = (solo||[]).map(s=>s.dia).sort();
+  const fmtDia = (d) => d ? new Date(d+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+  const soloPeriodo = soloDatas.length ? `${fmtDia(soloDatas[0])} até ${fmtDia(soloDatas[soloDatas.length-1])}` : '—';
   const tend = semVals.length >= 3 ? semVals[semVals.length - 2] - semVals[semVals.length - 3] : 0;
   const meta = (metaF || [])[0] || {};
   const cfgMap = {}; (cfg || []).forEach(c => cfgMap[c.id] = c.valor);
@@ -256,12 +268,16 @@ async function renderDashboard() {
       <div class="kpi"><div class="v" style="color:var(--accent)">${pctFmt(concAll, totAll)}</div><div class="l">📊 % conclusão</div></div>
     </div>
     <div class="card filters" style="align-items:center">
-      <div><label>Mês de referência</label><select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select></div>
-      <div><label>Analista</label><select id="dashAnalista"><option value="">Todos</option>
+      <div><label>Mês do ranking</label><select id="dashMes">${meses.map(m=>`<option value="${m}" ${m===state.dashMes?'selected':''}>${mesLabel(m)}</option>`).join('')}</select></div>
+      <div><label>Analista (ranking)</label><select id="dashAnalista"><option value="">Todos</option>
         ${todosAnalistas.map(n=>`<option value="${esc(n)}" ${state.dashAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+      <div><label>Janela do gráfico de volume</label><select id="mesesJanela">
+        ${[3,6,12,24].map(n=>`<option value="${n}" ${state.mesesJanela===n?'selected':''}>Últimos ${n} meses</option>`).join('')}</select></div>
+      <div><label>Janela da produção diária</label><select id="diasJanela">
+        ${[30,60,90].map(n=>`<option value="${n}" ${state.diasJanela===n?'selected':''}>Últimos ${n} dias</option>`).join('')}</select></div>
     </div>
     <div class="card">
-      <h2>Volume mensal (últimos 12 meses)</h2>
+      <h2>Volume mensal (últimos ${nMeses} meses — ${mesLabel(last12[0].mes.slice(0,7))} a ${mesLabel(last12[last12.length-1].mes.slice(0,7))})</h2>
       <div class="chart">${last12.map(v => `
         <div class="bar-wrap" title="${mesLabel(v.mes.slice(0,7))}: ${v.total}">
           <div class="bar-val">${v.total}</div>
@@ -277,7 +293,7 @@ async function renderDashboard() {
       <div class="kpi"><div class="v">${totalGeral ? Math.round(100 * totalFds / totalGeral) : 0}%</div><div class="l">🗓️ Peso do fim de semana</div></div>
     </div>
     <div class="card">
-      <h2>📈 Produção diária (últimos 60 dias) + média móvel 7d</h2>
+      <h2>📈 Produção diária (últimos ${nDias} dias: ${fmtDia(ult60[0].dia)} a ${fmtDia(ult60[ult60.length-1].dia)}) + média móvel 7d</h2>
       <svg viewBox="0 0 700 180" style="width:100%;height:180px">
         ${svgLine(ult60.map(d => d.total), 700, 180, 'url(#g1)' , false)}
         ${svgLine(mm7, 700, 180, '#ffb84d', true)}
@@ -303,7 +319,7 @@ async function renderDashboard() {
     <div class="grid-cad">
       <div class="card">
         <h2>🧍 Capacidade real — fim de semana com 1 analista</h2>
-        <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Considera apenas dias de sáb/dom em que um único analista produziu (${(solo||[]).length} dias no histórico).</p>
+        <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Considera <b>todo o histórico</b> (não segue os filtros acima) — dias de sáb/dom em que um único analista produziu: ${(solo||[]).length} dias, de ${soloPeriodo}.</p>
         ${Object.keys(soloPorAnalista).length ? `<table><thead><tr><th>Analista</th><th>Dias solo</th><th>Média/dia</th></tr></thead>
         <tbody>${Object.entries(soloPorAnalista).sort((a,b)=>b[1].tot/b[1].n-a[1].tot/a[1].n).map(([n,x]) =>
           `<tr><td>${esc(n)}</td><td>${x.n}</td><td><b>${Math.round(x.tot/x.n*10)/10}</b></td></tr>`).join('')}</tbody></table>`
@@ -326,7 +342,8 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="card">
-      <h2 style="margin:0">🏆 Ranking de produtividade${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
+      <h2 style="margin:0">🏆 Ranking de produtividade — ${mesLabel(state.dashMes)}${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
+      <p style="color:var(--muted);font-size:12px;margin:2px 0 8px">Usa o filtro "Mês do ranking" acima, independente da janela do gráfico de volume.</p>
       <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
         <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
@@ -338,6 +355,8 @@ async function renderDashboard() {
     </div>`);
   document.getElementById('dashMes').onchange = (e) => { state.dashMes = e.target.value; renderDashboard(); };
   document.getElementById('dashAnalista').onchange = (e) => { state.dashAnalista = e.target.value; renderDashboard(); };
+  document.getElementById('mesesJanela').onchange = (e) => { state.mesesJanela = Number(e.target.value); renderDashboard(); };
+  document.getElementById('diasJanela').onchange = (e) => { state.diasJanela = Number(e.target.value); renderDashboard(); };
   if (state.role === 'admin') {
     const btn = document.getElementById('btnSalvarMetas');
     if (btn) btn.onclick = async () => {
