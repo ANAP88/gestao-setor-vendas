@@ -84,12 +84,6 @@ function renderLogin(msg = '', tipo = 'erro') {
 
 // ---------- SHELL (4 pilares) ----------
 const PILARES = [
-  ['📊 Inteligência', [
-    ['dashboard', '📈', 'Dashboard'],
-    ['metas', '🎯', 'Metas & Indicadores'],
-    ['analytics', '📉', 'Analytics'],
-    ['insights', '💡', 'Insights'],
-  ]],
   ['⚙️ Operação', [
     ['pipeline', '📅', 'Produção'],
     ['esteira', '⛓️', 'Esteira'],
@@ -105,6 +99,10 @@ const PILARES = [
     ['documentos', '📄', 'Documentos'],
   ]],
   ['🏢 Gestão', [
+    ['dashboard', '📈', 'Dashboard'],
+    ['metas', '🎯', 'Metas & Indicadores'],
+    ['analytics', '📉', 'Analytics'],
+    ['insights', '💡', 'Insights'],
     ['chamados', '📨', 'Demandas'],
     ['implantacao', '🚀', 'Produtos em Implantação'],
     ['fechamento', '💰', 'Fechamento'],
