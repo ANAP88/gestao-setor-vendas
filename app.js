@@ -201,7 +201,13 @@ async function renderDashboard() {
 
   const totAll = (vol||[]).reduce((s,v)=>s+v.total,0);
   const concAll = (vol||[]).reduce((s,v)=>s+v.concluidas,0);
-  const last12 = (vol||[]).slice(-12);
+  const volPorMes = {}; (vol||[]).forEach(v => volPorMes[v.mes.slice(0,7)] = v);
+  const hoje0 = new Date();
+  const last12 = Array.from({length:12}, (_, i) => {
+    const d = new Date(hoje0.getFullYear(), hoje0.getMonth() - (11 - i), 1);
+    const k = d.toISOString().slice(0,7);
+    return volPorMes[k] || { mes: k + '-01', total: 0, concluidas: 0 };
+  });
   const max = Math.max(...last12.map(v=>v.total), 1);
 
   // --- produção diária / semanal / dia-da-semana / capacidade solo / metas (fundido do antigo "Produção") ---
