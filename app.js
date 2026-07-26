@@ -1,10 +1,8 @@
 // Gestão Setor de Secretaria de Vendas - Neo Service — deploy automático via GitHub + Netlify
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { CONFIG } from './config.js';
 
-const sb = createClient(
-  'https://dbhqgxdsbploioujmqrs.supabase.co',
-  'sb_publishable_NEGrJ-b5PT0ol3DBwFHn4g_4aGgQBLg'
-);
+const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
 
 const app = document.getElementById('app');
 const PAGE = 25;
