@@ -86,12 +86,14 @@ function renderLogin(msg = '', tipo = 'erro') {
 const PILARES = [
   ['📊 Inteligência', [
     ['dashboard', '📈', 'Dashboard'],
+    ['metas', '🎯', 'Metas & Indicadores'],
     ['analytics', '📉', 'Analytics'],
     ['insights', '💡', 'Insights'],
   ]],
   ['⚙️ Operação', [
     ['pipeline', '📅', 'Produção'],
     ['esteira', '⛓️', 'Esteira'],
+    ['qualidade', '🔁', 'Qualidade / Retrabalho'],
     ['operacoes', '🗂️', 'Operações'],
     ['repasse', '🏦', 'Repasse'],
     ['validacao', '✅', 'Validação'],
@@ -104,13 +106,14 @@ const PILARES = [
   ]],
   ['🏢 Gestão', [
     ['chamados', '📨', 'Demandas'],
+    ['implantacao', '🚀', 'Produtos em Implantação'],
     ['fechamento', '💰', 'Fechamento'],
     ['escala', '📅', 'Escala'],
     ['cadastros', '🛠️', 'Administração'],
   ]],
 ];
 // Telas restritas a gestão (admin = supervisor/coordenador). Analistas não veem inteligência nem administração.
-const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'cadastros', 'integracoes', 'automacoes'];
+const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'cadastros', 'integracoes', 'automacoes', 'metas', 'implantacao'];
 function podeVer(view) {
   return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
 }
@@ -150,6 +153,7 @@ function render() {
      automacoes: () => renderStub('⚡ Automações', 'Regras de negócio e fluxos automáticos. A primeira automação ativa é o monitoramento de plantão (veja Insights). Próximas:', ['Alerta automático por e-mail/Teams às 12h e 17h', 'Distribuição automática de processos por carga de trabalho', 'Cobrança automática de follow-up sem resposta', 'Fechamento mensal gerado e enviado automaticamente']),
      documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
+     metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      cadastros: renderCadastros })[state.view]();
 }
 function renderStub(titulo, texto, itens) {
@@ -203,6 +207,8 @@ async function renderDashboard() {
     sb.from('volume_atividades').select('*'),
     sb.from('top_empreendedoras').select('*'),
   ]);
+  const { data: eventos } = await sb.from('eventos_especiais').select('*');
+  const diasLancamento = new Set((eventos||[]).map(e => e.data));
   const meses = [...new Set((rkAll.data||[]).map(r => r.mes.slice(0,7)))].sort().reverse();
   if (!state.dashMes && meses.length) state.dashMes = meses[0];
   let rk = (rkAll.data||[]).filter(r => r.mes.slice(0,7) === state.dashMes).sort((a,b) => b.total - a.total);
@@ -254,9 +260,12 @@ async function renderDashboard() {
   const semKeys = Object.keys(semanas).sort();
   const semVals = semKeys.map(k => semanas[k].total);
 
+  // dias de lançamento distorcem médias (volume atípico com equipe reforçada) — podem ser excluídos
+  const lancNoPeriodo = serieDias.filter(d => diasLancamento.has(d.dia) && d.total > 0);
+  const baseMedias = state.excluirLancamentos ? serieDias.filter(d => !diasLancamento.has(d.dia)) : serieDias;
   const dowNames = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
   const porDow = [1,2,3,4,5,6,7].map(dw => {
-    const ds = serieDias.filter(d => d.dow == dw);
+    const ds = baseMedias.filter(d => d.dow == dw);
     return ds.length ? Math.round(ds.reduce((s, x) => s + x.total, 0) / ds.length * 10) / 10 : 0;
   });
   const maxDow = Math.max(...porDow, 1);
@@ -316,9 +325,22 @@ async function renderDashboard() {
       <div class="kpi"><div class="v" style="color:${tend >= 0 ? 'var(--ok)' : 'var(--err)'}">${tend >= 0 ? '▲' : '▼'} ${Math.abs(tend)}</div><div class="l">Tendência semanal</div></div>
       <div class="kpi"><div class="v">${totalGeral ? Math.round(100 * totalFds / totalGeral) : 0}%</div><div class="l">🗓️ Peso do fim de semana (no período)</div></div>
     </div>
+    ${lancNoPeriodo.length ? `
+    <div class="card" style="border-color:var(--warn);background:var(--warn-soft);margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="font-size:13px">⚠️ ${lancNoPeriodo.length} dia(s) de lançamento neste período</b>
+        <span style="font-size:12.5px;color:var(--muted)">
+          ${lancNoPeriodo.slice(0,4).map(d=>`${fmtDia(d.dia)} (${d.total})`).join(' · ')}${lancNoPeriodo.length>4?' …':''}
+          — volume atípico com equipe reforçada. Isso distorce médias e metas.
+        </span>
+        <div class="spacer"></div>
+        <button id="btnToggleLanc" class="ghost">${state.excluirLancamentos ? '↩️ Incluir de volta nas médias' : '🚫 Excluir das médias'}</button>
+      </div>
+    </div>` : ''}
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
         <h2 style="margin:0">📈 Produção — ${fmtDia(state.diaDe)} a ${fmtDia(state.diaAte)}</h2>
+        ${state.role === 'admin' ? '<button id="btnMarcarLanc" class="ghost" style="font-size:11.5px;padding:4px 8px">🚀 Marcar dia de lançamento</button>' : ''}
         <div class="spacer"></div>
         ${[30,60,90,180].map(n=>presetBtn('dia'+n, n+'d')).join('')}
         <input id="diaDe" type="date" value="${state.diaDe}">
@@ -344,7 +366,7 @@ async function renderDashboard() {
           <span style="color:var(--muted);font-size:11px">(fds: ${v.fds})</span></div>`; }).join('') || '<p style="color:var(--muted);font-size:12.5px">Sem semanas completas no período.</p>'}
       </div>
       <div class="card">
-        <h2>📆 Média por dia da semana (no período escolhido)</h2>
+        <h2>📆 Média por dia da semana (no período escolhido)${state.excluirLancamentos ? ' — sem lançamentos' : ''}</h2>
         ${dowNames.map((n, i) => `<div class="hbar-row"><span class="hbar-lbl">${n}</span>
           <div class="hbar"><div style="width:${Math.round(100*porDow[i]/maxDow)}%"></div></div><b>${porDow[i]}</b></div>`).join('')}
         <p style="color:var(--muted);font-size:12px;margin-top:8px">Melhor dia: <b>${dowNames[porDow.indexOf(Math.max(...porDow))]}</b> · Menor: <b>${dowNames[porDow.indexOf(Math.min(...porDow.filter(x=>x>0)))]}</b></p>
@@ -415,6 +437,10 @@ async function renderDashboard() {
   document.getElementById('volAte').onchange = (e) => { state.volAte = e.target.value; renderDashboard(); };
   document.getElementById('diaDe').onchange = (e) => { state.diaDe = e.target.value; renderDashboard(); };
   document.getElementById('diaAte').onchange = (e) => { state.diaAte = e.target.value; renderDashboard(); };
+  const bTL = document.getElementById('btnToggleLanc');
+  if (bTL) bTL.onclick = () => { state.excluirLancamentos = !state.excluirLancamentos; renderDashboard(); };
+  const bML = document.getElementById('btnMarcarLanc');
+  if (bML) bML.onclick = () => openMarcarLancamento(eventos || []);
   document.querySelectorAll('.preset-btn').forEach(b => b.onclick = () => {
     const t = b.dataset.target;
     if (t.startsWith('vol')) { const n = Number(t.slice(3)); state.volAte = thisYm; state.volDe = ymAdd(thisYm, -(n-1)); }
@@ -868,6 +894,508 @@ async function renderChamados() {
     await sb.from('chamados').update({ status: 'RESOLVIDO', resolvido_em: new Date().toISOString() }).eq('id', b.dataset.id);
     renderChamados();
   });
+}
+
+async function openMarcarLancamento(eventos) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:480px">
+    <h2>🚀 Dias de lançamento</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Marque os dias de lançamento para que o volume atípico não distorça médias, metas e a capacidade real da equipe.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input id="mlData" type="date" style="flex:1;min-width:140px">
+      <input id="mlDesc" placeholder="Empreendimento / descrição" style="flex:2;min-width:160px">
+      <button id="mlAdd" class="ghost">+ Marcar</button>
+    </div>
+    <div id="mlLista">${eventos.sort((a,b)=>b.data.localeCompare(a.data)).map(e=>`
+      <div class="cad-item">${new Date(e.data+'T12:00').toLocaleDateString('pt-BR')} — ${esc(e.descricao||'Lançamento')}
+        <button class="ghost ml-del" data-id="${e.id}">✕</button></div>`).join('')
+      || '<p style="color:var(--muted);font-size:12.5px">Nenhum dia marcado ainda.</p>'}</div>
+    <div class="msg" id="mlMsg"></div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="mlFechar" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#mlFechar').onclick = () => { div.remove(); renderDashboard(); };
+  div.querySelector('#mlAdd').onclick = async () => {
+    const data = div.querySelector('#mlData').value;
+    if (!data) { div.querySelector('#mlMsg').textContent = 'Escolha a data.'; return; }
+    const { error } = await sb.from('eventos_especiais').insert({
+      data, tipo: 'lancamento', descricao: div.querySelector('#mlDesc').value || null,
+      criado_por: state.session?.user?.id });
+    if (error) { div.querySelector('#mlMsg').textContent = error.message; return; }
+    div.remove(); renderDashboard();
+  };
+  div.querySelectorAll('.ml-del').forEach(b => b.onclick = async () => {
+    await sb.from('eventos_especiais').delete().eq('id', b.dataset.id);
+    div.remove(); renderDashboard();
+  });
+}
+
+// ---------- PRODUTOS EM IMPLANTAÇÃO — LANÇAMENTOS ----------
+// Replica o Painel_Implantacao_CRM: KPIs da carteira, criticidade por prazo de lançamento,
+// checklist de implantação e pendências por empreendimento.
+async function renderImplantacao() {
+  const { data: itens } = await sb.from('implantacao_painel').select('*').order('previsao_lancamento');
+  const lista = itens || [];
+  const total = lista.length;
+  const emImpl = lista.filter(i => i.status_auto === 'Em andamento').length;
+  const concl = lista.filter(i => i.status_auto === 'Concluído').length;
+  const naoIni = lista.filter(i => i.status_auto === 'Não iniciado').length;
+  const criticos = lista.filter(i => i.criticidade === '🔴 Risco crítico').length;
+  const avancoMedio = total ? Math.round(lista.reduce((s,i)=>s+Number(i.avanco_pct||0),0)/total) : 0;
+  const pendAbertas = lista.reduce((s,i)=>s+Number(i.pendencias_abertas||0),0);
+  const unidades = lista.reduce((s,i)=>s+Number(i.unidades||0),0);
+  const vencidos = lista.filter(i => i.dias_para_lancamento !== null && i.dias_para_lancamento < 0 && i.status_auto !== 'Concluído').length;
+  const ate30 = lista.filter(i => i.dias_para_lancamento !== null && i.dias_para_lancamento >= 0 && i.dias_para_lancamento <= 30).length;
+  const emRisco = total ? Math.round(100*lista.filter(i=>['🔴 Risco crítico','🟠 Risco de atraso'].includes(i.criticidade)).length/total) : 0;
+  const foco = lista.filter(i => i.status_auto !== 'Concluído' && i.dias_para_lancamento !== null)
+    .sort((a,b)=>a.dias_para_lancamento-b.dias_para_lancamento).slice(0,5);
+
+  shell(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">🚀 Produtos em Implantação — Lançamentos</h2>
+        <span style="color:var(--muted);font-size:12.5px">Carteira de implantação: avanço, pendências e prazo de lançamento.</span>
+        <div class="spacer"></div>
+        ${state.role !== 'leitura' ? '<button id="btnNovaImpl">+ Novo produto</button>' : ''}
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${total}</div><div class="l">🏗️ Total de produtos</div></div>
+      <div class="kpi"><div class="v" style="color:var(--accent)">${emImpl}</div><div class="l">⚙️ Em implantação</div></div>
+      <div class="kpi"><div class="v" style="color:var(--ok)">${concl}</div><div class="l">✅ Concluídos</div></div>
+      <div class="kpi"><div class="v" style="color:var(--muted)">${naoIni}</div><div class="l">⏸️ Não iniciados</div></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" style="color:${criticos?'var(--err)':'var(--ok)'}">${criticos}</div><div class="l">🔴 Em risco crítico</div></div>
+      <div class="kpi"><div class="v">${avancoMedio}%</div><div class="l">📊 Avanço médio</div></div>
+      <div class="kpi"><div class="v" style="color:var(--warn)">${pendAbertas}</div><div class="l">⚠️ Pendências abertas</div></div>
+      <div class="kpi"><div class="v">${unidades.toLocaleString('pt-BR')}</div><div class="l">🏠 Total de unidades</div></div>
+    </div>
+    <div class="grid-cad">
+      <div class="card">
+        <h2>📊 Inteligência da carteira</h2>
+        <table><tbody>
+          <tr><td>Lançamentos vencidos</td><td style="text-align:right"><b style="color:${vencidos?'var(--err)':'var(--ok)'}">${vencidos}</b></td></tr>
+          <tr><td>Lançamentos em ≤ 30 dias</td><td style="text-align:right"><b style="color:${ate30?'var(--warn)':'var(--muted)'}">${ate30}</b></td></tr>
+          <tr><td>Carteira em risco</td><td style="text-align:right"><b style="color:${emRisco>50?'var(--err)':emRisco>25?'var(--warn)':'var(--ok)'}">${emRisco}%</b></td></tr>
+          <tr><td>Pendências abertas</td><td style="text-align:right"><b>${pendAbertas}</b></td></tr>
+        </tbody></table>
+        <p style="color:var(--muted);font-size:11.5px;margin-top:8px">Criticidade por semanas até o lançamento: 🟢 no prazo &gt;8 · 🟡 atenção 6–8 · 🟠 risco de atraso 4–6 · 🔴 crítico &lt;4</p>
+      </div>
+      <div class="card">
+        <h2>🎯 Foco imediato</h2>
+        ${foco.map(i => `<div class="hbar-row">
+          <span class="hbar-lbl" style="min-width:150px">${esc(i.empreendimento)}</span>
+          <div class="hbar"><div style="width:${i.avanco_pct}%"></div></div>
+          <b>${i.avanco_pct}%</b>
+          <span style="font-size:11px;color:${i.dias_para_lancamento<0?'var(--err)':'var(--muted)'}">${i.dias_para_lancamento<0?Math.abs(i.dias_para_lancamento)+'d atrasado':i.dias_para_lancamento+'d'}</span>
+        </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nada em risco imediato.</p>'}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Carteira de implantação</h2>
+      <div style="overflow-x:auto">
+      <table style="min-width:1000px"><thead><tr>
+        <th>Empreendedora</th><th>Empreendimento</th><th>Tipo</th><th>Sistemas</th><th>Fase</th>
+        <th>Avanço</th><th>Status</th><th>Pend.</th><th>Unid.</th><th>Lançamento</th><th>Criticidade</th><th></th>
+      </tr></thead>
+      <tbody>${lista.map(i => `<tr>
+        <td>${esc(i.empreendedora)}</td>
+        <td><b>${esc(i.empreendimento)}</b></td>
+        <td>${esc(i.tipo||'—')}</td>
+        <td style="font-size:11.5px;color:var(--muted)">${esc(i.sistemas||'—')}</td>
+        <td>${esc(i.fase||'—')}</td>
+        <td><div class="hbar" style="min-width:70px"><div style="width:${i.avanco_pct}%"></div></div><span style="font-size:11px">${i.avanco_pct}%</span></td>
+        <td><span class="tag ${i.status_auto==='Concluído'?'CONCLUIDO':i.status_auto==='Em andamento'?'RECEBIDO':'PENDENTE'}">${esc(i.status_auto)}</span></td>
+        <td style="text-align:center;color:${i.pendencias_abertas>0?'var(--warn)':'var(--muted)'}">${i.pendencias_abertas}</td>
+        <td style="text-align:right">${i.unidades}</td>
+        <td>${i.previsao_lancamento ? new Date(i.previsao_lancamento+'T12:00').toLocaleDateString('pt-BR') : '—'}</td>
+        <td style="white-space:nowrap;font-size:12px">${esc(i.criticidade)}</td>
+        <td><button class="ghost btn-impl" data-id="${i.id}">Abrir</button></td>
+      </tr>`).join('')}</tbody></table>
+      </div>
+    </div>`);
+  document.querySelectorAll('.btn-impl').forEach(b => b.onclick = () => openImplantacao(b.dataset.id));
+  const bN = document.getElementById('btnNovaImpl');
+  if (bN) bN.onclick = () => openImplantacao(null);
+}
+
+async function openImplantacao(id) {
+  let it = null, checklist = [], pendencias = [];
+  if (id) {
+    const [ii, cc, pp] = await Promise.all([
+      sb.from('implantacao_painel').select('*').eq('id', id).single(),
+      sb.from('implantacao_checklist').select('*').eq('implantacao_id', id).order('ordem'),
+      sb.from('implantacao_pendencias').select('*').eq('implantacao_id', id).order('criado_em'),
+    ]);
+    it = ii.data; checklist = cc.data || []; pendencias = pp.data || [];
+  }
+  const ro = state.role === 'leitura';
+  const grupos = [...new Set(checklist.map(c => c.grupo))];
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:720px">
+    <h2>${id ? '🚀 ' + esc(it.empreendimento) : '🚀 Novo produto em implantação'}</h2>
+    ${id ? `<div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+      <div class="kpi"><div class="v" style="font-size:20px">${it.avanco_pct}%</div><div class="l">Avanço</div></div>
+      <div class="kpi"><div class="v" style="font-size:20px;color:${it.pendencias_abertas?'var(--warn)':'var(--ok)'}">${it.pendencias_abertas}</div><div class="l">Pendências</div></div>
+      <div class="kpi"><div class="v" style="font-size:20px">${it.unidades}</div><div class="l">Unidades</div></div>
+      <div class="kpi"><div class="v" style="font-size:13px">${esc(it.criticidade)}</div><div class="l">${it.dias_para_lancamento!==null?(it.dias_para_lancamento<0?Math.abs(it.dias_para_lancamento)+' dias atrasado':it.dias_para_lancamento+' dias'):'—'}</div></div>
+    </div>` : ''}
+    <div class="grid2">
+      <div><label>Empreendedora</label><input id="imEmpreendedora" value="${esc(it?.empreendedora)}" ${ro?'disabled':''}></div>
+      <div><label>Empreendimento</label><input id="imEmpreendimento" value="${esc(it?.empreendimento)}" ${ro?'disabled':''}></div>
+      <div><label>Tipo</label><select id="imTipo" ${ro?'disabled':''}>
+        ${['Loteamento','Incorporação','Loteamento e Casas'].map(t=>`<option ${it?.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div><label>Fase</label><select id="imFase" ${ro?'disabled':''}>
+        ${['Documentação','Parametrização','Operação'].map(f=>`<option ${it?.fase===f?'selected':''}>${f}</option>`).join('')}</select></div>
+      <div style="grid-column:1/-1"><label>Sistemas</label><input id="imSistemas" value="${esc(it?.sistemas)}" placeholder="CRM: Anapro · ERP: Sienge" ${ro?'disabled':''}></div>
+      <div style="grid-column:1/-1"><label>Link do sistema</label><input id="imLink" value="${esc(it?.link_sistema)}" ${ro?'disabled':''}></div>
+      <div><label>Unidades</label><input id="imUnidades" type="number" value="${it?.unidades ?? 0}" ${ro?'disabled':''}></div>
+      <div><label>Previsão de lançamento</label><input id="imPrev" type="date" value="${it?.previsao_lancamento ?? ''}" ${ro?'disabled':''}></div>
+      <div style="grid-column:1/-1"><label>Observações</label><textarea id="imObs" rows="4" ${ro?'disabled':''}>${esc(it?.observacoes)}</textarea></div>
+    </div>
+    ${id ? `
+    <h2 style="margin-top:18px">📋 Checklist de implantação</h2>
+    ${grupos.map(g => `
+      <div style="margin-bottom:10px">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;margin:8px 0 4px">${esc(g)}</div>
+        ${checklist.filter(c=>c.grupo===g).map(c => `
+          <label class="cad-item" style="display:flex;align-items:flex-start;gap:8px;cursor:${ro?'default':'pointer'}">
+            <input type="checkbox" class="ck-item" data-id="${c.id}" ${c.concluido?'checked':''} ${ro?'disabled':''} style="margin-top:3px">
+            <span style="flex:1;font-size:12.5px">${esc(c.item)}${c.formato?` <span style="color:var(--muted2);font-size:11px">(${esc(c.formato)})</span>`:''}</span>
+          </label>`).join('')}
+      </div>`).join('')}
+    <h2 style="margin-top:14px">⚠️ Pendências / alertas</h2>
+    <table><thead><tr><th>Pendência</th><th>Área</th><th>Status</th><th></th></tr></thead>
+    <tbody>${pendencias.map(p=>`<tr>
+      <td>${esc(p.pendencia)}</td><td>${esc(p.area||'—')}</td>
+      <td><span class="tag ${p.resolvida?'CONCLUIDO':'PENDENTE'}">${p.resolvida?'Resolvida':'Aberta'}</span></td>
+      <td>${!ro && !p.resolvida ? `<button class="ghost pd-resolver" data-id="${p.id}">Resolver</button>` : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Sem pendências registradas.</td></tr>'}</tbody></table>
+    ${!ro ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <input id="pdNova" placeholder="Nova pendência" style="flex:2;min-width:180px">
+      <input id="pdArea" placeholder="Área (ex.: Contratos)" style="flex:1;min-width:120px">
+      <button id="btnAddPend" class="ghost">+ Adicionar</button>
+    </div>` : ''}
+    ` : ''}
+    <div class="msg" id="imMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="imCancel" class="ghost">Fechar</button>
+      ${!ro ? `<button id="imSalvar">${id?'Salvar alterações':'Criar produto'}</button>` : ''}
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('imCancel').onclick = () => div.remove();
+  const bS = $('imSalvar');
+  if (bS) bS.onclick = async () => {
+    const rec = {
+      empreendedora: $('imEmpreendedora').value.trim(),
+      empreendimento: $('imEmpreendimento').value.trim(),
+      tipo: $('imTipo').value, fase: $('imFase').value,
+      sistemas: $('imSistemas').value || null, link_sistema: $('imLink').value || null,
+      unidades: Number($('imUnidades').value || 0),
+      previsao_lancamento: $('imPrev').value || null,
+      observacoes: $('imObs').value || null,
+      atualizado_em: new Date().toISOString(),
+    };
+    if (!rec.empreendedora || !rec.empreendimento) { $('imMsg').textContent = 'Informe empreendedora e empreendimento.'; return; }
+    let r;
+    if (id) r = await sb.from('implantacoes').update(rec).eq('id', id);
+    else {
+      const ins = await sb.from('implantacoes').insert(rec).select('id').single();
+      r = ins;
+      if (!ins.error) {
+        // novo produto já nasce com o checklist padrão de 12 itens
+        const modelo = await sb.from('implantacao_checklist').select('grupo,item,formato,ordem').limit(12);
+        if (modelo.data?.length) {
+          await sb.from('implantacao_checklist').insert(modelo.data.map(m => ({ ...m, implantacao_id: ins.data.id })));
+        }
+      }
+    }
+    if (r.error) { $('imMsg').textContent = r.error.message; return; }
+    div.remove(); renderImplantacao();
+  };
+  div.querySelectorAll('.ck-item').forEach(c => c.onchange = async () => {
+    await sb.from('implantacao_checklist').update({ concluido: c.checked }).eq('id', c.dataset.id);
+  });
+  div.querySelectorAll('.pd-resolver').forEach(b => b.onclick = async () => {
+    await sb.from('implantacao_pendencias').update({ resolvida: true }).eq('id', b.dataset.id);
+    div.remove(); openImplantacao(id);
+  });
+  const bP = $('btnAddPend');
+  if (bP) bP.onclick = async () => {
+    const p = $('pdNova').value.trim();
+    if (!p) return;
+    await sb.from('implantacao_pendencias').insert({ implantacao_id: id, pendencia: p, area: $('pdArea').value || null });
+    div.remove(); openImplantacao(id);
+  };
+}
+
+// ---------- QUALIDADE / RETRABALHO ----------
+// Categorias padronizadas: o "porquê" do erro, que vira plano de ação/treinamento.
+const CATEGORIAS_ERRO = {
+  'Dados cadastrais': ['Nome/grafia', 'CPF/RG', 'E-mail', 'Telefone', 'Endereço', 'Estado civil', 'Profissão/renda'],
+  'Documental': ['Documento faltante', 'Documento ilegível', 'Documento vencido', 'Assinatura ausente', 'Documento incorreto'],
+  'Contratual': ['Cláusula incorreta', 'Quadro resumo divergente', 'Minuta desatualizada', 'Testemunha/assinante errado'],
+  'Cálculo / Valores': ['Valor da unidade', 'Fluxo de pagamento', 'Comissionamento', 'Correção/juros', 'Desconto indevido'],
+  'Sistema / Cadastro': ['Cadastro no ERP', 'Cadastro no CRM', 'Unidade errada', 'Status incorreto'],
+  'Prazo / SLA': ['Fora do prazo de emissão', 'Fora do prazo de resposta', 'Follow-up não realizado'],
+  'Outro': ['Outro'],
+};
+async function renderQualidade() {
+  const mesAtual = new Date().toISOString().slice(0,7);
+  if (!state.qualMes) state.qualMes = mesAtual;
+  const ini = state.qualMes + '-01';
+  const [y, m] = state.qualMes.split('-').map(Number);
+  const fim = new Date(y, m, 1).toISOString().slice(0,10);
+  const { data: aps } = await sb.from('apontamentos_erro')
+    .select('*, analistas(nome), demandas(numero, proponente1_nome)')
+    .gte('criado_em', ini).lt('criado_em', fim).order('criado_em', { ascending: false });
+  const lista = aps || [];
+  // analista comum vê os próprios apontamentos; gestão vê todos
+  const souGestao = state.role === 'admin';
+  const meuId = (state.lookups.analistas.find(a => a.nome === state.perfilNome) || {}).id;
+  const visiveis = souGestao ? lista : lista.filter(a => a.analista_id === meuId);
+  const porCat = {}; visiveis.forEach(a => porCat[a.categoria] = (porCat[a.categoria]||0)+1);
+  const porAnalista = {}; visiveis.forEach(a => { const n = a.analistas?.nome || '—'; porAnalista[n] = (porAnalista[n]||0)+1; });
+  const maxCat = Math.max(1, ...Object.values(porCat));
+  const abertos = visiveis.filter(a => !a.resolvido).length;
+  const porOrigem = { cliente: visiveis.filter(a=>a.origem==='cliente').length,
+                      validacao_interna: visiveis.filter(a=>a.origem==='validacao_interna').length };
+
+  shell(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">🔁 Qualidade / Retrabalho</h2>
+        <span style="color:var(--muted);font-size:12.5px">${souGestao ? 'Apontamentos de erro de toda a equipe.' : 'Seus apontamentos do mês, em tempo real.'}</span>
+        <div class="spacer"></div>
+        <input id="qualMes" type="month" value="${state.qualMes}">
+        ${state.role !== 'leitura' ? '<button id="btnNovoApont">+ Registrar apontamento</button>' : ''}
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${visiveis.length}</div><div class="l">🔁 Apontamentos no mês</div></div>
+      <div class="kpi"><div class="v" style="color:${abertos?'var(--warn)':'var(--ok)'}">${abertos}</div><div class="l">⏳ Em aberto</div></div>
+      <div class="kpi"><div class="v" style="color:var(--err)">${porOrigem.cliente}</div><div class="l">👤 Apontados pelo cliente</div></div>
+      <div class="kpi"><div class="v">${porOrigem.validacao_interna}</div><div class="l">✅ Pegos na validação interna</div></div>
+    </div>
+    <div class="grid-cad">
+      <div class="card">
+        <h2>📊 Por categoria (o "porquê")</h2>
+        ${Object.entries(porCat).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
+          <div class="hbar-row"><span class="hbar-lbl">${esc(c)}</span>
+          <div class="hbar"><div style="width:${Math.round(100*n/maxCat)}%"></div></div><b>${n}</b></div>`).join('')
+          || '<p style="color:var(--muted);font-size:12.5px">Nenhum apontamento neste mês. 🎉</p>'}
+      </div>
+      ${souGestao ? `<div class="card">
+        <h2>👥 Por analista</h2>
+        ${Object.entries(porAnalista).sort((a,b)=>b[1]-a[1]).map(([n,q],i)=>`
+          <div class="hbar-row"><span class="hbar-lbl">${esc(nomeExib(n,i+1))}</span>
+          <div class="hbar"><div style="width:${Math.round(100*q/Math.max(1,...Object.values(porAnalista)))}%"></div></div><b>${q}</b></div>`).join('')
+          || '<p style="color:var(--muted);font-size:12.5px">Sem registros.</p>'}
+      </div>` : ''}
+    </div>
+    <div class="card">
+      <h2>Apontamentos de ${mesLabel(state.qualMes)}</h2>
+      <table><thead><tr><th>Data</th><th>Processo</th><th>Analista</th><th>Origem</th><th>Categoria</th><th>Detalhe</th><th>Descrição</th><th>Status</th><th></th></tr></thead>
+      <tbody>${visiveis.map((a,i) => `<tr>
+        <td>${fmtDt(a.criado_em)}</td>
+        <td>${esc(a.demandas?.numero ?? '—')}${a.demandas?.proponente1_nome ? '<br><span style="color:var(--muted);font-size:11px">'+esc(a.demandas.proponente1_nome)+'</span>' : ''}</td>
+        <td>${esc(nomeExib(a.analistas?.nome || '—', i+1))}</td>
+        <td><span class="tag ${a.origem==='cliente'?'ERRO':'RECEBIDO'}">${a.origem==='cliente'?'Cliente':'Validação interna'}</span></td>
+        <td>${esc(a.categoria)}</td><td>${esc(a.subcategoria||'—')}</td>
+        <td style="max-width:260px">${esc(a.descricao||'—')}</td>
+        <td><span class="tag ${a.resolvido?'CONCLUIDO':'PENDENTE'}">${a.resolvido?'Resolvido':'Em aberto'}</span></td>
+        <td>${state.role!=='leitura' && !a.resolvido ? `<button class="ghost btn-resolver" data-id="${a.id}">Resolver</button>` : ''}</td>
+      </tr>`).join('') || '<tr><td colspan="9">Nenhum apontamento registrado neste mês.</td></tr>'}</tbody></table>
+    </div>`);
+  document.getElementById('qualMes').onchange = (e) => { state.qualMes = e.target.value; renderQualidade(); };
+  const bN = document.getElementById('btnNovoApont');
+  if (bN) bN.onclick = () => openApontamento();
+  document.querySelectorAll('.btn-resolver').forEach(b => b.onclick = async () => {
+    await sb.from('apontamentos_erro').update({ resolvido: true }).eq('id', b.dataset.id);
+    renderQualidade();
+  });
+}
+
+async function openApontamento() {
+  const L = state.lookups;
+  const equipe = L.analistas.filter(a => a.status !== 'Inativo');
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:560px">
+    <h2>🔁 Registrar apontamento de erro</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Padronizar o motivo é o que transforma o retrabalho em plano de ação e treinamento.</p>
+    <div class="grid2">
+      <div><label>Origem do apontamento</label><select id="apOrigem">
+        <option value="validacao_interna">Validação interna (pegamos antes)</option>
+        <option value="cliente">Cliente apontou</option></select></div>
+      <div><label>Analista responsável</label><select id="apAnalista"><option value="">—</option>
+        ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div><label>Categoria do erro</label><select id="apCat">
+        ${Object.keys(CATEGORIAS_ERRO).map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div><label>Detalhe</label><select id="apSub"></select></div>
+      <div style="grid-column:1/-1"><label>Nº do processo (opcional)</label><input id="apProc" placeholder="Busque pelo número do processo"></div>
+      <div style="grid-column:1/-1"><label>Descrição do que ocorreu</label><input id="apDesc" placeholder="Ex.: e-mail do comprador digitado errado, contrato voltou para correção"></div>
+    </div>
+    <div class="msg" id="apMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="apCancel" class="ghost">Cancelar</button><button id="apSalvar">Registrar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const subs = () => {
+    const c = div.querySelector('#apCat').value;
+    div.querySelector('#apSub').innerHTML = (CATEGORIAS_ERRO[c]||[]).map(s=>`<option>${s}</option>`).join('');
+  };
+  subs();
+  div.querySelector('#apCat').onchange = subs;
+  div.querySelector('#apCancel').onclick = () => div.remove();
+  div.querySelector('#apSalvar').onclick = async () => {
+    const num = div.querySelector('#apProc').value.trim();
+    let demandaId = null;
+    if (num) {
+      const { data } = await sb.from('demandas').select('id').eq('numero', num).maybeSingle();
+      demandaId = data?.id || null;
+      if (!demandaId) { div.querySelector('#apMsg').textContent = `Processo nº ${num} não encontrado. Deixe em branco ou corrija.`; return; }
+    }
+    const { error } = await sb.from('apontamentos_erro').insert({
+      demanda_id: demandaId,
+      analista_id: div.querySelector('#apAnalista').value || null,
+      origem: div.querySelector('#apOrigem').value,
+      categoria: div.querySelector('#apCat').value,
+      subcategoria: div.querySelector('#apSub').value,
+      descricao: div.querySelector('#apDesc').value || null,
+      registrado_por: state.session?.user?.id,
+    });
+    if (error) { div.querySelector('#apMsg').textContent = error.message; return; }
+    div.remove(); renderQualidade();
+  };
+}
+
+// ---------- METAS & INDICADORES ----------
+// Replica a aba "Acompanhamento mensal-metas" da planilha de Desempenho de Processos.
+// % atingimento = 1 - (erros / processos), comparado à meta de cada indicador.
+async function renderMetas() {
+  const anoAtual = new Date().getFullYear();
+  if (!state.metaAno) state.metaAno = anoAtual;
+  const [{ data: kpis }, { data: mensal }] = await Promise.all([
+    sb.from('indicadores_kpi').select('*').eq('ativo', true).order('ordem'),
+    sb.from('indicador_mensal').select('*'),
+  ]);
+  const porInd = {};
+  (mensal || []).forEach(r => { (porInd[r.indicador_id] = porInd[r.indicador_id] || {})[r.mes.slice(0,7)] = r; });
+  const meses = Array.from({length:12}, (_,i) => `${state.metaAno}-${String(i+1).padStart(2,'0')}`);
+  const TRIM = [['1º Trim', 0, 3], ['2º Trim', 3, 6], ['3º Trim', 6, 9], ['4º Trim', 9, 12]];
+  const atingimento = (r) => (!r || !r.quantidade_processos) ? null
+    : 1 - (r.quantidade_erros / r.quantidade_processos);
+  const pctTxt = (v) => v === null ? '—' : (v*100).toFixed(1) + '%';
+  const cor = (v, meta) => v === null ? 'var(--muted)' : v >= meta ? 'var(--ok)' : v >= meta*0.95 ? 'var(--warn)' : 'var(--err)';
+  // agregado do trimestre: soma processos e erros do período (não média de percentuais)
+  const trimestre = (indId, ini, fim) => {
+    const rs = meses.slice(ini, fim).map(m => (porInd[indId]||{})[m]).filter(Boolean);
+    if (!rs.length) return null;
+    const p = rs.reduce((s,r)=>s+r.quantidade_processos,0);
+    const e = rs.reduce((s,r)=>s+r.quantidade_erros,0);
+    return p ? 1 - e/p : null;
+  };
+  const anos = [...new Set([anoAtual, anoAtual-1, ...(mensal||[]).map(r=>+r.mes.slice(0,4))])].sort((a,b)=>b-a);
+
+  shell(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">🎯 Metas & Indicadores</h2>
+        <span style="color:var(--muted);font-size:12.5px">Indicadores fixos do setor — base das apresentações mensais.</span>
+        <div class="spacer"></div>
+        <select id="metaAno">${anos.map(a=>`<option ${a===state.metaAno?'selected':''}>${a}</option>`).join('')}</select>
+        ${state.role === 'admin' ? '<button id="btnEditarMetas" class="ghost">✏️ Lançar dados do mês</button>' : ''}
+      </div>
+    </div>
+    ${(kpis||[]).map(k => {
+      const serie = meses.map(m => atingimento((porInd[k.id]||{})[m]));
+      const comDado = serie.filter(v => v !== null);
+      const mediaAno = comDado.length ? comDado.reduce((s,v)=>s+v,0)/comDado.length : null;
+      return `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <h2 style="margin:0;font-size:15px">${esc(k.nome)}</h2>
+          <span class="tag ${mediaAno===null?'':mediaAno>=k.meta_percentual?'CONCLUIDO':'ERRO'}">Meta ${(k.meta_percentual*100).toFixed(0)}%</span>
+          <div class="spacer"></div>
+          <span style="font-size:12.5px;color:var(--muted)">Média do ano:</span>
+          <b style="color:${cor(mediaAno, k.meta_percentual)}">${pctTxt(mediaAno)}</b>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="min-width:760px">
+            <thead><tr><th style="text-align:left">Mês</th>
+              ${meses.map(m=>`<th>${mesLabel(m).slice(0,3)}</th>`).join('')}</tr></thead>
+            <tbody>
+              <tr><td><b>Atingimento</b></td>
+                ${serie.map(v=>`<td style="color:${cor(v,k.meta_percentual)};font-weight:600">${pctTxt(v)}</td>`).join('')}</tr>
+              <tr><td style="color:var(--muted)">Processos</td>
+                ${meses.map(m=>`<td style="color:var(--muted)">${(porInd[k.id]||{})[m]?.quantidade_processos ?? '—'}</td>`).join('')}</tr>
+              <tr><td style="color:var(--muted)">Erros</td>
+                ${meses.map(m=>{const r=(porInd[k.id]||{})[m];return `<td style="color:${r&&r.quantidade_erros>0?'var(--err)':'var(--muted)'}">${r?r.quantidade_erros:'—'}</td>`;}).join('')}</tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
+          ${TRIM.map(([lbl,i,f])=>{const v=trimestre(k.id,i,f);
+            return `<div class="kpi"><div class="v" style="font-size:20px;color:${cor(v,k.meta_percentual)}">${pctTxt(v)}</div><div class="l">${lbl}</div></div>`;}).join('')}
+        </div>
+      </div>`;
+    }).join('')}`);
+  document.getElementById('metaAno').onchange = (e) => { state.metaAno = Number(e.target.value); renderMetas(); };
+  const bE = document.getElementById('btnEditarMetas');
+  if (bE) bE.onclick = () => openLancarIndicadores(kpis, porInd);
+}
+
+async function openLancarIndicadores(kpis, porInd) {
+  const mesPadrao = new Date().toISOString().slice(0,7);
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:640px">
+    <h2>✏️ Lançar dados do mês</h2>
+    <div style="margin-bottom:12px"><label>Mês de referência</label><input id="liMes" type="month" value="${mesPadrao}"></div>
+    <div id="liCampos"></div>
+    <div class="msg" id="liMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="liCancel" class="ghost">Cancelar</button><button id="liSalvar">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const campos = () => {
+    const m = div.querySelector('#liMes').value;
+    div.querySelector('#liCampos').innerHTML = kpis.map(k => {
+      const r = (porInd[k.id]||{})[m] || {};
+      return `<div style="border-top:1px solid var(--border);padding:10px 0">
+        <div style="font-size:13px;margin-bottom:6px"><b>${esc(k.nome)}</b> <span style="color:var(--muted)">· meta ${(k.meta_percentual*100).toFixed(0)}%</span></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px"><label>Qtd. processos</label><input class="li-qtd" data-id="${k.id}" type="number" min="0" value="${r.quantidade_processos ?? ''}"></div>
+          <div style="flex:1;min-width:120px"><label>Qtd. erros</label><input class="li-err" data-id="${k.id}" type="number" min="0" value="${r.quantidade_erros ?? ''}"></div>
+        </div></div>`;
+    }).join('');
+  };
+  campos();
+  div.querySelector('#liMes').onchange = campos;
+  div.querySelector('#liCancel').onclick = () => div.remove();
+  div.querySelector('#liSalvar').onclick = async () => {
+    const mes = div.querySelector('#liMes').value + '-01';
+    const linhas = [];
+    div.querySelectorAll('.li-qtd').forEach(inp => {
+      const err = div.querySelector(`.li-err[data-id="${inp.dataset.id}"]`);
+      if (inp.value === '' && err.value === '') return;
+      linhas.push({ indicador_id: inp.dataset.id, mes,
+        quantidade_processos: Number(inp.value || 0), quantidade_erros: Number(err.value || 0),
+        atualizado_em: new Date().toISOString() });
+    });
+    if (!linhas.length) { div.querySelector('#liMsg').textContent = 'Preencha ao menos um indicador.'; return; }
+    const { error } = await sb.from('indicador_mensal').upsert(linhas, { onConflict: 'indicador_id,mes' });
+    if (error) { div.querySelector('#liMsg').textContent = error.message; return; }
+    div.remove(); renderMetas();
+  };
 }
 
 // ---------- FECHAMENTO ----------
