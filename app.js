@@ -2196,7 +2196,7 @@ async function renderFechamento() {
   const [y, m] = state.fechMes.split('-').map(Number);
   const ini = new Date(y, m-1, 1).toISOString(), fim = new Date(y, m, 1).toISOString();
   const { data: rows } = await sb.from('demandas')
-    .select('numero,recebido_em,numero_processo,proponente1_nome,proponente1_cpf,unidade,status,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)')
+    .select('numero,recebido_em,numero_processo,proponente1_nome,proponente1_cpf,proponente2_nome,proponente2_cpf,unidade,status,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)')
     .eq('fat_mensal', true)
     .gte('recebido_em', ini).lt('recebido_em', fim).order('recebido_em');
   const grp = {};
@@ -2209,31 +2209,163 @@ async function renderFechamento() {
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
         <h2 style="margin:0">💰 Fechamento mensal</h2>
         <input type="month" id="fechMes" value="${state.fechMes}">
-        <button id="btnCsv" class="ghost">⬇ Exportar CSV</button>
+        <button id="btnCsv" class="ghost">⬇ Exportar planilha de fechamento</button>
         <span style="color:var(--muted);font-size:13px">${(rows||[]).length} processos faturados no mês</span>
       </div>
-      ${Object.entries(grp).map(([an, rs]) => `
-        <h2 style="margin-top:14px">${esc(an)} — ${rs.length} processos</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        ${Object.entries(grp).sort((a,b)=>b[1].length-a[1].length).map(([an, rs]) =>
+          `<a href="#fech-${encodeURIComponent(an)}" class="tag RECEBIDO" style="text-decoration:none">${esc(an)}: <b>${rs.length}</b></a>`).join('')}
+      </div>
+      ${Object.entries(grp).sort((a,b)=>b[1].length-a[1].length).map(([an, rs]) => `
+        <h2 id="fech-${encodeURIComponent(an)}" style="margin-top:14px">${esc(an)} — ${rs.length} processos</h2>
         <div class="table-scroll">
-        <table><thead><tr><th>Nº</th><th>Data</th><th>Canal</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Status</th></tr></thead>
+        <table><thead><tr><th>Nº</th><th>Data</th><th>Canal</th><th>1º Proponente</th><th>CPF 1º</th><th>2º Proponente</th><th>CPF 2º</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th></tr></thead>
         <tbody>${rs.map(r => `<tr>
           <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td><td style="white-space:nowrap">${esc(r.numero_processo)}</td>
           <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.proponente1_cpf)}</td>
+          <td style="min-width:150px">${esc(r.proponente2_nome) || '<span style="color:var(--muted2)">—</span>'}</td>
+          <td style="white-space:nowrap">${esc(r.proponente2_cpf) || '<span style="color:var(--muted2)">—</span>'}</td>
           <td style="min-width:120px">${esc(r.empreendedoras?.nome)}</td><td style="min-width:130px">${esc(r.empreendimentos?.nome)}</td>
           <td style="white-space:nowrap">${esc(r.unidade)}</td><td style="min-width:160px">${esc(r.atividades?.nome)}</td>
-          <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td></tr>`).join('')}</tbody></table></div>`).join('') || '<div class="msg">Nenhum processo faturado no mês selecionado.</div>'}
+          </tr>`).join('')}</tbody></table></div>`).join('') || '<div class="msg">Nenhum processo faturado no mês selecionado.</div>'}
     </div>`);
   fechMes.onchange = (e) => { state.fechMes = e.target.value; renderFechamento(); };
-  btnCsv.onclick = () => {
-    const head = ['Analista','Nº','Data','Canal','Proponente','CPF','Empreendedora','Empreendimento','Unidade','Atividade','Status'];
-    const csv = [head.join(';')].concat((rows||[]).map(r => [
-      r.analistas?.nome, r.numero, fmtDt(r.recebido_em), r.numero_processo, r.proponente1_nome, r.proponente1_cpf,
-      r.empreendedoras?.nome, r.empreendimentos?.nome, r.unidade, r.atividades?.nome, r.status
-    ].map(v => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(';'))).join('\r\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = `fechamento-${state.fechMes}.csv`;
-    a.click();
+  // Exporta no MESMO layout da planilha de fechamento usada pela equipe
+  btnCsv.onclick = async () => {
+    btnCsv.disabled = true; const rotulo = btnCsv.textContent; btnCsv.textContent = 'Gerando...';
+    const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    btnCsv.disabled = false; btnCsv.textContent = rotulo;
+    const dataCurta = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '';
+    const linhas = (rows||[]).map(r => ({
+      'Nome do Analista': r.analistas?.nome || '',
+      'Nº do processo': r.numero_processo || '',
+      'Data do execução': dataCurta(r.recebido_em),
+      'Nome 1° Proponente': r.proponente1_nome || '',
+      'CPF 1° Proponente': r.proponente1_cpf || '',
+      'Nome 2° Proponente': r.proponente2_nome || '',
+      'CPF 2° Proponente': r.proponente2_cpf || '',
+      'Consulta Serasa': /serasa/i.test(r.atividades?.nome || '') ? 'SIM' : 'NÃO',
+      'Empreendedora': r.empreendedoras?.nome || '',
+      'Empreendimento': r.empreendimentos?.nome || '',
+      'Unidade': r.unidade || '',
+      'Prestação de Serviço': r.atividades?.nome || '',
+    }));
+    if (!linhas.length) { alert('Nenhum processo faturado neste mês para exportar.'); return; }
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    // CPF como texto, para o Excel não comer o zero à esquerda nem virar número
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = 1; R <= range.e.r; R++) {
+      [4, 6].forEach(C => { const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]; if (cell) { cell.t = 's'; cell.z = '@'; } });
+    }
+    ws['!cols'] = [{wch:26},{wch:16},{wch:14},{wch:32},{wch:19},{wch:32},{wch:19},{wch:15},{wch:24},{wch:26},{wch:12},{wch:34}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Fechamento ${mesLabel(state.fechMes)}`);
+    XLSX.writeFile(wb, `Fechamento ${mesLabel(state.fechMes)}.xlsx`);
+  };
+}
+
+const CAD_LABEL = { analistas:'colaborador', empreendedoras:'empreendedora', empreendimentos:'empreendimento', atividades:'atividade' };
+async function openEditarCadastro(tipo, id, nomeAtual, L) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  let extraHtml = '';
+  if (tipo === 'empreendimentos') {
+    const { data: e } = await sb.from('empreendimentos').select('empreendedora_id').eq('id', id).single();
+    extraHtml = `<div><label>Empreendedora</label><select id="edEmpd">
+      ${L.empreendedoras.map(x=>`<option value="${x.id}" ${e?.empreendedora_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>`;
+  }
+  if (tipo === 'atividades') {
+    const { data: a } = await sb.from('atividades').select('ativa').eq('id', id).single();
+    extraHtml = `<div><label>Situação</label><select id="edAtiva">
+      <option value="true" ${a?.ativa!==false?'selected':''}>Ativa</option>
+      <option value="false" ${a?.ativa===false?'selected':''}>Inativa (some das listas novas)</option></select></div>`;
+  }
+  div.innerHTML = `<div class="modal" style="width:460px">
+    <h2>✎ Editar ${CAD_LABEL[tipo]}</h2>
+    <div><label>Nome</label><input id="edNome" value="${esc(nomeAtual)}"></div>
+    ${extraHtml}
+    <div class="msg" id="edMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="edCancel" class="ghost">Cancelar</button><button id="edSalvar">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('edNome').focus();
+  $('edCancel').onclick = () => div.remove();
+  $('edSalvar').onclick = async () => {
+    const nome = $('edNome').value.trim();
+    if (!nome) { $('edMsg').textContent = 'Informe o nome.'; return; }
+    const rec = { nome };
+    if (tipo === 'empreendimentos' && $('edEmpd')) rec.empreendedora_id = $('edEmpd').value;
+    if (tipo === 'atividades' && $('edAtiva')) rec.ativa = $('edAtiva').value === 'true';
+    const { error } = await sb.from(tipo).update(rec).eq('id', id);
+    if (error) { $('edMsg').textContent = error.message.includes('duplicate') ? 'Já existe outro registro com esse nome.' : error.message; return; }
+    div.remove(); await loadLookups(); renderCadastros();
+  };
+}
+
+async function openExcluirCadastro(tipo, id, nome) {
+  // conta o que está vinculado, para não apagar algo que quebraria processos existentes
+  const contar = async (tabela, coluna) => {
+    const { count } = await sb.from(tabela).select('id', { count: 'exact', head: true }).eq(coluna, id);
+    return count || 0;
+  };
+  let vinculos = [];
+  if (tipo === 'analistas') {
+    const [d, e] = await Promise.all([contar('demandas','analista_id'), contar('escala_plantao','analista_id')]);
+    if (d) vinculos.push(`${d} processo(s) de produção`);
+    if (e) vinculos.push(`${e} plantão(ões) na escala`);
+  } else if (tipo === 'empreendedoras') {
+    const [d, e] = await Promise.all([contar('demandas','empreendedora_id'), contar('empreendimentos','empreendedora_id')]);
+    if (d) vinculos.push(`${d} processo(s)`);
+    if (e) vinculos.push(`${e} empreendimento(s)`);
+  } else if (tipo === 'empreendimentos') {
+    const d = await contar('demandas','empreendimento_id');
+    if (d) vinculos.push(`${d} processo(s)`);
+  } else if (tipo === 'atividades') {
+    const d = await contar('demandas','atividade_id');
+    if (d) vinculos.push(`${d} processo(s)`);
+  }
+  const temVinculo = vinculos.length > 0;
+  const podeInativar = tipo === 'analistas' || tipo === 'atividades';
+
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:480px">
+    <h2>🗑️ Excluir ${CAD_LABEL[tipo]}</h2>
+    <p style="font-size:13.5px;margin-bottom:10px">Excluir <b>${esc(nome)}</b>?</p>
+    ${temVinculo ? `<div class="msg" style="background:var(--warn-soft);border-color:var(--warn)">
+      ⚠️ Este registro está vinculado a ${vinculos.join(' e ')}. Excluir apagaria esse vínculo e o histórico ficaria incompleto.
+      ${podeInativar ? '<br><br>💡 O recomendado é <b>inativar</b>: some das listas novas, mas o histórico continua correto.' : ''}
+    </div>` : '<p style="color:var(--muted);font-size:12.5px">Nenhum processo vinculado — exclusão segura.</p>'}
+    <div class="msg" id="exMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px;flex-wrap:wrap">
+      <button id="exCancel" class="ghost">Cancelar</button>
+      ${temVinculo && podeInativar ? '<button id="exInativar">Inativar (recomendado)</button>' : ''}
+      <button id="exExcluir" class="ghost" style="color:var(--err)">Excluir definitivamente</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('exCancel').onclick = () => div.remove();
+  const bIna = $('exInativar');
+  if (bIna) bIna.onclick = async () => {
+    const rec = tipo === 'analistas' ? { status: 'Inativo' } : { ativa: false };
+    const { error } = await sb.from(tipo).update(rec).eq('id', id);
+    if (error) { $('exMsg').textContent = error.message; return; }
+    div.remove(); await loadLookups(); renderCadastros();
+  };
+  $('exExcluir').onclick = async () => {
+    if (temVinculo && !confirm(`Confirma excluir "${nome}" mesmo com ${vinculos.join(' e ')} vinculado(s)?`)) return;
+    const { error } = await sb.from(tipo).delete().eq('id', id);
+    if (error) {
+      $('exMsg').textContent = error.message.includes('foreign key') || error.code === '23503'
+        ? 'Não foi possível excluir: existem registros vinculados. Use "Inativar".'
+        : error.message;
+      return;
+    }
+    div.remove(); await loadLookups(); renderCadastros();
   };
 }
 
@@ -2343,77 +2475,100 @@ async function renderCadastros() {
       renderCadastros();
     };
   } else {
-    const bloco = (titulo, items, tipo, extra) => `
+    if (!state.cadBusca) state.cadBusca = {};
+    const filtra = (items, tipo) => {
+      const q = (state.cadBusca[tipo] || '').toLowerCase().trim();
+      return q ? items.filter(i => (i.nome||'').toLowerCase().includes(q)) : items;
+    };
+    const bloco = (titulo, items, tipo, extra) => {
+      const vis = filtra(items, tipo);
+      return `
       <div class="card">
         <h2>${titulo} <span class="count-badge">${items.length}</span></h2>
-        <div class="cad-list">${items.map(i => `
-          <div class="cad-item">${esc(i.nome)}${extra ? extra(i) : ''}
-            <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome)}">✎</button>
-          </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum registro.</p>'}</div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <input id="new_${tipo}" placeholder="Novo nome..." style="flex:1">
-          ${tipo === 'empreendimentos' ? `<select id="new_emp_ed">${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>` : ''}
-          <button class="ghost cad-add" data-t="${tipo}">Adicionar</button>
+        <input class="cad-busca" data-t="${tipo}" value="${esc(state.cadBusca[tipo]||'')}" placeholder="🔎 Buscar..." style="width:100%;margin:6px 0">
+        <div class="cad-list">${vis.map(i => `
+          <div class="cad-item">
+            <span style="flex:1">${esc(i.nome)}${extra ? extra(i) : ''}</span>
+            <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Editar">✎</button>
+            <button class="ghost cad-del" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+          </div>`).join('') || `<p style="color:var(--muted);font-size:12.5px;padding:8px 0">${state.cadBusca[tipo] ? 'Nada encontrado nessa busca.' : 'Nenhum registro.'}</p>`}</div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <input id="new_${tipo}" placeholder="Novo nome..." style="flex:1;min-width:140px">
+          ${tipo === 'empreendimentos' ? `<select id="new_emp_ed" style="min-width:140px">${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>` : ''}
+          <button class="cad-add" data-t="${tipo}">+ Adicionar</button>
         </div>
+        <div class="msg cad-msg" data-t="${tipo}" style="margin-top:6px"></div>
       </div>`;
+    };
+    const analistasVis = filtra(L.analistas, 'analistas');
     shell(`
       ${tabsHtml}
       <div class="grid-cad">
         <div class="card">
           <h2>👥 Colaboradores <span class="count-badge">${L.analistas.length}</span></h2>
-          <div class="cad-list">${L.analistas.map(i => `
-            <div class="cad-item" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <span style="flex:1;min-width:120px">${esc(i.nome)}</span>
-              <select class="col-cargo" data-id="${i.id}" style="min-width:110px;font-size:12px">
+          <input class="cad-busca" data-t="analistas" value="${esc(state.cadBusca['analistas']||'')}" placeholder="🔎 Buscar colaborador..." style="width:100%;margin:6px 0">
+          <div class="cad-list">${analistasVis.map(i => `
+            <div class="cad-item" style="flex-wrap:wrap">
+              <span style="flex:1;min-width:110px">${esc(i.nome)}</span>
+              <select class="col-cargo" data-id="${i.id}" style="min-width:104px;font-size:12px;margin-left:0">
                 ${['analista','supervisor','coordenador'].map(c=>`<option value="${c}" ${i.cargo===c?'selected':''}>${c}</option>`).join('')}
               </select>
-              <select class="col-status" data-id="${i.id}" style="min-width:110px;font-size:12px">
+              <select class="col-status" data-id="${i.id}" style="min-width:104px;font-size:12px;margin-left:0">
                 ${['Ativo','Em licença','Desligado','Inativo'].map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${s}</option>`).join('')}
               </select>
-              <button class="ghost cad-edit" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}">✎</button>
+              <button class="ghost cad-edit" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}" title="Renomear">✎</button>
+              <button class="ghost cad-del" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
             </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum colaborador.</p>'}</div>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-            <input id="new_analistas" placeholder="Nome do colaborador..." style="flex:1;min-width:150px">
+            <input id="new_analistas" placeholder="Nome do colaborador..." style="flex:1;min-width:140px">
             <select id="new_analista_cargo" style="min-width:110px">
               ${['analista','supervisor','coordenador'].map(c=>`<option value="${c}">${c}</option>`).join('')}
             </select>
-            <button class="ghost cad-add" data-t="analistas">+ Cadastrar</button>
+            <button class="cad-add" data-t="analistas">+ Cadastrar</button>
           </div>
-          <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">Só quem tem cargo <b>analista</b> e status <b>Ativo</b>/<b>Em licença</b> entra em ranking, escala e metas.</p>
+          <div class="msg cad-msg" data-t="analistas" style="margin-top:6px"></div>
+          <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">Só cargo <b>analista</b> com status <b>Ativo</b>/<b>Em licença</b> entra em ranking, escala e metas.</p>
         </div>
         ${bloco('🏢 Empreendedoras', L.empreendedoras, 'empreendedoras')}
-        ${bloco('🏗️ Empreendimentos', L.empreendimentos.map(e => ({...e, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
-        ${bloco('📝 Atividades', L.atividades, 'atividades', i => i.ativa ? '' : ' <span class="tag PENDENTE">inativa</span>')}
+        ${bloco('🏗️ Empreendimentos', L.empreendimentos.map(e => ({...e, nome_puro: e.nome, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
+        ${bloco('📝 Atividades', L.atividades, 'atividades', i => i.ativa === false ? ' <span class="tag PENDENTE">inativa</span>' : '')}
       </div>`);
+
+    const msgDe = (t, texto, erro) => {
+      const el = document.querySelector(`.cad-msg[data-t="${t}"]`);
+      if (el) { el.textContent = texto; el.style.color = erro ? 'var(--err)' : 'var(--ok)'; }
+    };
+    document.querySelectorAll('.cad-busca').forEach(inp => {
+      let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => {
+        state.cadBusca[inp.dataset.t] = inp.value; renderCadastros();
+      }, 350); };
+    });
     document.querySelectorAll('.cad-add').forEach(b => b.onclick = async () => {
       const t = b.dataset.t;
       const inp = document.getElementById('new_' + t);
-      if (!inp.value.trim()) return;
+      if (!inp.value.trim()) { msgDe(t, 'Digite o nome antes de adicionar.', true); return; }
       const rec = { nome: inp.value.trim() };
-      if (t === 'empreendimentos') rec.empreendedora_id = document.getElementById('new_emp_ed').value;
+      if (t === 'empreendimentos') rec.empreendedora_id = document.getElementById('new_emp_ed').value || null;
       if (t === 'analistas') { rec.cargo = document.getElementById('new_analista_cargo').value; rec.status = 'Ativo'; }
+      b.disabled = true; msgDe(t, 'Salvando...');
       const { error } = await sb.from(t).insert(rec);
-      if (error) { alert(error.message); return; }
+      b.disabled = false;
+      if (error) { msgDe(t, error.message.includes('duplicate') ? 'Já existe um registro com esse nome.' : error.message, true); return; }
+      state.cadBusca[t] = '';
       await loadLookups(); renderCadastros();
     });
     document.querySelectorAll('.col-cargo').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('analistas').update({ cargo: s.value }).eq('id', s.dataset.id);
-      if (error) { alert(error.message); return; }
+      if (error) { msgDe('analistas', error.message, true); return; }
       await loadLookups(); renderCadastros();
     });
     document.querySelectorAll('.col-status').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('analistas').update({ status: s.value }).eq('id', s.dataset.id);
-      if (error) { alert(error.message); return; }
+      if (error) { msgDe('analistas', error.message, true); return; }
       await loadLookups(); renderCadastros();
     });
-    document.querySelectorAll('.cad-edit').forEach(b => b.onclick = async () => {
-      const t = b.dataset.t;
-      const nome = prompt('Novo nome (vazio para cancelar):', b.dataset.n.split(' · ')[0]);
-      if (!nome || !nome.trim()) return;
-      const { error } = await sb.from(t).update({ nome: nome.trim() }).eq('id', b.dataset.id);
-      if (error) { alert(error.message); return; }
-      await loadLookups(); renderCadastros();
-    });
+    document.querySelectorAll('.cad-edit').forEach(b => b.onclick = () => openEditarCadastro(b.dataset.t, b.dataset.id, b.dataset.n, L));
+    document.querySelectorAll('.cad-del').forEach(b => b.onclick = () => openExcluirCadastro(b.dataset.t, b.dataset.id, b.dataset.n));
   }
   document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
