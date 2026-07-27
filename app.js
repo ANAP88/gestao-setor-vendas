@@ -52,34 +52,39 @@ function mesLabel(m){ const [y,mo]=m.split('-'); return ['jan','fev','mar','abr'
 
 // ---------- LOGIN ----------
 const FEATURES = [
-  ['📈', 'Dashboard & Insights', 'KPIs, ranking de produtividade e alertas de SLA em tempo real.'],
-  ['📅', 'Análise de Produção', 'Metas automáticas, tendência semanal e capacidade real por analista.'],
-  ['🔄', 'Pipeline de Processos', 'Controle completo das demandas, do recebimento à conclusão.'],
-  ['🏦', 'Gestão de Repasse', 'Cadastro único do cliente com timeline automática do processo.'],
-  ['📆', 'Escala de Plantão', 'Organização mensal da equipe com alerta de cobertura diária.'],
-  ['💰', 'Fechamento Mensal', 'Extrato por analista e canal, pronto para exportação.'],
+  ['dashboard', 'Dashboard & Insights', 'KPIs, ranking de produtividade e alertas de SLA em tempo real.'],
+  ['pipeline', 'Análise de Produção', 'Metas automáticas, tendência semanal e capacidade real por analista.'],
+  ['esteira', 'Pipeline de Processos', 'Controle completo das demandas, do recebimento à conclusão.'],
+  ['repasse', 'Gestão de Repasse', 'Cadastro único do cliente com timeline automática do processo.'],
+  ['escala', 'Escala de Plantão', 'Organização mensal da equipe com alerta de cobertura diária.'],
+  ['fechamento', 'Fechamento Mensal', 'Extrato por analista e canal, pronto para exportação.'],
 ];
+const ICONE_CADEADO = svgIcon('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>');
+const ICONE_PREDIO = svgIcon('<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M3 21h18M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"/>');
+const ICONE_EMAIL = svgIcon('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 6.5 8 6 8-6"/>');
+const ICONE_CADEADO_MINI = svgIcon('<rect x="5" y="11" width="14" height="8" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>');
+const ICONE_ESCUDO = svgIcon('<path d="M12 3 4 6v6c0 4.5 3.4 7.7 8 9 4.6-1.3 8-4.5 8-9V6Z"/>');
 function renderLogin(msg = '', tipo = 'erro') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <div class="hero-badge">🔒 SISTEMA INTERNO</div>
+      <div class="hero-badge"><span class="hero-badge-ic">${ICONE_CADEADO_MINI}</span>SISTEMA INTERNO</div>
       <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
       <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
       <div class="hero-features">
-        ${FEATURES.map(([ic,t,d]) => `<div class="hf"><div class="hf-ic">${ic}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+        ${FEATURES.map(([v,t,d]) => `<div class="hf"><div class="hf-ic">${ICONES[v]}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
       </div>
     </div>
     <div class="login-panel">
       <div class="card" id="login-card">
-        <div class="login-icon">🏢</div>
+        <div class="login-icon">${ICONE_PREDIO}</div>
         <h2>Gestão Operacional</h2>
         <div class="login-brandline">Secretaria de Vendas</div>
         <div class="sub">Painel interno da equipe</div>
         <label>E-mail corporativo</label>
-        <div class="input-ic"><span>✉️</span><input id="email" type="email" autocomplete="username" placeholder="seu.email@neoservice.com.br"></div>
+        <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="email" type="email" autocomplete="username" placeholder="seu.email@neoservice.com.br"></div>
         <label>Senha</label>
-        <div class="input-ic"><span>🔒</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
         <div class="login-row">
           <label class="chk-inline"><input type="checkbox" id="manterConectado" checked> Manter conectado</label>
           <a href="#" id="linkEsqueci">Esqueci minha senha</a>
@@ -87,7 +92,7 @@ function renderLogin(msg = '', tipo = 'erro') {
         <button id="btnLogin">Entrar →</button>
         <p style="color:var(--muted2);font-size:11.5px;text-align:center;margin-top:12px">Acesso somente por convite do administrador.</p>
         <div class="msg ${tipo}">${esc(msg)}</div>
-        <div class="login-footer-note">🛡️ Ambiente Corporativo &nbsp;·&nbsp; Versão 1.0.0</div>
+        <div class="login-footer-note"><span class="footer-ic">${ICONE_ESCUDO}</span>Ambiente Corporativo &nbsp;·&nbsp; Versão 1.0.0</div>
       </div>
     </div>
     <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
@@ -157,7 +162,7 @@ function shell(inner) {
     🧪 AMBIENTE DE TESTE — nada aqui afeta o sistema real da equipe</div>` : ''}
   <div class="layout" style="${EH_STAGING ? 'margin-top:26px' : ''}">
     <aside>
-      <div class="side-brand"><span class="logo">🏢</span><div><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b><small>Neo Service</small></div></div>
+      <div class="side-brand"><span class="logo">${ICONE_PREDIO}</span><div><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b><small>Neo Service</small></div></div>
       ${pilaresVisiveis.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${l}</button>`).join('')}
@@ -189,15 +194,42 @@ function render() {
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      cadastros: renderCadastros })[state.view]();
 }
+const FUNDO_NEOSERVICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d3d3d"/><stop offset="55%" stop-color="#146060"/><stop offset="100%" stop-color="#1d7a76"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="400" fill="url(#g1)"/>
+  <circle cx="1180" cy="40" r="420" fill="#ffffff" opacity=".05"/>
+  <circle cx="1000" cy="-40" r="300" fill="#ffffff" opacity=".06"/>
+  <circle cx="1340" cy="380" r="180" fill="#ffffff" opacity=".05"/>
+  <g stroke="#ffffff" stroke-width="1.3" opacity=".28" fill="none">
+    <path d="M50 330 L210 190 L370 330 Z"/>
+    <path d="M90 330 L90 250 L150 250 L150 330"/>
+    <path d="M170 330 L170 240 L230 240 L230 330"/>
+    <path d="M250 330 L250 260 L330 260 L330 330"/>
+    <path d="M0 330 L440 330"/>
+    <path d="M20 360 L460 320"/>
+    <path d="M40 385 L470 335"/>
+    <path d="M210 190 L210 60"/>
+    <path d="M120 275 L300 275"/>
+  </g>
+  <text x="1180" y="360" text-anchor="end" font-family="Inter,sans-serif" font-size="26" letter-spacing="1" fill="#ffffff" opacity=".85">
+    <tspan font-weight="800">NEO</tspan><tspan font-weight="300">SERVICE</tspan>
+  </text>
+</svg>`;
+const FUNDO_NEOSERVICE_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(FUNDO_NEOSERVICE);
+
 // ---------- TELA INICIAL (escolha do que acessar) ----------
 async function renderInicio() {
   const primeiroNome = (state.perfilNome || state.session?.user?.email || '').split(/[ .@]/)[0];
   const saudacao = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
   const atalhos = PILARES.flatMap(([grp, itens]) => itens.filter(([v]) => podeVer(v) && v !== 'inicio').map(([v, ic, l]) => ({ v, ic, l, grp })));
   shell(`
-    <div class="card" style="margin-bottom:16px">
-      <h2 style="margin:0 0 4px;font-size:20px">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}! 👋</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0">Por onde você quer começar hoje?</p>
+    <div class="card" style="margin-bottom:16px;background-image:url('${FUNDO_NEOSERVICE_URL}');background-size:cover;background-position:center;border:1px solid var(--border)">
+      <h2 style="margin:0 0 4px;font-size:20px;color:#fff">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}! 👋</h2>
+      <p style="color:rgba(255,255,255,.75);font-size:13px;margin:0">Por onde você quer começar hoje?</p>
     </div>
     ${[...new Set(atalhos.map(a=>a.grp))].map(grp => `
       <div style="margin-bottom:18px">
