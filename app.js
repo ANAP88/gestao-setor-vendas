@@ -955,26 +955,114 @@ async function renderAnalytics() {
 }
 
 // ---------- OPERAÇÕES (fila do dia) ----------
+// Painel do dia: o que EU tenho para fazer agora (trabalho em aberto de verdade),
+// em vez da antiga "fila de pendências" que vivia vazia porque todo processo já entra concluído.
 async function renderOperacoes() {
   const hoje0 = new Date(); hoje0.setHours(0,0,0,0);
-  const [{ data: doDia }, { data: pend }] = await Promise.all([
-    sb.from('demandas').select('id,numero,recebido_em,proponente1_nome,status,unidade,analistas(nome),atividades(nome)').gte('recebido_em', hoje0.toISOString()).order('recebido_em', { ascending: false }),
-    sb.from('demandas').select('id,numero,recebido_em,proponente1_nome,status,unidade,analistas(nome),atividades(nome)').neq('status','CONCLUIDO').order('recebido_em').limit(50),
+  const iniMes = new Date(hoje0.getFullYear(), hoje0.getMonth(), 1).toISOString();
+  const meuEmail = state.session?.user?.email;
+  const meuId = state.meuAnalistaId;
+  const souGestao = state.role === 'admin';
+
+  const [{ data: doDia }, { data: esteiraMinha }, { data: chamadosAbertos }, { data: apontAbertos }, { data: pendAntigas }] = await Promise.all([
+    sb.from('demandas').select('id,numero,recebido_em,proponente1_nome,status,unidade,analista_id,analistas(nome),atividades(nome)')
+      .gte('recebido_em', hoje0.toISOString()).order('recebido_em', { ascending: false }),
+    sb.from('esteira_processos').select('*, etapas_esteira(nome), analistas(nome), clientes(nome)')
+      .neq('status','CONCLUIDO').order('criado_em'),
+    sb.from('chamados').select('*').neq('status','RESOLVIDO').order('criado_em', { ascending: false }),
+    sb.from('apontamentos_erro').select('*, analistas(nome), demandas(numero)').eq('resolvido', false).order('criado_em', { ascending: false }),
+    sb.from('demandas').select('id,numero,recebido_em,proponente1_nome,status,unidade,analistas(nome),atividades(nome)')
+      .neq('status','CONCLUIDO').order('recebido_em').limit(50),
   ]);
-  const bloco = (titulo, rows, vazio) => `
-    <div class="card">
-      <h2>${titulo}</h2>
-      ${rows.length ? `<table><thead><tr><th>Nº</th><th>Recebido</th><th>Proponente</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th></th></tr></thead>
-      <tbody>${rows.map(r => `<tr>
-        <td>${r.numero ?? ''}</td><td>${fmtDt(r.recebido_em)}</td><td>${esc(r.proponente1_nome)}</td>
-        <td>${esc(r.unidade)}</td><td>${esc(r.atividades?.nome)}</td><td>${esc(r.analistas?.nome)}</td>
-        <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td>
-        <td><button class="ghost btnEdit" data-id="${r.id}">Abrir</button></td></tr>`).join('')}</tbody></table>` : `<div class="ok-box">${vazio}</div>`}
-    </div>`;
+
+  const meusDoDia = (doDia||[]).filter(d => !meuId || d.analista_id === meuId);
+  const minhaEsteira = (esteiraMinha||[]).filter(p => meuId && p.analista_atual_id === meuId);
+  const esteiraSemDono = (esteiraMinha||[]).filter(p => !p.analista_atual_id);
+  const meusChamados = (chamadosAbertos||[]).filter(c => c.solicitante === meuEmail);
+  const meusApont = (apontAbertos||[]).filter(a => meuId && a.analista_id === meuId);
+  const prodMes = souGestao ? null : null;
+
+  const tabelaEsteira = (lista, vazio) => lista.length ? `
+    <div class="table-scroll"><table><thead><tr><th>Processo</th><th>Etapa atual</th><th>Esteira</th><th>Cliente</th><th>Prioridade</th><th></th></tr></thead>
+    <tbody>${lista.map(p => `<tr>
+      <td style="min-width:170px"><b>${esc(p.titulo)}</b>${p.unidade?`<br><span style="color:var(--muted);font-size:11px">${esc(p.unidade)}</span>`:''}</td>
+      <td style="min-width:150px">${esc(p.etapas_esteira?.nome || '—')}</td>
+      <td style="white-space:nowrap">${p.esteira_tipo==='analise_credito'?'Crédito':'Contrato'}</td>
+      <td style="min-width:120px">${esc(p.clientes?.nome || '—')}</td>
+      <td><span class="tag ${p.prioridade==='URGENTE'?'ERRO':p.prioridade==='ALTA'?'PENDENTE':'RECEBIDO'}">${esc(p.prioridade||'NORMAL')}</span></td>
+      <td><button class="ghost btnEsteiraOp" data-id="${p.id}">Abrir</button></td></tr>`).join('')}</tbody></table></div>`
+    : `<div class="ok-box">${vazio}</div>`;
+
   shell(`
-    ${bloco('🗂️ Fila de pendências (todas em aberto)', pend||[], '✅ Nenhuma pendência! Fila limpa.')}
-    ${bloco('📥 Registradas hoje', doDia||[], 'Nenhum processo registrado hoje ainda.')}`);
+    <div class="kpis">
+      <div class="kpi"><div class="v">${meusDoDia.length}</div><div class="l">📥 ${meuId ? 'Meus processos hoje' : 'Processos hoje'}</div></div>
+      <div class="kpi"><div class="v" style="color:${minhaEsteira.length?'var(--warn)':'var(--ok)'}">${minhaEsteira.length}</div><div class="l">⛓️ Comigo na esteira</div></div>
+      <div class="kpi"><div class="v" style="color:${esteiraSemDono.length?'var(--accent)':'var(--muted)'}">${esteiraSemDono.length}</div><div class="l">🙋 Na fila, sem responsável</div></div>
+      <div class="kpi"><div class="v" style="color:${meusApont.length?'var(--err)':'var(--ok)'}">${meusApont.length}</div><div class="l">🔁 Retrabalho em aberto</div></div>
+    </div>
+
+    <div class="card">
+      <h2>⛓️ Comigo na esteira — precisa da minha ação</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Processos parados esperando você concluir a etapa.</p>
+      ${tabelaEsteira(minhaEsteira, meuId ? '✅ Nada parado com você. Tudo em dia!' : 'Seu usuário ainda não está vinculado a um colaborador — peça ao administrador em Administração → Usuários.')}
+    </div>
+
+    <div class="card">
+      <h2>🙋 Fila da equipe — disponível para pegar</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Processos na esteira sem responsável definido.</p>
+      ${tabelaEsteira(esteiraSemDono, 'Nenhum processo esperando na fila.')}
+    </div>
+
+    <div class="grid-cad">
+      <div class="card">
+        <h2>🔁 Retrabalho em aberto ${meuId ? '(meu)' : ''}</h2>
+        ${meusApont.length ? meusApont.map(a => `
+          <div class="cad-item"><span style="flex:1">
+            <b>${esc(a.categoria)}</b>${a.subcategoria?` · ${esc(a.subcategoria)}`:''}
+            ${a.demandas?.numero?`<span style="color:var(--muted);font-size:11px"> · proc. ${a.demandas.numero}</span>`:''}
+            <br><span style="color:var(--muted);font-size:11.5px">${esc(a.descricao||'')}</span>
+          </span></div>`).join('')
+          : '<div class="ok-box">Nenhum apontamento em aberto. 🎉</div>'}
+      </div>
+      <div class="card">
+        <h2>📨 Meus chamados em aberto</h2>
+        ${meusChamados.length ? meusChamados.map(c => `
+          <div class="cad-item"><span style="flex:1">
+            <b>${esc(c.titulo)}</b> <span class="tag ${c.prioridade==='CRITICA'||c.prioridade==='ALTA'?'PENDENTE':'RECEBIDO'}">${esc(c.prioridade)}</span>
+            <br><span style="color:var(--muted);font-size:11.5px">${esc(c.area)} · aberto ${fmtDt(c.criado_em)}</span>
+          </span></div>`).join('')
+          : '<div class="ok-box">Nenhum chamado seu em aberto.</div>'}
+      </div>
+    </div>
+
+    ${(pendAntigas||[]).length ? `
+    <div class="card">
+      <h2>⚠️ Processos de produção ainda não concluídos</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Lançamentos que ficaram com status diferente de CONCLUÍDO.</p>
+      <div class="table-scroll"><table><thead><tr><th>Nº</th><th>Recebido</th><th>Proponente</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th></th></tr></thead>
+      <tbody>${pendAntigas.map(r => `<tr>
+        <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td>
+        <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.unidade)}</td>
+        <td style="min-width:150px">${esc(r.atividades?.nome)}</td><td>${esc(r.analistas?.nome)}</td>
+        <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td>
+        <td><button class="ghost btnEdit" data-id="${r.id}">Abrir</button></td></tr>`).join('')}</tbody></table></div>
+    </div>` : ''}
+
+    <div class="card">
+      <h2>📥 ${meuId ? 'Meus lançamentos de hoje' : 'Lançamentos de hoje'} <span class="count-badge">${meusDoDia.length}</span></h2>
+      ${meusDoDia.length ? `<div class="table-scroll"><table><thead><tr><th>Nº</th><th>Recebido</th><th>Proponente</th><th>Unidade</th><th>Atividade</th><th></th></tr></thead>
+      <tbody>${meusDoDia.map(r => `<tr>
+        <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td>
+        <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.unidade)}</td>
+        <td style="min-width:150px">${esc(r.atividades?.nome)}</td>
+        <td><button class="ghost btnEdit" data-id="${r.id}">Abrir</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="msg">Nenhum lançamento hoje ainda. Registre em Produção → + Novo processo.</div>'}
+    </div>`);
   document.querySelectorAll('.btnEdit').forEach(b => b.onclick = () => openForm(b.dataset.id));
+  document.querySelectorAll('.btnEsteiraOp').forEach(b => b.onclick = async () => {
+    const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem');
+    openProcessoEsteira(b.dataset.id, etapas || []);
+  });
 }
 
 // ---------- VALIDAÇÃO ----------
@@ -1890,6 +1978,23 @@ async function renderMetas() {
   // indicadores do colaborador selecionado (com peso do trimestre) para a tabela detalhada
   const indsDoColab = dashInd ? [...new Set(dashInd.linhas.map(l => l.indicador))] : [];
 
+  // ===== META DA EQUIPE (replica a aba DASHBOARD da planilha) =====
+  // atingimento da equipe no mês = média das notas ponderadas de quem tem lançamento
+  const notaEquipeMes = (mi) => {
+    const ns = ranking.map(a => a.notas[mi]).filter(v => v !== null && v !== undefined);
+    return ns.length ? ns.reduce((s,v)=>s+v,0)/ns.length : null;
+  };
+  const notasEquipe = meses.map((_, i) => notaEquipeMes(i));
+  const mesesLancados = notasEquipe.filter(v => v !== null).length;
+  const comNotaEq = notasEquipe.filter(v => v !== null);
+  const atingEquipe = comNotaEq.length ? comNotaEq.reduce((s,v)=>s+v,0)/comNotaEq.length : null;
+  const mesesNaMeta = notasEquipe.filter(v => v !== null && v >= 1).length;
+  const processosTotais = linhasAno.reduce((s,l)=>s+l.quantidade_processos,0);
+  const errosTotais = linhasAno.reduce((s,l)=>s+l.quantidade_erros,0);
+  const taxaErroGlobal = processosTotais ? errosTotais/processosTotais : null;
+  const errosPorMes = mesesLancados ? Math.round(errosTotais/mesesLancados) : 0;
+  const ultimaNotaEq = [...notasEquipe].reverse().find(v => v !== null) ?? null;
+
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1898,6 +2003,37 @@ async function renderMetas() {
         <div class="spacer"></div>
         <select id="metaAno">${anos.map(a=>`<option ${a===state.metaAno?'selected':''}>${a}</option>`).join('')}</select>
         ${state.role === 'admin' ? '<button id="btnEditarMetas" class="ghost">✏️ Lançar dados do mês</button>' : ''}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2 style="margin:0 0 10px">🎯 Meta da equipe — ${state.metaAno}</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" style="color:${atingEquipe===null?'var(--muted)':atingEquipe>=1?'var(--ok)':atingEquipe>=0.95?'var(--warn)':'var(--err)'}">${pctTxt(atingEquipe)}</div><div class="l">📊 Atingimento médio da equipe</div></div>
+        <div class="kpi"><div class="v">${processosTotais.toLocaleString('pt-BR')}</div><div class="l">📋 Processos totais · ${mesesLancados} ${mesesLancados===1?'mês':'meses'}</div></div>
+        <div class="kpi"><div class="v" style="color:${errosTotais>0?'var(--warn)':'var(--ok)'}">${errosTotais}</div><div class="l">⚠️ Erros internos · ${errosPorMes}/mês em média</div></div>
+        <div class="kpi"><div class="v" style="color:${taxaErroGlobal===null?'var(--muted)':taxaErroGlobal<=0.02?'var(--ok)':'var(--warn)'}">${taxaErroGlobal===null?'—':(taxaErroGlobal*100).toFixed(2)+'%'}</div><div class="l">📉 Taxa de erro global</div></div>
+        <div class="kpi"><div class="v" style="color:${naMeta===ativosComDado&&ativosComDado>0?'var(--ok)':'var(--warn)'}">${naMeta} / ${ativosComDado}</div><div class="l">👥 Colaboradores na meta (≥95%)</div></div>
+      </div>
+      <div class="grid-cad" style="margin-top:4px">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+            <b>Progresso da meta da equipe</b>
+            <span style="color:var(--muted)">${atingEquipe===null ? '—' : atingEquipe>=1 ? '✅ meta atingida' : `faltam ${((1-atingEquipe)*100).toFixed(1)}% para 100%`}</span>
+          </div>
+          <div class="hbar" style="height:14px"><div style="width:${atingEquipe===null?0:Math.min(100,Math.round(atingEquipe*100))}%;background:${atingEquipe>=1?'var(--ok)':'var(--accent)'}"></div></div>
+          <p style="color:var(--muted);font-size:12px;margin-top:6px">
+            <b>${mesesNaMeta}</b> de <b>${mesesLancados}</b> ${mesesLancados===1?'mês lançado atingiu':'meses lançados atingiram'} a meta ·
+            <b>${mesesLancados}</b> de 12 meses lançados (faltam ${12-mesesLancados})
+          </p>
+        </div>
+        <div>
+          <div style="font-size:12.5px;margin-bottom:4px"><b>Evolução do desempenho da equipe</b>
+            ${ultimaNotaEq!==null ? `<span style="color:var(--muted)"> · último mês ${(ultimaNotaEq*100).toFixed(1)}%</span>` : ''}</div>
+          <svg viewBox="0 0 700 80" style="width:100%;height:80px">
+            ${svgLine(notasEquipe.map(v => v === null ? 0 : v*100), 700, 80, '#2dd4bf', false)}
+          </svg>
+          <div style="font-size:11px;color:var(--muted)">${meses.map(m=>mesLabel(m).slice(0,3)).join(' · ')}</div>
+        </div>
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
@@ -2593,10 +2729,23 @@ async function renderEsteira() {
     sb.from('etapas_esteira').select('*').eq('ativa', true).eq('esteira_tipo', state.esteiraTipo).order('ordem'),
     sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
   ]);
+  if (!state.esteiraFiltro) state.esteiraFiltro = { busca:'', analista:'', prioridade:'' };
+  const ef = state.esteiraFiltro;
+  const processosFiltrados = (processos || []).filter(p => {
+    if (ef.analista === '__semdono__' ? p.analista_atual_id : (ef.analista && p.analista_atual_id !== ef.analista)) return false;
+    if (ef.prioridade && (p.prioridade || 'NORMAL') !== ef.prioridade) return false;
+    if (ef.busca) {
+      const alvo = [p.titulo, p.unidade, p.clientes?.nome, p.observacoes, p.obs].filter(Boolean).join(' ').toLowerCase();
+      if (!alvo.includes(ef.busca.toLowerCase())) return false;
+    }
+    return true;
+  });
   const porEtapa = {};
   (etapas || []).forEach(e => porEtapa[e.id] = []);
-  (processos || []).forEach(p => { (porEtapa[p.etapa_atual_id] = porEtapa[p.etapa_atual_id] || []).push(p); });
+  processosFiltrados.forEach(p => { (porEtapa[p.etapa_atual_id] = porEtapa[p.etapa_atual_id] || []).push(p); });
   const meuNome = state.perfilNome || '';
+  const analistasNaEsteira = [...new Map((processos||[]).filter(p=>p.analista_atual_id)
+    .map(p => [p.analista_atual_id, p.analistas?.nome])).entries()];
 
   // quantos processos cada analista tem em aberto nesta esteira
   const porAnalistaCount = {};
@@ -2618,6 +2767,21 @@ async function renderEsteira() {
       </div>
       <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
         ${Object.entries(porAnalistaCount).sort((a,b)=>b[1]-a[1]).map(([n,q]) => `<span>👤 ${esc(n)}: <b style="color:var(--text)">${q}</b></span>`).join('') || '<span>Nenhum processo em aberto nesta esteira.</span>'}
+      </div>
+      <div class="filters" style="align-items:end;margin-top:12px">
+        <div style="flex:2;min-width:170px"><label>Buscar</label>
+          <input id="efBusca" value="${esc(ef.busca)}" placeholder="processo, cliente, unidade, observação..."></div>
+        <div><label>Responsável</label><select id="efAnalista">
+          <option value="">Todos</option>
+          <option value="__semdono__" ${ef.analista==='__semdono__'?'selected':''}>Sem responsável (fila)</option>
+          ${analistasNaEsteira.map(([id,nome])=>`<option value="${id}" ${ef.analista===id?'selected':''}>${esc(nome)}</option>`).join('')}
+        </select></div>
+        <div><label>Prioridade</label><select id="efPrioridade">
+          <option value="">Todas</option>
+          ${['NORMAL','ALTA','URGENTE'].map(p=>`<option value="${p}" ${ef.prioridade===p?'selected':''}>${p}</option>`).join('')}
+        </select></div>
+        ${(ef.busca||ef.analista||ef.prioridade) ? `<button id="efLimpar" class="ghost">Limpar</button>
+          <span style="color:var(--muted);font-size:12px;align-self:center">${processosFiltrados.length} de ${(processos||[]).length}</span>` : ''}
       </div>
     </div>
     <div class="esteira-board">
@@ -2648,36 +2812,119 @@ async function renderEsteira() {
   if (bE) bE.onclick = () => openGerenciarEtapas(etapas);
   document.querySelectorAll('.esteira-tab').forEach(b => b.onclick = () => { state.esteiraTipo = b.dataset.tipo; renderEsteira(); });
   document.getElementById('btnHistEsteira').onclick = () => openHistoricoEsteira();
+  let efTm;
+  document.getElementById('efBusca').oninput = (e) => {
+    clearTimeout(efTm); efTm = setTimeout(() => {
+      state.esteiraFiltro.busca = e.target.value;
+      renderEsteira().then(() => { const el = document.getElementById('efBusca'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+    }, 350);
+  };
+  document.getElementById('efAnalista').onchange = (e) => { state.esteiraFiltro.analista = e.target.value; renderEsteira(); };
+  document.getElementById('efPrioridade').onchange = (e) => { state.esteiraFiltro.prioridade = e.target.value; renderEsteira(); };
+  const efL = document.getElementById('efLimpar');
+  if (efL) efL.onclick = () => { state.esteiraFiltro = { busca:'', analista:'', prioridade:'' }; renderEsteira(); };
 }
 
 async function openHistoricoEsteira() {
-  const { data: concluidos } = await sb.from('esteira_processos')
-    .select('*, etapas_esteira(nome), analistas(nome), clientes(nome)')
-    .eq('status', 'CONCLUIDO').order('concluido_em', { ascending: false }).limit(200);
+  const [{ data: concluidos }, { data: analistasEsteira }] = await Promise.all([
+    sb.from('esteira_processos').select('*, etapas_esteira(nome), analistas(nome), clientes(nome)')
+      .eq('status', 'CONCLUIDO').order('concluido_em', { ascending: false }).limit(500),
+    sb.from('analistas').select('id,nome').order('nome'),
+  ]);
+  const todos = concluidos || [];
+  const f = { busca:'', esteira:'', desfecho:'', analista:'', de:'', ate:'' };
   const div = document.createElement('div');
   div.className = 'modal-bg';
-  div.innerHTML = `<div class="modal" style="width:900px">
-    <h2>🗄️ Histórico de processos concluídos</h2>
-    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Nada é apagado — todo processo encerrado fica aqui com o histórico completo de etapas.</p>
-    <div style="max-height:60vh;overflow-y:auto">
-    <table><thead><tr><th>Concluído em</th><th>Esteira</th><th>Processo</th><th>Última etapa</th><th>Desfecho</th><th></th></tr></thead>
-    <tbody>${(concluidos||[]).map(p => `<tr>
-      <td>${fmtDt(p.concluido_em)}</td>
-      <td>${p.esteira_tipo === 'analise_credito' ? 'Análise de Crédito' : 'Emissão de Contrato'}</td>
-      <td><b>${esc(p.titulo)}</b>${p.unidade ? `<br><span style="color:var(--muted);font-size:11px">${esc(p.unidade)}</span>` : ''}</td>
-      <td>${esc(p.etapas_esteira?.nome || '—')}</td>
-      <td>${p.devolvido_para ? `<span class="tag ERRO">Devolvido: ${esc(p.devolvido_para)}</span>${p.motivo_devolucao ? `<br><span style="font-size:11px;color:var(--muted)">${esc(p.motivo_devolucao)}</span>` : ''}` : '<span class="tag CONCLUIDO">Concluído</span>'}</td>
-      <td><button class="ghost hist-abrir" data-id="${p.id}">Ver histórico</button></td>
-    </tr>`).join('') || '<tr><td colspan="6">Nenhum processo concluído ainda.</td></tr>'}</tbody></table>
-    </div>
-    <div style="display:flex;justify-content:end;margin-top:14px"><button id="heFechar" class="ghost">Fechar</button></div>
-  </div>`;
   document.body.appendChild(div);
-  div.querySelector('#heFechar').onclick = () => div.remove();
-  div.querySelectorAll('.hist-abrir').forEach(b => b.onclick = async () => {
-    const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem');
-    div.remove(); openProcessoEsteira(b.dataset.id, etapas || []);
+
+  const desfechoDe = (p) => p.devolvido_para ? 'devolvido' : 'concluido';
+  const aplicar = () => todos.filter(p => {
+    if (f.esteira && p.esteira_tipo !== f.esteira) return false;
+    if (f.desfecho && desfechoDe(p) !== f.desfecho) return false;
+    if (f.analista && p.analista_atual_id !== f.analista) return false;
+    if (f.de && p.concluido_em && p.concluido_em.slice(0,10) < f.de) return false;
+    if (f.ate && p.concluido_em && p.concluido_em.slice(0,10) > f.ate) return false;
+    if (f.busca) {
+      const q = f.busca.toLowerCase();
+      const alvo = [p.titulo, p.unidade, p.clientes?.nome, p.observacoes, p.motivo_devolucao, p.etapas_esteira?.nome]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!alvo.includes(q)) return false;
+    }
+    return true;
   });
+
+  const render = () => {
+    const lista = aplicar();
+    div.innerHTML = `<div class="modal" style="width:980px">
+      <h2>🗄️ Histórico de processos concluídos</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Nada é apagado — todo processo encerrado fica aqui com o histórico completo de etapas.</p>
+      <div class="filters" style="align-items:end;margin-bottom:10px">
+        <div style="flex:2;min-width:170px"><label>Buscar</label>
+          <input id="hfBusca" value="${esc(f.busca)}" placeholder="processo, cliente, unidade, motivo..."></div>
+        <div><label>Esteira</label><select id="hfEsteira">
+          <option value="">Todas</option>
+          <option value="analise_credito" ${f.esteira==='analise_credito'?'selected':''}>Análise de Crédito</option>
+          <option value="emissao_contrato" ${f.esteira==='emissao_contrato'?'selected':''}>Emissão de Contrato</option>
+        </select></div>
+        <div><label>Desfecho</label><select id="hfDesfecho">
+          <option value="">Todos</option>
+          <option value="concluido" ${f.desfecho==='concluido'?'selected':''}>Concluído</option>
+          <option value="devolvido" ${f.desfecho==='devolvido'?'selected':''}>Devolvido</option>
+        </select></div>
+        <div><label>Responsável</label><select id="hfAnalista">
+          <option value="">Todos</option>
+          ${(analistasEsteira||[]).map(a=>`<option value="${a.id}" ${f.analista===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}
+        </select></div>
+        <div><label>De</label><input id="hfDe" type="date" value="${f.de}"></div>
+        <div><label>Até</label><input id="hfAte" type="date" value="${f.ate}"></div>
+        <button id="hfLimpar" class="ghost">Limpar</button>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:8px"><b>${lista.length}</b> de ${todos.length} processo(s)</p>
+      <div style="max-height:52vh;overflow-y:auto">
+      <table><thead><tr><th>Concluído em</th><th>Esteira</th><th>Processo</th><th>Última etapa</th><th>Responsável</th><th>Desfecho</th><th></th></tr></thead>
+      <tbody>${lista.map(p => `<tr>
+        <td style="white-space:nowrap">${fmtDt(p.concluido_em)}</td>
+        <td style="white-space:nowrap">${p.esteira_tipo === 'analise_credito' ? 'Crédito' : 'Contrato'}</td>
+        <td style="min-width:190px"><b>${esc(p.titulo)}</b>${p.unidade ? `<br><span style="color:var(--muted);font-size:11px">${esc(p.unidade)}</span>` : ''}</td>
+        <td style="min-width:130px">${esc(p.etapas_esteira?.nome || '—')}</td>
+        <td style="min-width:100px">${esc(p.analistas?.nome || '—')}</td>
+        <td style="min-width:130px">${p.devolvido_para ? `<span class="tag ERRO">Devolvido: ${esc(p.devolvido_para)}</span>${p.motivo_devolucao ? `<br><span style="font-size:11px;color:var(--muted)">${esc(p.motivo_devolucao)}</span>` : ''}` : '<span class="tag CONCLUIDO">Concluído</span>'}</td>
+        <td><button class="ghost hist-abrir" data-id="${p.id}">Ver histórico</button></td>
+      </tr>`).join('') || `<tr><td colspan="7" style="color:var(--muted)">${todos.length ? 'Nenhum processo com esses filtros.' : 'Nenhum processo concluído ainda.'}</td></tr>`}</tbody></table>
+      </div>
+      <div style="display:flex;justify-content:end;gap:8px;margin-top:14px">
+        <button id="hfExportar" class="ghost">⬇ Exportar</button>
+        <button id="heFechar" class="ghost">Fechar</button>
+      </div>
+    </div>`;
+    const $ = (i) => div.querySelector('#' + i);
+    $('heFechar').onclick = () => div.remove();
+    let tm;
+    $('hfBusca').oninput = (e) => { clearTimeout(tm); tm = setTimeout(() => { f.busca = e.target.value; render(); const el = div.querySelector('#hfBusca'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 350); };
+    $('hfEsteira').onchange = (e) => { f.esteira = e.target.value; render(); };
+    $('hfDesfecho').onchange = (e) => { f.desfecho = e.target.value; render(); };
+    $('hfAnalista').onchange = (e) => { f.analista = e.target.value; render(); };
+    $('hfDe').onchange = (e) => { f.de = e.target.value; render(); };
+    $('hfAte').onchange = (e) => { f.ate = e.target.value; render(); };
+    $('hfLimpar').onclick = () => { Object.keys(f).forEach(k => f[k] = ''); render(); };
+    $('hfExportar').onclick = () => {
+      const head = ['Concluído em','Esteira','Processo','Unidade','Última etapa','Responsável','Desfecho','Motivo','Observações'];
+      const csv = [head.join(';')].concat(lista.map(p => [
+        fmtDt(p.concluido_em), p.esteira_tipo==='analise_credito'?'Análise de Crédito':'Emissão de Contrato',
+        p.titulo, p.unidade, p.etapas_esteira?.nome, p.analistas?.nome,
+        p.devolvido_para ? 'Devolvido: '+p.devolvido_para : 'Concluído', p.motivo_devolucao, p.observacoes,
+      ].map(v => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(';'))).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = `historico-esteira-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    };
+    div.querySelectorAll('.hist-abrir').forEach(b => b.onclick = async () => {
+      const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem');
+      div.remove(); openProcessoEsteira(b.dataset.id, etapas || []);
+    });
+  };
+  render();
 }
 
 async function openProcessoEsteira(id, etapas) {
