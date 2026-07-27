@@ -8,6 +8,32 @@ const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey,
   EH_STAGING ? { db: { schema: 'staging' } } : {});
 
+function svgIcon(path) {
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">${path}</svg>`;
+}
+const ICONES = {
+  inicio: svgIcon('<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/>'),
+  pipeline: svgIcon('<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 3v3M16 3v3"/>'),
+  esteira: svgIcon('<path d="M12 2 3 6.5 12 11l9-4.5Z"/><path d="M3 12 12 16.5 21 12"/><path d="M3 17 12 21.5 21 17"/>'),
+  qualidade: svgIcon('<path d="M4 12a8 8 0 0 1 14.5-4.6M20 4v4.4h-4.4"/><path d="M20 12a8 8 0 0 1-14.5 4.6M4 20v-4.4h4.4"/>'),
+  chamados: svgIcon('<path d="M21 12a8 8 0 0 1-11.5 7.2L3 21l1.8-6.5A8 8 0 1 1 21 12Z"/>'),
+  operacoes: svgIcon('<path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>'),
+  repasse: svgIcon('<path d="M3 10 12 4l9 6"/><path d="M5 10v9M9 10v9M15 10v9M19 10v9"/><path d="M3 19h18"/>'),
+  fluxogramas: svgIcon('<path d="M9 3 3 5.5v15L9 18l6 2.5 6-2.5v-15L15 5.5 9 3Z"/><path d="M9 3v15M15 5.5v15"/>'),
+  followup: svgIcon('<path d="M8 10h8M8 14h5"/><path d="M21 12a8.5 8.5 0 0 1-11.8 7.8L4 21l1.3-4.9A8.5 8.5 0 1 1 21 12Z"/>'),
+  integracoes: svgIcon('<path d="M10 13a4 4 0 0 0 5.7.3l2.5-2.5a4 4 0 0 0-5.6-5.6L11 6.6"/><path d="M14 11a4 4 0 0 0-5.7-.3L5.8 13.2a4 4 0 0 0 5.6 5.6L13 17.4"/>'),
+  automacoes: svgIcon('<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/>'),
+  documentos: svgIcon('<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
+  dashboard: svgIcon('<path d="M4 20V10M12 20V4M20 20v-7"/>'),
+  metas: svgIcon('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>'),
+  analytics: svgIcon('<path d="M3 17 9 11l4 4 8-8"/><path d="M15 7h6v6"/>'),
+  insights: svgIcon('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.3 1.1 2.2h5c0-.9.5-1.7 1.1-2.2A6 6 0 0 0 12 3Z"/>'),
+  implantacao: svgIcon('<path d="M12 2c2.5 2 4 5.2 4 8.5 0 2-1 4-4 6-3-2-4-4-4-6C8 7.2 9.5 4 12 2Z"/><path d="M9 15.5 6 20l3-1 1-3M15 15.5 18 20l-3-1-1-3"/><circle cx="12" cy="10" r="1.5"/>'),
+  fechamento: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1.1-3 2.5 1.3 2 3 2.5 3 1.1 3 2.5-1.3 2.5-3 2.5-3-1.1-3-2.5"/>'),
+  escala: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
+  cadastros: svgIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
+};
+
 const app = document.getElementById('app');
 const PAGE = 25;
 let state = {
@@ -134,7 +160,7 @@ function shell(inner) {
       <div class="side-brand"><span class="logo">🏢</span><div><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b><small>Neo Service</small></div></div>
       ${pilaresVisiveis.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
-        ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span>${ic}</span>${l}</button>`).join('')}
+        ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${l}</button>`).join('')}
       `).join('')}
       <div class="side-footer">
         <button id="btnApresentacao" class="ghost">${state.modoApresentacao ? '👁️ Modo Normal' : '📺 Modo Apresentação'}</button>
@@ -179,7 +205,7 @@ async function renderInicio() {
         <div class="inicio-grid">
           ${atalhos.filter(a=>a.grp===grp).map(a => `
             <button class="inicio-card" data-v="${a.v}">
-              <span style="font-size:26px">${a.ic}</span>
+              <span class="inicio-ic">${ICONES[a.v] || a.ic}</span>
               <span>${a.l}</span>
             </button>`).join('')}
         </div>
@@ -604,7 +630,7 @@ function buildQuery(sel, count) {
 }
 async function renderDemandas() {
   const { data: rows, count } = await buildQuery(
-    'id,numero,numero_processo,recebido_em,proponente1_nome,proponente1_cpf,unidade,status,fat_mensal,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)', true
+    'id,numero,numero_processo,recebido_em,proponente1_nome,proponente1_cpf,proponente2_nome,proponente2_cpf,unidade,status,concluido_em,fat_mensal,valor_proposta,obs,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)', true
   ).order('recebido_em', { ascending: false }).range(state.page*PAGE, state.page*PAGE+PAGE-1);
   state.total = count || 0;
   const L = state.lookups, f = state.filtros;
@@ -624,16 +650,21 @@ async function renderDemandas() {
     </div>
     <div class="card">
       <div class="table-scroll">
-      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Fat.</th><th></th></tr></thead>
+      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>1º Proponente</th><th>CPF 1º</th><th>2º Proponente</th><th>CPF 2º</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Concluído em</th><th>Fat.</th><th>Valor proposta</th><th>Obs</th><th></th></tr></thead>
       <tbody>${(rows||[]).map(r => `<tr>
         <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${esc(r.numero_processo)}</td>
         <td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td>
         <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.proponente1_cpf)}</td>
+        <td style="min-width:150px">${esc(r.proponente2_nome) || '<span style="color:var(--muted2)">—</span>'}</td>
+        <td style="white-space:nowrap">${esc(r.proponente2_cpf) || '<span style="color:var(--muted2)">—</span>'}</td>
         <td style="min-width:120px">${esc(r.empreendedoras?.nome)}</td><td style="min-width:130px">${esc(r.empreendimentos?.nome)}</td>
         <td style="white-space:nowrap">${esc(r.unidade)}</td><td style="min-width:160px">${esc(r.atividades?.nome)}</td>
         <td style="min-width:100px">${esc(r.analistas?.nome)}</td>
         <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td>
+        <td style="white-space:nowrap">${r.concluido_em ? fmtDt(r.concluido_em) : '<span style="color:var(--muted2)">—</span>'}</td>
         <td><span class="tag ${r.fat_mensal?'CONCLUIDO':'PENDENTE'}">${r.fat_mensal?'Sim':'Não'}</span></td>
+        <td style="white-space:nowrap">${r.valor_proposta ? Number(r.valor_proposta).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '<span style="color:var(--muted2)">—</span>'}</td>
+        <td style="min-width:160px">${esc(r.obs) || '<span style="color:var(--muted2)">—</span>'}</td>
         <td><button class="ghost btnEdit" data-id="${r.id}">Abrir</button></td></tr>`).join('')}
       </tbody></table></div>
       <div class="pag">
