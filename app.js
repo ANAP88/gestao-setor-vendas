@@ -1146,14 +1146,14 @@ async function renderChamados() {
     sb.from('config_sistema').select('*').eq('id', 'email_remetente_padrao').maybeSingle(),
   ]);
   const remetentePadrao = cfg?.valor || 'secvendas@neoservice.com.br';
-  // analista vê só os chamados que ele mesmo abriu; gestão vê todos
+  // todos veem os chamados da equipe (transparência); mas cada um só abre/edita os seus
   const meuEmail = state.session?.user?.email;
-  const rows = state.role === 'admin' ? rowsAll : (rowsAll||[]).filter(c => c.solicitante === meuEmail);
+  const rows = rowsAll || [];
   shell(`
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
         <h2 style="margin:0">📨 Chamados entre Áreas</h2>
-        <span style="color:var(--muted);font-size:12.5px">${state.role === 'admin' ? 'Solicitações de toda a equipe' : 'Seus chamados'} — solicitação de boleto, documento, correção. Com e-mail e histórico.</span>
+        <span style="color:var(--muted);font-size:12.5px">Chamados de toda a equipe — solicitação de boleto, documento, correção. Você edita apenas os seus.</span>
         <div class="spacer"></div>
         <button id="btnNovoCh">+ Novo chamado</button>
         ${state.role === 'admin' ? '<button id="btnAreasContato" class="ghost">⚙️ Áreas e e-mails</button>' : ''}
@@ -1188,36 +1188,40 @@ async function renderChamados() {
 
 async function openChamado(c, areas, remetentePadrao) {
   const novo = !c;
+  // só quem abriu (ou admin) pode editar/enviar; os demais visualizam
+  const souDono = novo || c.solicitante === state.session?.user?.email || state.role === 'admin';
+  const ro = !souDono ? 'disabled' : '';
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:640px">
     <h2>${novo ? '📨 Novo chamado entre áreas' : '📨 ' + esc(c.titulo)}</h2>
+    ${!souDono ? `<div class="msg" style="margin-bottom:10px">👀 Somente leitura — chamado aberto por <b>${esc(c.solicitante)}</b>.</div>` : ''}
     <div class="grid2">
       <div style="grid-column:1/-1"><label>Assunto / título</label>
-        <input id="chTitulo" value="${esc(c?.titulo)}" placeholder="Ex.: Solicitação de boleto do ato — Unid. 1002"></div>
-      <div><label>Área de destino</label><select id="chArea">
+        <input id="chTitulo" value="${esc(c?.titulo)}" placeholder="Ex.: Solicitação de boleto do ato — Unid. 1002" ${ro}></div>
+      <div><label>Área de destino</label><select id="chArea" ${ro}>
         <option value="">— escolher —</option>
         ${areas.map(a=>`<option value="${esc(a.area)}" data-email="${esc(a.email)}" ${c?.area===a.area?'selected':''}>${esc(a.area)}</option>`).join('')}
         <option value="__outra__" ${c && !areas.some(a=>a.area===c.area) ? 'selected':''}>Outra área…</option>
       </select></div>
-      <div><label>Prioridade</label><select id="chPrioridade">
+      <div><label>Prioridade</label><select id="chPrioridade" ${ro}>
         ${['BAIXA','NORMAL','ALTA','CRITICA'].map(p=>`<option ${(c?.prioridade||'NORMAL')===p?'selected':''}>${p}</option>`).join('')}</select></div>
       <div id="chAreaOutraWrap" style="grid-column:1/-1;display:none"><label>Nome da área</label>
-        <input id="chAreaOutra" value="${c && !areas.some(a=>a.area===c.area) ? esc(c.area) : ''}" placeholder="Ex.: Gestão Bancária"></div>
-      <div><label>De (remetente)</label><input id="chDe" value="${esc(c?.email_remetente || remetentePadrao)}"></div>
-      <div><label>Para (e-mail destino)</label><input id="chPara" value="${esc(c?.email_destino)}" placeholder="area@neoservice.com.br"></div>
-      <div><label>Cópia (opcional)</label><input id="chCopia" value="${esc(c?.email_copia)}" placeholder="separar por vírgula"></div>
-      <div><label>Processo / unidade (opcional)</label><input id="chProc" value="${esc(c?.processo_ref)}" placeholder="Ex.: 9954 — Unid.1002"></div>
+        <input id="chAreaOutra" value="${c && !areas.some(a=>a.area===c.area) ? esc(c.area) : ''}" placeholder="Ex.: Gestão Bancária" ${ro}></div>
+      <div><label>De (remetente)</label><input id="chDe" value="${esc(c?.email_remetente || remetentePadrao)}" ${ro}></div>
+      <div><label>Para (e-mail destino)</label><input id="chPara" value="${esc(c?.email_destino)}" placeholder="area@neoservice.com.br" ${ro}></div>
+      <div><label>Cópia (opcional)</label><input id="chCopia" value="${esc(c?.email_copia)}" placeholder="separar por vírgula" ${ro}></div>
+      <div><label>Processo / unidade (opcional)</label><input id="chProc" value="${esc(c?.processo_ref)}" placeholder="Ex.: 9954 — Unid.1002" ${ro}></div>
       <div style="grid-column:1/-1"><label>Mensagem</label>
-        <textarea id="chDesc" rows="6" placeholder="Descreva o que precisa: valores, prazos, anexos...">${esc(c?.descricao)}</textarea></div>
+        <textarea id="chDesc" rows="6" placeholder="Descreva o que precisa: valores, prazos, anexos..." ${ro}>${esc(c?.descricao)}</textarea></div>
     </div>
     ${c?.enviado_em ? `<div class="ok-box" style="margin-top:10px">✉️ E-mail enviado em ${fmtDt(c.enviado_em)} por ${esc(c.enviado_por||'')}</div>` : ''}
     <div class="msg" id="chMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px;flex-wrap:wrap">
       <button id="chCancel" class="ghost">Fechar</button>
       ${!novo && state.role==='admin' ? '<button id="chExcluir" class="ghost" style="color:var(--err)">🗑️ Excluir</button>' : ''}
-      <button id="chSalvar" class="ghost">${novo ? 'Só registrar' : 'Salvar'}</button>
-      <button id="chEnviar">✉️ ${c?.enviado_em ? 'Reenviar' : 'Registrar e enviar e-mail'}</button>
+      ${souDono ? `<button id="chSalvar" class="ghost">${novo ? 'Só registrar' : 'Salvar'}</button>
+      <button id="chEnviar">✉️ ${c?.enviado_em ? 'Reenviar' : 'Registrar e enviar e-mail'}</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(div);
@@ -1230,7 +1234,7 @@ async function openChamado(c, areas, remetentePadrao) {
     if (!outra && opt?.dataset.email && !$('chPara').value) $('chPara').value = opt.dataset.email;
     if (!outra && opt?.dataset.email) $('chPara').value = opt.dataset.email;
   };
-  $('chArea').onchange = syncArea;
+  if (souDono) $('chArea').onchange = syncArea;
   if (c && !areas.some(a=>a.area===c.area)) $('chAreaOutraWrap').style.display = '';
   $('chCancel').onclick = () => div.remove();
 
@@ -1257,8 +1261,8 @@ async function openChamado(c, areas, remetentePadrao) {
     if (r.error) { $('chMsg').textContent = r.error.message; return null; }
     return r.data;
   };
-  $('chSalvar').onclick = async () => { if (await salvar()) { div.remove(); renderChamados(); } };
-  $('chEnviar').onclick = async () => {
+  if ($('chSalvar')) $('chSalvar').onclick = async () => { if (await salvar()) { div.remove(); renderChamados(); } };
+  if ($('chEnviar')) $('chEnviar').onclick = async () => {
     const rec = coletar();
     if (!rec.email_destino) { $('chMsg').textContent = 'Informe o e-mail de destino.'; return; }
     const salvo = await salvar({ enviado_em: new Date().toISOString(), enviado_por: state.session?.user?.email });
