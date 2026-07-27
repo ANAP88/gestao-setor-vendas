@@ -617,15 +617,19 @@ async function renderDemandas() {
       ${state.role !== 'leitura' ? '<button id="btnNova">+ Novo processo</button>' : ''}
     </div>
     <div class="card">
-      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Fat. Mensal</th><th></th></tr></thead>
+      <div class="table-scroll">
+      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Fat.</th><th></th></tr></thead>
       <tbody>${(rows||[]).map(r => `<tr>
-        <td>${r.numero ?? ''}</td><td>${esc(r.numero_processo)}</td><td>${fmtDt(r.recebido_em)}</td><td>${esc(r.proponente1_nome)}</td><td>${esc(r.proponente1_cpf)}</td>
-        <td>${esc(r.empreendedoras?.nome)}</td><td>${esc(r.empreendimentos?.nome)}</td>
-        <td>${esc(r.unidade)}</td><td>${esc(r.atividades?.nome)}</td><td>${esc(r.analistas?.nome)}</td>
+        <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${esc(r.numero_processo)}</td>
+        <td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td>
+        <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.proponente1_cpf)}</td>
+        <td style="min-width:120px">${esc(r.empreendedoras?.nome)}</td><td style="min-width:130px">${esc(r.empreendimentos?.nome)}</td>
+        <td style="white-space:nowrap">${esc(r.unidade)}</td><td style="min-width:160px">${esc(r.atividades?.nome)}</td>
+        <td style="min-width:100px">${esc(r.analistas?.nome)}</td>
         <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td>
         <td><span class="tag ${r.fat_mensal?'CONCLUIDO':'PENDENTE'}">${r.fat_mensal?'Sim':'Não'}</span></td>
         <td><button class="ghost btnEdit" data-id="${r.id}">Abrir</button></td></tr>`).join('')}
-      </tbody></table>
+      </tbody></table></div>
       <div class="pag">
         <span>${state.total} registros · pág. ${state.page+1}/${pages}</span>
         <button class="ghost" id="pgPrev" ${state.page===0?'disabled':''}>◀</button>
@@ -786,6 +790,7 @@ async function renderEscala() {
         <div class="spacer"></div>
         ${disponiveis.length ? `<select id="escAddAnalista" style="min-width:160px"><option value="">+ Incluir colaborador…</option>
           ${disponiveis.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select>` : ''}
+        ${state.role === 'admin' ? '<button id="escNovoColab" class="ghost">+ Cadastrar colaborador</button>' : ''}
       </div>
       <div style="overflow-x:auto">
       <table class="escala"><thead><tr><th>Analista</th>
@@ -820,6 +825,17 @@ async function renderEscala() {
     state.escalaExtras[state.escalaMes] = (state.escalaExtras[state.escalaMes]||[]).filter(x => x !== b.dataset.a);
     renderEscala();
   });
+  const bNC = document.getElementById('escNovoColab');
+  if (bNC) bNC.onclick = async () => {
+    const nome = prompt('Nome do novo colaborador:');
+    if (!nome || !nome.trim()) return;
+    const cargo = (prompt('Cargo (analista, supervisor, coordenador):', 'analista') || 'analista').toLowerCase().trim();
+    const { data, error } = await sb.from('analistas').insert({ nome: nome.trim(), cargo, status: 'Ativo' }).select('id').single();
+    if (error) { alert(error.message); return; }
+    await loadLookups();
+    state.escalaExtras[state.escalaMes] = [...(state.escalaExtras[state.escalaMes]||[]), data.id];
+    renderEscala();
+  };
   document.querySelectorAll('.esc-cell').forEach(c => c.onclick = async () => {
     const key = c.dataset.a + '|' + c.dataset.d;
     if (byKey[key]) await sb.from('escala_plantao').delete().eq('id', byKey[key]);
@@ -1169,6 +1185,7 @@ async function renderChamados() {
         <td><span class="tag ${c.status==='RESOLVIDO'?'CONCLUIDO':c.status==='ABERTO'?'PENDENTE':'RECEBIDO'}">${esc(c.status)}</span></td>
         <td style="white-space:nowrap">
           <button class="ghost btnVerCh" data-id="${c.id}">Abrir</button>
+          ${c.email_destino ? `<button class="ghost btnEmailCh" data-id="${c.id}">✉️</button>` : ''}
           ${c.status!=='RESOLVIDO' ? `<button class="ghost btnResolver" data-id="${c.id}">Resolver</button>` : ''}
         </td></tr>`).join('')}</tbody></table></div>`
       : '<div class="ok-box">Nenhum chamado aberto.</div>'}
@@ -1177,6 +1194,11 @@ async function renderChamados() {
   document.querySelectorAll('.btnVerCh').forEach(b => b.onclick = () => {
     const c = (rows||[]).find(x => x.id === b.dataset.id);
     openChamado(c, areas||[], remetentePadrao);
+  });
+  document.querySelectorAll('.btnEmailCh').forEach(b => b.onclick = () => {
+    const c = (rows||[]).find(x => x.id === b.dataset.id);
+    abrirEnvioEmail({ titulo: c.titulo, descricao: c.descricao, processo_ref: c.processo_ref,
+      prioridade: c.prioridade, email_destino: c.email_destino, email_copia: c.email_copia }, c.id);
   });
   const bA = document.getElementById('btnAreasContato');
   if (bA) bA.onclick = () => openAreasContato(areas||[], remetentePadrao);
@@ -1267,25 +1289,63 @@ async function openChamado(c, areas, remetentePadrao) {
     if (!rec.email_destino) { $('chMsg').textContent = 'Informe o e-mail de destino.'; return; }
     const salvo = await salvar({ enviado_em: new Date().toISOString(), enviado_por: state.session?.user?.email });
     if (!salvo) return;
-    // abre o e-mail já preenchido no cliente de e-mail (sai do endereço real da pessoa/setor)
-    const corpo = [
-      rec.descricao || '',
-      '',
-      rec.processo_ref ? `Processo/Unidade: ${rec.processo_ref}` : '',
-      `Prioridade: ${rec.prioridade}`,
-      '',
-      `— Enviado pelo Sistema de Gestão da Secretaria de Vendas (chamado ${salvo.id.slice(0,8)})`,
-    ].filter(Boolean).join('\n');
-    const params = new URLSearchParams({ subject: rec.titulo, body: corpo });
-    if (rec.email_copia) params.set('cc', rec.email_copia);
-    window.location.href = `mailto:${encodeURIComponent(rec.email_destino)}?${params.toString().replace(/\+/g,'%20')}`;
-    div.remove(); renderChamados();
+    div.remove();
+    abrirEnvioEmail(rec, salvo.id);
   };
   const bEx = $('chExcluir');
   if (bEx) bEx.onclick = async () => {
     if (!confirm(`Excluir o chamado "${c.titulo}"?`)) return;
     await sb.from('chamados').delete().eq('id', c.id);
     div.remove(); renderChamados();
+  };
+}
+
+// Monta o e-mail pronto e oferece várias formas de enviar (mailto depende de cliente configurado,
+// então também damos Outlook Web, Gmail e "copiar tudo" — sempre funciona em alguma das opções).
+function abrirEnvioEmail(rec, chamadoId) {
+  const corpo = [
+    rec.descricao || '',
+    '',
+    rec.processo_ref ? `Processo/Unidade: ${rec.processo_ref}` : '',
+    `Prioridade: ${rec.prioridade}`,
+    '',
+    `— Enviado pelo Sistema de Gestão da Secretaria de Vendas (chamado ${String(chamadoId).slice(0,8)})`,
+  ].filter(Boolean).join('\n');
+  const enc = (s) => encodeURIComponent(s).replace(/%20/g, '%20');
+  const mailtoUrl = `mailto:${rec.email_destino}?subject=${enc(rec.titulo)}&body=${enc(corpo)}${rec.email_copia ? '&cc='+enc(rec.email_copia) : ''}`;
+  const outlookUrl = `https://outlook.office.com/mail/deeplink/compose?to=${enc(rec.email_destino)}&subject=${enc(rec.titulo)}&body=${enc(corpo)}${rec.email_copia ? '&cc='+enc(rec.email_copia) : ''}`;
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(rec.email_destino)}&su=${enc(rec.titulo)}&body=${enc(corpo)}${rec.email_copia ? '&cc='+enc(rec.email_copia) : ''}`;
+
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:620px">
+    <h2>✉️ Enviar chamado por e-mail</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">O chamado já foi registrado no sistema. Escolha como enviar o e-mail:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button id="evOutlook">📧 Abrir no Outlook Web</button>
+      <button id="evMailto" class="ghost">💻 Abrir no app de e-mail</button>
+      <button id="evGmail" class="ghost">Abrir no Gmail</button>
+      <button id="evCopiar" class="ghost">📋 Copiar tudo</button>
+    </div>
+    <div class="grid2">
+      <div><label>Para</label><input id="evPara" value="${esc(rec.email_destino)}" readonly></div>
+      <div><label>Cópia</label><input id="evCc" value="${esc(rec.email_copia)}" readonly></div>
+      <div style="grid-column:1/-1"><label>Assunto</label><input id="evAssunto" value="${esc(rec.titulo)}" readonly></div>
+      <div style="grid-column:1/-1"><label>Mensagem</label><textarea id="evCorpo" rows="9" readonly>${esc(corpo)}</textarea></div>
+    </div>
+    <div class="msg" id="evMsg"></div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="evFechar" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('evFechar').onclick = () => { div.remove(); renderChamados(); };
+  $('evOutlook').onclick = () => window.open(outlookUrl, '_blank', 'noopener');
+  $('evGmail').onclick = () => window.open(gmailUrl, '_blank', 'noopener');
+  $('evMailto').onclick = () => { window.location.href = mailtoUrl; };
+  $('evCopiar').onclick = async () => {
+    const txt = `Para: ${rec.email_destino}\n${rec.email_copia ? 'Cc: '+rec.email_copia+'\n' : ''}Assunto: ${rec.titulo}\n\n${corpo}`;
+    try { await navigator.clipboard.writeText(txt); $('evMsg').textContent = '✅ Copiado! Cole no seu e-mail.'; }
+    catch { $('evCorpo').select(); $('evMsg').textContent = 'Selecione o texto e copie com Ctrl+C.'; }
   };
 }
 
@@ -2154,12 +2214,14 @@ async function renderFechamento() {
       </div>
       ${Object.entries(grp).map(([an, rs]) => `
         <h2 style="margin-top:14px">${esc(an)} — ${rs.length} processos</h2>
+        <div class="table-scroll">
         <table><thead><tr><th>Nº</th><th>Data</th><th>Canal</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Status</th></tr></thead>
         <tbody>${rs.map(r => `<tr>
-          <td>${r.numero ?? ''}</td><td>${fmtDt(r.recebido_em)}</td><td>${esc(r.numero_processo)}</td>
-          <td>${esc(r.proponente1_nome)}</td><td>${esc(r.proponente1_cpf)}</td><td>${esc(r.empreendedoras?.nome)}</td><td>${esc(r.empreendimentos?.nome)}</td>
-          <td>${esc(r.unidade)}</td><td>${esc(r.atividades?.nome)}</td>
-          <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td></tr>`).join('')}</tbody></table>`).join('') || '<div class="msg">Nenhum processo faturado no mês selecionado.</div>'}
+          <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td><td style="white-space:nowrap">${esc(r.numero_processo)}</td>
+          <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.proponente1_cpf)}</td>
+          <td style="min-width:120px">${esc(r.empreendedoras?.nome)}</td><td style="min-width:130px">${esc(r.empreendimentos?.nome)}</td>
+          <td style="white-space:nowrap">${esc(r.unidade)}</td><td style="min-width:160px">${esc(r.atividades?.nome)}</td>
+          <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td></tr>`).join('')}</tbody></table></div>`).join('') || '<div class="msg">Nenhum processo faturado no mês selecionado.</div>'}
     </div>`);
   fechMes.onchange = (e) => { state.fechMes = e.target.value; renderFechamento(); };
   btnCsv.onclick = () => {
@@ -2297,7 +2359,28 @@ async function renderCadastros() {
     shell(`
       ${tabsHtml}
       <div class="grid-cad">
-        ${bloco('👥 Analistas', L.analistas, 'analistas', i => ` <span class="tag ${i.status==='Ativo'?'CONCLUIDO':'PENDENTE'}">${esc(i.status)}</span>`)}
+        <div class="card">
+          <h2>👥 Colaboradores <span class="count-badge">${L.analistas.length}</span></h2>
+          <div class="cad-list">${L.analistas.map(i => `
+            <div class="cad-item" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span style="flex:1;min-width:120px">${esc(i.nome)}</span>
+              <select class="col-cargo" data-id="${i.id}" style="min-width:110px;font-size:12px">
+                ${['analista','supervisor','coordenador'].map(c=>`<option value="${c}" ${i.cargo===c?'selected':''}>${c}</option>`).join('')}
+              </select>
+              <select class="col-status" data-id="${i.id}" style="min-width:110px;font-size:12px">
+                ${['Ativo','Em licença','Desligado','Inativo'].map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${s}</option>`).join('')}
+              </select>
+              <button class="ghost cad-edit" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}">✎</button>
+            </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum colaborador.</p>'}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <input id="new_analistas" placeholder="Nome do colaborador..." style="flex:1;min-width:150px">
+            <select id="new_analista_cargo" style="min-width:110px">
+              ${['analista','supervisor','coordenador'].map(c=>`<option value="${c}">${c}</option>`).join('')}
+            </select>
+            <button class="ghost cad-add" data-t="analistas">+ Cadastrar</button>
+          </div>
+          <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">Só quem tem cargo <b>analista</b> e status <b>Ativo</b>/<b>Em licença</b> entra em ranking, escala e metas.</p>
+        </div>
         ${bloco('🏢 Empreendedoras', L.empreendedoras, 'empreendedoras')}
         ${bloco('🏗️ Empreendimentos', L.empreendimentos.map(e => ({...e, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
         ${bloco('📝 Atividades', L.atividades, 'atividades', i => i.ativa ? '' : ' <span class="tag PENDENTE">inativa</span>')}
@@ -2308,7 +2391,18 @@ async function renderCadastros() {
       if (!inp.value.trim()) return;
       const rec = { nome: inp.value.trim() };
       if (t === 'empreendimentos') rec.empreendedora_id = document.getElementById('new_emp_ed').value;
+      if (t === 'analistas') { rec.cargo = document.getElementById('new_analista_cargo').value; rec.status = 'Ativo'; }
       const { error } = await sb.from(t).insert(rec);
+      if (error) { alert(error.message); return; }
+      await loadLookups(); renderCadastros();
+    });
+    document.querySelectorAll('.col-cargo').forEach(s => s.onchange = async () => {
+      const { error } = await sb.from('analistas').update({ cargo: s.value }).eq('id', s.dataset.id);
+      if (error) { alert(error.message); return; }
+      await loadLookups(); renderCadastros();
+    });
+    document.querySelectorAll('.col-status').forEach(s => s.onchange = async () => {
+      const { error } = await sb.from('analistas').update({ status: s.value }).eq('id', s.dataset.id);
       if (error) { alert(error.message); return; }
       await loadLookups(); renderCadastros();
     });
