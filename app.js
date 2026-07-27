@@ -7,7 +7,7 @@ const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
 const app = document.getElementById('app');
 const PAGE = 25;
 let state = {
-  session: null, view: 'dashboard',
+  session: null, view: 'inicio',
   page: 0, total: 0,
   filtros: { status: '', analista: '', busca: '', mes: '' },
   lookups: {},
@@ -84,10 +84,14 @@ function renderLogin(msg = '', tipo = 'erro') {
 
 // ---------- SHELL (4 pilares) ----------
 const PILARES = [
+  ['🏠 Início', [
+    ['inicio', '🏠', 'Início'],
+  ]],
   ['⚙️ Operação', [
     ['pipeline', '📅', 'Produção'],
     ['esteira', '⛓️', 'Esteira'],
     ['qualidade', '🔁', 'Qualidade / Retrabalho'],
+    ['chamados', '📨', 'Chamados entre Áreas'],
     ['operacoes', '🗂️', 'Operações'],
     ['repasse', '🏦', 'Repasse'],
     ['fluxogramas', '🗺️', 'Fluxograma dos Empreendimentos'],
@@ -103,7 +107,6 @@ const PILARES = [
     ['metas', '🎯', 'Metas & Indicadores'],
     ['analytics', '📉', 'Analytics'],
     ['insights', '💡', 'Insights'],
-    ['chamados', '📨', 'Demandas'],
     ['implantacao', '🚀', 'Produtos em Implantação'],
     ['fechamento', '💰', 'Fechamento'],
     ['escala', '📅', 'Escala'],
@@ -144,8 +147,8 @@ function nomeExib(nome, rank) {
   return state.modoApresentacao ? `Colaborador ${rank}` : nome;
 }
 function render() {
-  if (!podeVer(state.view)) state.view = 'pipeline';
-  ({ dashboard: renderDashboard, analytics: renderAnalytics, insights: renderInsights,
+  if (!podeVer(state.view)) state.view = 'inicio';
+  ({ inicio: renderInicio, dashboard: renderDashboard, analytics: renderAnalytics, insights: renderInsights,
      pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, fluxogramas: renderFluxogramas,
      followup: renderFollowup, integracoes: () => renderStub('🔌 Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
      automacoes: renderAutomacoes,
@@ -154,6 +157,30 @@ function render() {
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      cadastros: renderCadastros })[state.view]();
 }
+// ---------- TELA INICIAL (escolha do que acessar) ----------
+async function renderInicio() {
+  const primeiroNome = (state.perfilNome || state.session?.user?.email || '').split(/[ .@]/)[0];
+  const saudacao = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
+  const atalhos = PILARES.flatMap(([grp, itens]) => itens.filter(([v]) => podeVer(v) && v !== 'inicio').map(([v, ic, l]) => ({ v, ic, l, grp })));
+  shell(`
+    <div class="card" style="margin-bottom:16px">
+      <h2 style="margin:0 0 4px;font-size:20px">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}! 👋</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0">Por onde você quer começar hoje?</p>
+    </div>
+    ${[...new Set(atalhos.map(a=>a.grp))].map(grp => `
+      <div style="margin-bottom:18px">
+        <div style="color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.4px;margin-bottom:8px">${grp}</div>
+        <div class="inicio-grid">
+          ${atalhos.filter(a=>a.grp===grp).map(a => `
+            <button class="inicio-card" data-v="${a.v}">
+              <span style="font-size:26px">${a.ic}</span>
+              <span>${a.l}</span>
+            </button>`).join('')}
+        </div>
+      </div>`).join('')}`);
+  document.querySelectorAll('.inicio-card').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
+}
+
 async function renderAutomacoes() {
   const { data: log } = await sb.from('alerta_teams_log').select('*').order('disparado_em', { ascending: false }).limit(30);
   shell(`
@@ -289,6 +316,9 @@ async function renderDashboard() {
   let rkFiltrado = (rkAll.data||[]).filter(r => mesesNoPeriodo.has(r.mes.slice(0,7)));
   if (state.dashAnalista) rkFiltrado = rkFiltrado.filter(r => r.nome === state.dashAnalista);
   const porAnalistaRk = {};
+  // analistas ativos ou em licença sempre aparecem, mesmo zerados (ex.: Yara em licença "conta" com zero)
+  (state.lookups.analistas || []).filter(a => a.cargo === 'analista' && ['Ativo','Em licença'].includes(a.status))
+    .forEach(a => { if (!state.dashAnalista || state.dashAnalista === a.nome) porAnalistaRk[a.nome] = { nome: a.nome, total: 0, concluidas: 0, pendentes: 0, tempos: [] }; });
   rkFiltrado.forEach(r => {
     const a = porAnalistaRk[r.nome] = porAnalistaRk[r.nome] || { nome: r.nome, total: 0, concluidas: 0, pendentes: 0, tempos: [] };
     a.total += r.total; a.concluidas += r.concluidas; a.pendentes += r.pendentes;
@@ -568,7 +598,7 @@ function buildQuery(sel, count) {
 }
 async function renderDemandas() {
   const { data: rows, count } = await buildQuery(
-    'id,numero,recebido_em,proponente1_nome,unidade,status,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)', true
+    'id,numero,numero_processo,recebido_em,proponente1_nome,proponente1_cpf,unidade,status,fat_mensal,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)', true
   ).order('recebido_em', { ascending: false }).range(state.page*PAGE, state.page*PAGE+PAGE-1);
   state.total = count || 0;
   const L = state.lookups, f = state.filtros;
@@ -587,12 +617,13 @@ async function renderDemandas() {
       ${state.role !== 'leitura' ? '<button id="btnNova">+ Novo processo</button>' : ''}
     </div>
     <div class="card">
-      <table><thead><tr><th>Nº</th><th>Recebido</th><th>Proponente</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th></th></tr></thead>
+      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Fat. Mensal</th><th></th></tr></thead>
       <tbody>${(rows||[]).map(r => `<tr>
-        <td>${r.numero ?? ''}</td><td>${fmtDt(r.recebido_em)}</td><td>${esc(r.proponente1_nome)}</td>
+        <td>${r.numero ?? ''}</td><td>${esc(r.numero_processo)}</td><td>${fmtDt(r.recebido_em)}</td><td>${esc(r.proponente1_nome)}</td><td>${esc(r.proponente1_cpf)}</td>
         <td>${esc(r.empreendedoras?.nome)}</td><td>${esc(r.empreendimentos?.nome)}</td>
         <td>${esc(r.unidade)}</td><td>${esc(r.atividades?.nome)}</td><td>${esc(r.analistas?.nome)}</td>
         <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td>
+        <td><span class="tag ${r.fat_mensal?'CONCLUIDO':'PENDENTE'}">${r.fat_mensal?'Sim':'Não'}</span></td>
         <td><button class="ghost btnEdit" data-id="${r.id}">Abrir</button></td></tr>`).join('')}
       </tbody></table>
       <div class="pag">
@@ -647,7 +678,10 @@ async function openForm(id) {
       <div><label>Status</label><select id="mStatus">
         ${['RECEBIDO','EM_ANALISE','CONCLUIDO','PENDENTE'].map(s=>`<option ${d.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div><label>Concluído em</label><input id="mConcl" type="datetime-local" value="${dtLocal(d.concluido_em)}"></div>
-      <div><label>Obs</label><input id="mObs" value="${esc(d.obs)}"></div>
+      <div><label>Valor da proposta</label><input id="mValor" type="number" step="0.01" value="${d.valor_proposta ?? ''}"></div>
+      <div style="display:flex;align-items:end;gap:8px"><label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input id="mFatMensal" type="checkbox" ${d.fat_mensal?'checked':''}> <span>💰 Faturado (entra no Fechamento Mensal)</span></label></div>
+      <div style="grid-column:1/-1"><label>Obs</label><textarea id="mObs" rows="3">${esc(d.obs)}</textarea></div>
     </div>
     ${id ? `
     <h2 style="margin-top:16px">✅ Checklist de validação</h2>
@@ -655,17 +689,18 @@ async function openForm(id) {
       <div class="chk"><input type="checkbox" data-cid="${c.id}" ${c.ok?'checked':''}> <span>${esc(c.item)}</span>
       <button class="ghost del-chk" data-cid="${c.id}">✕</button></div>`).join('') || '<div class="msg">Nenhum item ainda.</div>'}</div>
     <div style="display:flex;gap:8px;margin-top:8px">
-      <input id="mNewChk" placeholder="Novo item do checklist" style="flex:1">
+      <textarea id="mNewChk" placeholder="Novo item do checklist" rows="2" style="flex:1"></textarea>
       <button id="mAddChk" class="ghost">Adicionar</button>
     </div>
     <h2 style="margin-top:16px">💬 Follow-ups</h2>
     <div id="mFups">${fups.map(f => `<div class="fup"><b>${esc(f.autor||'')}</b> <span style="color:var(--muted)">${fmtDt(f.criado_em)}</span><br>${esc(f.texto)}</div>`).join('') || '<div class="msg">Nenhum follow-up ainda.</div>'}</div>
     <div style="display:flex;gap:8px;margin-top:8px">
-      <input id="mNewFup" placeholder="Registrar follow-up..." style="flex:1">
+      <textarea id="mNewFup" placeholder="Registrar follow-up..." rows="3" style="flex:1"></textarea>
       <button id="mAddFup" class="ghost">Registrar</button>
     </div>` : ''}
-    <div style="display:flex;gap:8px;margin-top:14px;justify-content:end">
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
       <button id="mCancel" class="ghost">Cancelar</button>
+      ${id ? '<button id="mDelete" class="ghost" style="color:var(--err)">🗑️ Excluir processo</button>' : ''}
       <button id="mSave">Salvar</button>
     </div>
     <div class="msg" id="mMsg"></div>
@@ -706,11 +741,23 @@ async function openForm(id) {
       unidade: $('mUnid').value || null, atividade_id: $('mAtiv').value || null,
       analista_id: $('mAnal').value || null, status: $('mStatus').value,
       concluido_em: $('mConcl').value ? new Date($('mConcl').value).toISOString() : ($('mStatus').value === 'CONCLUIDO' ? new Date().toISOString() : null),
+      valor_proposta: $('mValor').value ? Number($('mValor').value) : null,
+      fat_mensal: $('mFatMensal').checked,
       obs: $('mObs').value || null,
     };
     if (!rec.recebido_em) { $('mMsg').textContent = 'Informe a data de recebimento.'; return; }
     const r = id ? await sb.from('demandas').update(rec).eq('id', id) : await sb.from('demandas').insert(rec);
     if (r.error) { $('mMsg').textContent = r.error.message; return; }
+    div.remove(); render();
+  };
+  const btnDel = $('mDelete');
+  if (btnDel) btnDel.onclick = async () => {
+    if (!confirm(`Excluir o processo nº ${d.numero ?? ''} — ${d.proponente1_nome ?? ''}?\n\nEssa ação não pode ser desfeita. Use quando o processo foi lançado por engano.`)) return;
+    await sb.from('fups').delete().eq('demanda_id', id);
+    await sb.from('validacao_itens').delete().eq('demanda_id', id);
+    await sb.from('apontamentos_erro').delete().eq('demanda_id', id);
+    const { error } = await sb.from('demandas').delete().eq('id', id);
+    if (error) { $('mMsg').textContent = error.message; return; }
     div.remove(); render();
   };
 }
@@ -723,13 +770,22 @@ async function renderEscala() {
   const { data: esc_ } = await sb.from('escala_plantao').select('id,analista_id,data').gte('data', ini).lte('data', fim);
   const byKey = {}; (esc_||[]).forEach(e => byKey[e.analista_id + '|' + e.data] = e.id);
   const dows = ['D','S','T','Q','Q','S','S'];
-  const ans = state.lookups.analistas.filter(a => a.status !== 'Inativo');
+  // mostra só quem tem plantão no mês; os demais entram sob demanda (botão "+ Incluir colaborador")
+  const comPlantao = new Set((esc_||[]).map(e => e.analista_id));
+  if (!state.escalaExtras) state.escalaExtras = {};
+  const extrasMes = state.escalaExtras[state.escalaMes] || [];
+  const elegiveis = state.lookups.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
+  const ans = state.lookups.analistas.filter(a => comPlantao.has(a.id) || extrasMes.includes(a.id));
+  const disponiveis = elegiveis.filter(a => !comPlantao.has(a.id) && !extrasMes.includes(a.id));
   shell(`
     <div class="card">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
         <h2 style="margin:0">📅 Escala de plantão</h2>
         <input type="month" id="escMes" value="${state.escalaMes}">
         <span style="color:var(--muted);font-size:12px">Clique numa célula para marcar/desmarcar o plantão</span>
+        <div class="spacer"></div>
+        ${disponiveis.length ? `<select id="escAddAnalista" style="min-width:160px"><option value="">+ Incluir colaborador…</option>
+          ${disponiveis.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select>` : ''}
       </div>
       <div style="overflow-x:auto">
       <table class="escala"><thead><tr><th>Analista</th>
@@ -743,8 +799,9 @@ async function renderEscala() {
           const dw = new Date(y,m-1,i+1).getDay();
           return `<td class="esc-cell ${on?'on':''} ${dw===0||dw===6?'wend':''}" data-a="${a.id}" data-d="${dt}">${on?'✕':''}</td>`;
         }).join('');
-        return `<tr><td>${esc(a.nome)}</td>${cells}<td><b>${tot}</b></td></tr>`;
-      }).join('')}
+        return `<tr><td>${esc(a.nome)}${a.status==='Em licença' ? ' <span class="tag PENDENTE" style="font-size:10px">licença</span>' : ''}
+          ${tot===0 ? `<button class="ghost esc-remover" data-a="${a.id}" title="Tirar da escala deste mês" style="font-size:11px;padding:1px 5px;margin-left:4px">✕</button>` : ''}</td>${cells}<td><b>${tot}</b></td></tr>`;
+      }).join('') || '<tr><td colspan="99" style="color:var(--muted)">Ninguém escalado neste mês. Use "+ Incluir colaborador" para montar a escala.</td></tr>'}
       <tr><td style="color:var(--muted)">Cobertura</td>${Array.from({length:ndays},(_,i)=>{
         const dt = `${state.escalaMes}-${String(i+1).padStart(2,'0')}`;
         const n = ans.filter(a=>byKey[a.id+'|'+dt]).length;
@@ -753,6 +810,16 @@ async function renderEscala() {
       </tbody></table></div>
     </div>`);
   escMes.onchange = (e) => { state.escalaMes = e.target.value; renderEscala(); };
+  const escAdd = document.getElementById('escAddAnalista');
+  if (escAdd) escAdd.onchange = (e) => {
+    if (!e.target.value) return;
+    state.escalaExtras[state.escalaMes] = [...(state.escalaExtras[state.escalaMes]||[]), e.target.value];
+    renderEscala();
+  };
+  document.querySelectorAll('.esc-remover').forEach(b => b.onclick = () => {
+    state.escalaExtras[state.escalaMes] = (state.escalaExtras[state.escalaMes]||[]).filter(x => x !== b.dataset.a);
+    renderEscala();
+  });
   document.querySelectorAll('.esc-cell').forEach(c => c.onclick = async () => {
     const key = c.dataset.a + '|' + c.dataset.d;
     if (byKey[key]) await sb.from('escala_plantao').delete().eq('id', byKey[key]);
@@ -896,16 +963,25 @@ async function renderOperacoes() {
 
 // ---------- VALIDAÇÃO ----------
 // ---------- FLUXOGRAMA DOS EMPREENDIMENTOS ----------
+// page-id = id real de cada página do arquivo .drawio (índice numérico não funciona no viewer)
 const FLUXOGRAMA_PAGINAS = [
-  ['0', 'Fluxograma Operacional'], ['1', 'ZS Urbanismo'], ['2', 'SDI'], ['3', 'Global Realty'],
-  ['4', 'Fazenda Lucrian / Pq. Cidade Nova'], ['5', 'Guestier I/II/III / Mercadão'], ['6', 'Vilas'],
-  ['7', 'Vega'], ['8', 'Solicitação Interna'], ['9', '3z / ApMais / Saint Anne / Sequoia'],
-  ['10', 'Financiamento Bancário'], ['11', 'Fluxograma Gerencial'],
+  ['g7tDrnx4qy07mxVKubq6', 'Fluxograma Operacional'],
+  ['8eP3mABcVWNyPqFSNTsO', 'ZS Urbanismo'],
+  ['zadq-Cn9RUnA1Xxl6Kih', 'SDI'],
+  ['xTK7jt2RhNq9oRxF_W2t', 'Global'],
+  ['UrAwj3Xs5aZo8rY-Hq9-', 'Fazenda Lucrian / Pq. Cidade Nova'],
+  ['wvZxZD5YK-0-P05viB4z', 'Guestier I/II/III / Mercadão'],
+  ['BE7dgR82LCwuAWHNfJnf', 'Vilas'],
+  ['u4Q8Gf_TTUcMiMgPlR2E', 'Vega'],
+  ['4L8mdPEIc8UMsoZ0SPP1', 'Solicitação Interna'],
+  ['BXweHFaPIJeWwWuiQwjT', '3z / ApMais / Saint Anne / Sequoia'],
+  ['bt3pIUo-X3kEs7gZoVr0', 'Financiamento Bancário'],
+  ['NHuvtxXpHFfzDSOA2OXL', 'Fluxograma Gerencial'],
 ];
 async function renderFluxogramas() {
-  if (!state.fluxoPagina) state.fluxoPagina = '1';
+  if (!state.fluxoPagina || /^\d+$/.test(state.fluxoPagina)) state.fluxoPagina = FLUXOGRAMA_PAGINAS[0][0];
   const url = `${location.origin}/fluxogramas/sec-e-vendas3.drawio`;
-  const src = `https://viewer.diagrams.net/?highlight=0000ff&edit=_blank&layers=1&nav=1&page-id=${state.fluxoPagina}#U${encodeURIComponent(url)}`;
+  const src = `https://viewer.diagrams.net/?highlight=0000ff&edit=_blank&layers=1&nav=1&page-id=${encodeURIComponent(state.fluxoPagina)}#U${encodeURIComponent(url)}`;
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1062,34 +1138,197 @@ async function openPerfilCliente(clienteId) {
   div.querySelector('#pcFechar').onclick = () => div.remove();
 }
 
-// ---------- CHAMADOS (Demandas internas) ----------
+// ---------- CHAMADOS ENTRE ÁREAS (com disparo de e-mail) ----------
 async function renderChamados() {
-  const { data: rows } = await sb.from('chamados').select('*').order('criado_em', { ascending: false }).limit(100);
+  const [{ data: rowsAll }, { data: areas }, { data: cfg }] = await Promise.all([
+    sb.from('chamados').select('*').order('criado_em', { ascending: false }).limit(100),
+    sb.from('areas_contato').select('*').eq('ativo', true).order('area'),
+    sb.from('config_sistema').select('*').eq('id', 'email_remetente_padrao').maybeSingle(),
+  ]);
+  const remetentePadrao = cfg?.valor || 'secvendas@neoservice.com.br';
+  // analista vê só os chamados que ele mesmo abriu; gestão vê todos
+  const meuEmail = state.session?.user?.email;
+  const rows = state.role === 'admin' ? rowsAll : (rowsAll||[]).filter(c => c.solicitante === meuEmail);
   shell(`
     <div class="card">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <h2 style="margin:0">📨 Demandas internas (chamados entre áreas)</h2>
-        <button id="btnNovoCh">+ Nova demanda interna</button>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <h2 style="margin:0">📨 Chamados entre Áreas</h2>
+        <span style="color:var(--muted);font-size:12.5px">${state.role === 'admin' ? 'Solicitações de toda a equipe' : 'Seus chamados'} — solicitação de boleto, documento, correção. Com e-mail e histórico.</span>
+        <div class="spacer"></div>
+        <button id="btnNovoCh">+ Novo chamado</button>
+        ${state.role === 'admin' ? '<button id="btnAreasContato" class="ghost">⚙️ Áreas e e-mails</button>' : ''}
       </div>
-      ${(rows||[]).length ? `<table><thead><tr><th>Aberto em</th><th>Título</th><th>Solicitante</th><th>Área</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
+      ${(rows||[]).length ? `<div style="overflow-x:auto"><table style="min-width:900px"><thead><tr>
+        <th>Aberto em</th><th>Título</th><th>Processo</th><th>Área destino</th><th>E-mail</th><th>Solicitante</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
       <tbody>${(rows||[]).map(c => `<tr>
-        <td>${fmtDt(c.criado_em)}</td><td>${esc(c.titulo)}</td><td>${esc(c.solicitante)}</td><td>${esc(c.area)}</td>
+        <td>${fmtDt(c.criado_em)}</td><td><b>${esc(c.titulo)}</b></td>
+        <td>${esc(c.processo_ref || '—')}</td><td>${esc(c.area)}</td>
+        <td style="font-size:11.5px">${c.enviado_em ? `✉️ ${esc(c.email_destino||'')}<br><span style="color:var(--muted)">enviado ${fmtDt(c.enviado_em)}</span>` : `<span style="color:var(--muted)">não enviado</span>`}</td>
+        <td style="font-size:11.5px">${esc(c.solicitante)}</td>
         <td><span class="tag ${c.prioridade==='CRITICA'||c.prioridade==='ALTA'?'PENDENTE':'RECEBIDO'}">${esc(c.prioridade)}</span></td>
         <td><span class="tag ${c.status==='RESOLVIDO'?'CONCLUIDO':c.status==='ABERTO'?'PENDENTE':'RECEBIDO'}">${esc(c.status)}</span></td>
-        <td>${c.status!=='RESOLVIDO' ? `<button class="ghost btnResolver" data-id="${c.id}">Resolver</button>` : ''}</td></tr>`).join('')}</tbody></table>`
-      : '<div class="ok-box">Nenhuma demanda interna aberta.</div>'}
+        <td style="white-space:nowrap">
+          <button class="ghost btnVerCh" data-id="${c.id}">Abrir</button>
+          ${c.status!=='RESOLVIDO' ? `<button class="ghost btnResolver" data-id="${c.id}">Resolver</button>` : ''}
+        </td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="ok-box">Nenhum chamado aberto.</div>'}
     </div>`);
-  btnNovoCh.onclick = async () => {
-    const titulo = prompt('Título da demanda interna:');
-    if (!titulo || !titulo.trim()) return;
-    const area = prompt('Área/setor relacionado (ex.: Financeiro, Jurídico, Comercial):') || '';
-    const prioridade = (prompt('Prioridade (BAIXA, NORMAL, ALTA, CRITICA):', 'NORMAL') || 'NORMAL').toUpperCase();
-    await sb.from('chamados').insert({ titulo: titulo.trim(), area: area.trim(), prioridade, solicitante: state.session?.user?.email });
-    renderChamados();
-  };
+  document.getElementById('btnNovoCh').onclick = () => openChamado(null, areas||[], remetentePadrao);
+  document.querySelectorAll('.btnVerCh').forEach(b => b.onclick = () => {
+    const c = (rows||[]).find(x => x.id === b.dataset.id);
+    openChamado(c, areas||[], remetentePadrao);
+  });
+  const bA = document.getElementById('btnAreasContato');
+  if (bA) bA.onclick = () => openAreasContato(areas||[], remetentePadrao);
   document.querySelectorAll('.btnResolver').forEach(b => b.onclick = async () => {
     await sb.from('chamados').update({ status: 'RESOLVIDO', resolvido_em: new Date().toISOString() }).eq('id', b.dataset.id);
     renderChamados();
+  });
+}
+
+async function openChamado(c, areas, remetentePadrao) {
+  const novo = !c;
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:640px">
+    <h2>${novo ? '📨 Novo chamado entre áreas' : '📨 ' + esc(c.titulo)}</h2>
+    <div class="grid2">
+      <div style="grid-column:1/-1"><label>Assunto / título</label>
+        <input id="chTitulo" value="${esc(c?.titulo)}" placeholder="Ex.: Solicitação de boleto do ato — Unid. 1002"></div>
+      <div><label>Área de destino</label><select id="chArea">
+        <option value="">— escolher —</option>
+        ${areas.map(a=>`<option value="${esc(a.area)}" data-email="${esc(a.email)}" ${c?.area===a.area?'selected':''}>${esc(a.area)}</option>`).join('')}
+        <option value="__outra__" ${c && !areas.some(a=>a.area===c.area) ? 'selected':''}>Outra área…</option>
+      </select></div>
+      <div><label>Prioridade</label><select id="chPrioridade">
+        ${['BAIXA','NORMAL','ALTA','CRITICA'].map(p=>`<option ${(c?.prioridade||'NORMAL')===p?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div id="chAreaOutraWrap" style="grid-column:1/-1;display:none"><label>Nome da área</label>
+        <input id="chAreaOutra" value="${c && !areas.some(a=>a.area===c.area) ? esc(c.area) : ''}" placeholder="Ex.: Gestão Bancária"></div>
+      <div><label>De (remetente)</label><input id="chDe" value="${esc(c?.email_remetente || remetentePadrao)}"></div>
+      <div><label>Para (e-mail destino)</label><input id="chPara" value="${esc(c?.email_destino)}" placeholder="area@neoservice.com.br"></div>
+      <div><label>Cópia (opcional)</label><input id="chCopia" value="${esc(c?.email_copia)}" placeholder="separar por vírgula"></div>
+      <div><label>Processo / unidade (opcional)</label><input id="chProc" value="${esc(c?.processo_ref)}" placeholder="Ex.: 9954 — Unid.1002"></div>
+      <div style="grid-column:1/-1"><label>Mensagem</label>
+        <textarea id="chDesc" rows="6" placeholder="Descreva o que precisa: valores, prazos, anexos...">${esc(c?.descricao)}</textarea></div>
+    </div>
+    ${c?.enviado_em ? `<div class="ok-box" style="margin-top:10px">✉️ E-mail enviado em ${fmtDt(c.enviado_em)} por ${esc(c.enviado_por||'')}</div>` : ''}
+    <div class="msg" id="chMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px;flex-wrap:wrap">
+      <button id="chCancel" class="ghost">Fechar</button>
+      ${!novo && state.role==='admin' ? '<button id="chExcluir" class="ghost" style="color:var(--err)">🗑️ Excluir</button>' : ''}
+      <button id="chSalvar" class="ghost">${novo ? 'Só registrar' : 'Salvar'}</button>
+      <button id="chEnviar">✉️ ${c?.enviado_em ? 'Reenviar' : 'Registrar e enviar e-mail'}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  const syncArea = () => {
+    const sel = $('chArea');
+    const opt = sel.options[sel.selectedIndex];
+    const outra = sel.value === '__outra__';
+    $('chAreaOutraWrap').style.display = outra ? '' : 'none';
+    if (!outra && opt?.dataset.email && !$('chPara').value) $('chPara').value = opt.dataset.email;
+    if (!outra && opt?.dataset.email) $('chPara').value = opt.dataset.email;
+  };
+  $('chArea').onchange = syncArea;
+  if (c && !areas.some(a=>a.area===c.area)) $('chAreaOutraWrap').style.display = '';
+  $('chCancel').onclick = () => div.remove();
+
+  const coletar = () => {
+    const areaSel = $('chArea').value;
+    return {
+      titulo: $('chTitulo').value.trim(),
+      area: areaSel === '__outra__' ? $('chAreaOutra').value.trim() : areaSel,
+      prioridade: $('chPrioridade').value,
+      email_remetente: $('chDe').value.trim() || null,
+      email_destino: $('chPara').value.trim() || null,
+      email_copia: $('chCopia').value.trim() || null,
+      processo_ref: $('chProc').value.trim() || null,
+      descricao: $('chDesc').value.trim() || null,
+      solicitante: c?.solicitante || state.session?.user?.email,
+    };
+  };
+  const salvar = async (extra = {}) => {
+    const rec = { ...coletar(), ...extra };
+    if (!rec.titulo) { $('chMsg').textContent = 'Informe o assunto do chamado.'; return null; }
+    if (!rec.area) { $('chMsg').textContent = 'Escolha a área de destino.'; return null; }
+    const r = c ? await sb.from('chamados').update(rec).eq('id', c.id).select().single()
+                : await sb.from('chamados').insert(rec).select().single();
+    if (r.error) { $('chMsg').textContent = r.error.message; return null; }
+    return r.data;
+  };
+  $('chSalvar').onclick = async () => { if (await salvar()) { div.remove(); renderChamados(); } };
+  $('chEnviar').onclick = async () => {
+    const rec = coletar();
+    if (!rec.email_destino) { $('chMsg').textContent = 'Informe o e-mail de destino.'; return; }
+    const salvo = await salvar({ enviado_em: new Date().toISOString(), enviado_por: state.session?.user?.email });
+    if (!salvo) return;
+    // abre o e-mail já preenchido no cliente de e-mail (sai do endereço real da pessoa/setor)
+    const corpo = [
+      rec.descricao || '',
+      '',
+      rec.processo_ref ? `Processo/Unidade: ${rec.processo_ref}` : '',
+      `Prioridade: ${rec.prioridade}`,
+      '',
+      `— Enviado pelo Sistema de Gestão da Secretaria de Vendas (chamado ${salvo.id.slice(0,8)})`,
+    ].filter(Boolean).join('\n');
+    const params = new URLSearchParams({ subject: rec.titulo, body: corpo });
+    if (rec.email_copia) params.set('cc', rec.email_copia);
+    window.location.href = `mailto:${encodeURIComponent(rec.email_destino)}?${params.toString().replace(/\+/g,'%20')}`;
+    div.remove(); renderChamados();
+  };
+  const bEx = $('chExcluir');
+  if (bEx) bEx.onclick = async () => {
+    if (!confirm(`Excluir o chamado "${c.titulo}"?`)) return;
+    await sb.from('chamados').delete().eq('id', c.id);
+    div.remove(); renderChamados();
+  };
+}
+
+async function openAreasContato(areas, remetentePadrao) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:560px">
+    <h2>⚙️ Áreas e e-mails</h2>
+    <div style="margin-bottom:14px">
+      <label>E-mail remetente padrão (aparece como "De" nos chamados)</label>
+      <div style="display:flex;gap:8px">
+        <input id="acRemetente" value="${esc(remetentePadrao)}" style="flex:1">
+        <button id="acSalvarRemetente" class="ghost">Salvar</button>
+      </div>
+    </div>
+    <h2 style="font-size:14px">Áreas de destino</h2>
+    <div id="acLista">${areas.map(a => `
+      <div class="cad-item" style="display:flex;gap:8px;align-items:center">
+        <span style="flex:1"><b>${esc(a.area)}</b><br><span style="color:var(--muted);font-size:12px">${esc(a.email)}</span></span>
+        <button class="ghost ac-del" data-id="${a.id}">✕</button>
+      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhuma área cadastrada.</p>'}</div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <input id="acNovaArea" placeholder="Nome da área" style="flex:1;min-width:130px">
+      <input id="acNovoEmail" placeholder="email@neoservice.com.br" style="flex:2;min-width:180px">
+      <button id="acAdd" class="ghost">+ Adicionar</button>
+    </div>
+    <div class="msg" id="acMsg"></div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="acFechar" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#acFechar').onclick = () => { div.remove(); renderChamados(); };
+  div.querySelector('#acSalvarRemetente').onclick = async () => {
+    const v = div.querySelector('#acRemetente').value.trim();
+    const { error } = await sb.from('config_sistema').upsert({ id: 'email_remetente_padrao', valor: v, atualizado_em: new Date().toISOString() });
+    div.querySelector('#acMsg').textContent = error ? error.message : '✅ Remetente padrão salvo.';
+  };
+  div.querySelector('#acAdd').onclick = async () => {
+    const area = div.querySelector('#acNovaArea').value.trim();
+    const email = div.querySelector('#acNovoEmail').value.trim();
+    if (!area || !email) { div.querySelector('#acMsg').textContent = 'Informe nome da área e e-mail.'; return; }
+    const { error } = await sb.from('areas_contato').insert({ area, email });
+    if (error) { div.querySelector('#acMsg').textContent = error.message; return; }
+    div.remove(); renderChamados();
+  };
+  div.querySelectorAll('.ac-del').forEach(b => b.onclick = async () => {
+    await sb.from('areas_contato').delete().eq('id', b.dataset.id);
+    div.remove(); renderChamados();
   });
 }
 
@@ -1355,7 +1594,7 @@ async function renderQualidade() {
   const lista = aps || [];
   // analista comum vê os próprios apontamentos; gestão vê todos
   const souGestao = state.role === 'admin';
-  const meuId = (state.lookups.analistas.find(a => a.nome === state.perfilNome) || {}).id;
+  const meuId = state.meuAnalistaId || (state.lookups.analistas.find(a => a.nome === state.perfilNome) || {}).id;
   const visiveis = souGestao ? lista : lista.filter(a => a.analista_id === meuId);
   const porCat = {}; visiveis.forEach(a => porCat[a.categoria] = (porCat[a.categoria]||0)+1);
   const porAnalista = {};
@@ -1443,7 +1682,7 @@ async function renderQualidade() {
 
 async function openApontamento() {
   const L = state.lookups;
-  const equipe = L.analistas.filter(a => a.status !== 'Inativo');
+  const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:560px">
@@ -1462,7 +1701,7 @@ async function openApontamento() {
       <div id="apCatCustomWrap" style="display:none;grid-column:1/-1"><label>Categoria (digitada)</label><input id="apCatCustom" placeholder="Ex.: Falha de comunicação com imobiliária"></div>
       <div id="apSubCustomWrap" style="display:none;grid-column:1/-1"><label>Detalhe (digitado)</label><input id="apSubCustom" placeholder="Descreva o detalhe específico"></div>
       <div style="grid-column:1/-1"><label>Nº do processo (opcional)</label><input id="apProc" placeholder="Busque pelo número do processo"></div>
-      <div style="grid-column:1/-1"><label>Descrição do que ocorreu</label><input id="apDesc" placeholder="Ex.: e-mail do comprador digitado errado, contrato voltou para correção"></div>
+      <div style="grid-column:1/-1"><label>Descrição do que ocorreu</label><textarea id="apDesc" rows="4" placeholder="Ex.: e-mail do comprador digitado errado, contrato voltou para correção"></textarea></div>
     </div>
     <div class="msg" id="apMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
@@ -1527,7 +1766,7 @@ async function renderMetas() {
   const [{ data: kpis }, { data: mensal }, { data: porAnalistaRaw }] = await Promise.all([
     sb.from('indicadores_kpi').select('*').eq('ativo', true).order('ordem'),
     sb.from('indicador_mensal').select('*'),
-    sb.from('indicador_analista_mensal').select('*, analistas(nome, status)'),
+    sb.from('meta_colaborador_resultado').select('*'),
   ]);
   const porInd = {};
   (mensal || []).forEach(r => { (porInd[r.indicador_id] = porInd[r.indicador_id] || {})[r.mes.slice(0,7)] = r; });
@@ -1547,29 +1786,45 @@ async function renderMetas() {
   };
   const anos = [...new Set([anoAtual, anoAtual-1, ...(mensal||[]).map(r=>+r.mes.slice(0,4))])].sort((a,b)=>b-a);
 
-  // ranking individual — hoje só "Emissão de contrato sem erro" tem granularidade por analista
+  // ===== Resultado individual PONDERADO (replica as abas "Resultado <nome>" da planilha) =====
+  // Cada colaborador tem indicadores e PESOS próprios, que mudam por trimestre.
+  const linhasAno = (porAnalistaRaw||[]).filter(r => r.mes.slice(0,4) === String(state.metaAno));
   const porAnalista = {};
-  (porAnalistaRaw||[]).forEach(r => {
-    const n = r.analistas?.nome || '—';
-    const a = porAnalista[n] = porAnalista[n] || { nome: n, status: r.analistas?.status, meses: {} };
-    a.meses[r.mes.slice(0,7)] = r;
+  linhasAno.forEach(r => {
+    const a = porAnalista[r.analista] = porAnalista[r.analista] || { nome: r.analista, status: r.status_analista, linhas: [] };
+    a.linhas.push(r);
   });
+  // colaboradores ativos/em licença aparecem mesmo sem lançamento (ex.: Yara em licença conta zerada)
+  (state.lookups.analistas||[]).filter(a => a.cargo === 'analista' && ['Ativo','Em licença'].includes(a.status))
+    .forEach(a => { if (!porAnalista[a.nome]) porAnalista[a.nome] = { nome: a.nome, status: a.status, linhas: [] }; });
+
+  // nota ponderada de um mês = Σ (atingimento_final do indicador × peso)
+  const notaMes = (linhas, mes) => {
+    const doMes = linhas.filter(l => l.mes.slice(0,7) === mes && l.atingimento_final !== null && l.peso);
+    if (!doMes.length) return null;
+    const somaPesos = doMes.reduce((s,l)=>s+Number(l.peso),0);
+    if (!somaPesos) return null;
+    return doMes.reduce((s,l)=>s+Number(l.atingimento_final)*Number(l.peso),0) / somaPesos;
+  };
   const ranking = Object.values(porAnalista).map(a => {
-    const rs = meses.map(m => a.meses[m]).filter(Boolean);
-    const proc = rs.reduce((s,r)=>s+r.quantidade_processos,0);
-    const err = rs.reduce((s,r)=>s+r.quantidade_erros,0);
-    const media = proc ? 1 - err/proc : null;
-    const ultimo = rs[rs.length-1], penultimo = rs[rs.length-2];
-    const tend = (ultimo && penultimo && penultimo.quantidade_processos)
-      ? (1-ultimo.quantidade_erros/ultimo.quantidade_processos) - (1-penultimo.quantidade_erros/penultimo.quantidade_processos) : null;
-    return { ...a, proc, err, media, ultimoPct: ultimo ? 1-ultimo.quantidade_erros/ultimo.quantidade_processos : null, tend };
+    const notas = meses.map(m => notaMes(a.linhas, m));
+    const comNota = notas.filter(v => v !== null);
+    const media = comNota.length ? comNota.reduce((s,v)=>s+v,0)/comNota.length : null;
+    const idxUlt = notas.map((v,i)=>v!==null?i:-1).filter(i=>i>=0);
+    const ultimoPct = idxUlt.length ? notas[idxUlt[idxUlt.length-1]] : null;
+    const penult = idxUlt.length > 1 ? notas[idxUlt[idxUlt.length-2]] : null;
+    const proc = a.linhas.reduce((s,l)=>s+l.quantidade_processos,0);
+    const err = a.linhas.reduce((s,l)=>s+l.quantidade_erros,0);
+    return { ...a, notas, media, ultimoPct, tend: (ultimoPct!==null&&penult!==null)?ultimoPct-penult:null, proc, err };
   }).sort((a,b) => (b.media??-1) - (a.media??-1));
   const statusTag = (a) => a.status === 'Desligado' ? '⚫ Desligado' : a.status === 'Em licença' ? '🔵 Em licença'
-    : a.media === null ? '—' : a.media >= 1.05 ? '🟢 Excelente' : a.media >= 0.95 ? '🟢 Ótimo' : a.media >= 0.90 ? '🟡 Atenção' : '🔴 Abaixo da meta';
+    : a.media === null ? '—' : a.media >= 1.02 ? '🟢 Excelente' : a.media >= 0.95 ? '🟢 Ótimo' : a.media >= 0.90 ? '🟡 Atenção' : '🔴 Abaixo da meta';
   const naMeta = ranking.filter(a => a.status === 'Ativo' && a.media !== null && a.media >= 0.95).length;
   const ativosComDado = ranking.filter(a => a.status === 'Ativo' && a.media !== null).length;
   if (!state.metaColaborador && ranking.length) state.metaColaborador = ranking[0].nome;
   const dashInd = ranking.find(a => a.nome === state.metaColaborador) || ranking[0];
+  // indicadores do colaborador selecionado (com peso do trimestre) para a tabela detalhada
+  const indsDoColab = dashInd ? [...new Set(dashInd.linhas.map(l => l.indicador))] : [];
 
   shell(`
     <div class="card" style="margin-bottom:14px">
@@ -1582,7 +1837,7 @@ async function renderMetas() {
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 style="margin:0 0 4px">🏆 Ranking individual — Emissão de contrato sem erro</h2>
+      <h2 style="margin:0 0 4px">🏆 Ranking individual — nota ponderada (todos os indicadores × peso)</h2>
       <p style="color:var(--muted);font-size:12px;margin-bottom:10px">Colaboradores na meta (≥95%): <b>${naMeta} / ${ativosComDado}</b></p>
       <table><thead><tr><th>#</th><th>Colaborador</th><th>Atingimento</th><th>Último mês</th><th>Tendência</th><th>Processos</th><th>Erros</th><th>Status</th></tr></thead>
       <tbody>${ranking.map((a,i) => `<tr>
@@ -1608,18 +1863,51 @@ async function renderMetas() {
         <div class="kpi"><div class="v" style="font-size:13px">${statusTag(dashInd)}</div><div class="l">Status</div></div>
       </div>
       <svg viewBox="0 0 700 90" style="width:100%;height:90px;margin-top:10px">
-        ${svgLine(meses.map(m => { const r = (dashInd.meses||{})[m]; return r && r.quantidade_processos ? 100*(1-r.quantidade_erros/r.quantidade_processos) : null; }).map(v=>v??0), 700, 90, '#2dd4bf', false)}
+        ${svgLine(dashInd.notas.map(v => v === null ? 0 : v*100), 700, 90, '#2dd4bf', false)}
       </svg>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">— atingimento (%) mês a mês em ${state.metaAno}</div>
-      <p style="color:var(--muted);font-size:12.5px"><b>Pontos de atenção:</b> ${
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">— nota ponderada (%) mês a mês em ${state.metaAno}</div>
+      <h2 style="font-size:14px;margin:14px 0 6px">Indicadores de ${esc(dashInd.nome)} — com peso do trimestre</h2>
+      <div style="overflow-x:auto"><table style="min-width:820px">
+        <thead><tr><th style="text-align:left">Indicador</th><th>Alvo</th><th>Peso</th>
+          ${meses.map(m=>`<th>${mesLabel(m).slice(0,3)}</th>`).join('')}</tr></thead>
+        <tbody>
+        ${indsDoColab.map(ind => {
+          const porMes = {}; dashInd.linhas.filter(l=>l.indicador===ind).forEach(l => porMes[l.mes.slice(0,7)] = l);
+          const qualquer = Object.values(porMes)[0] || {};
+          return `<tr>
+            <td style="font-size:12px">${esc(ind)}</td>
+            <td>${qualquer.alvo ? (qualquer.alvo*100).toFixed(0)+'%' : '—'}</td>
+            <td>${qualquer.peso ? (qualquer.peso*100).toFixed(0)+'%' : '—'}</td>
+            ${meses.map(m=>{ const l = porMes[m];
+              if (!l || l.atingimento_final === null) return '<td style="color:var(--muted)">—</td>';
+              const v = Number(l.atingimento_final);
+              return `<td style="color:${v>=1?'var(--ok)':v>=0.95?'var(--warn)':'var(--err)'};font-weight:600"
+                title="${l.quantidade_processos} processos · ${l.quantidade_erros} erros">${(v*100).toFixed(0)}%</td>`;
+            }).join('')}
+          </tr>`;
+        }).join('') || `<tr><td colspan="${3+meses.length}" style="color:var(--muted)">Nenhum indicador configurado para este colaborador em ${state.metaAno}.</td></tr>`}
+        <tr style="border-top:2px solid var(--border)">
+          <td><b>Nota ponderada do mês</b></td><td></td><td></td>
+          ${dashInd.notas.map(v => `<td style="font-weight:700;color:${v===null?'var(--muted)':v>=1?'var(--ok)':v>=0.95?'var(--warn)':'var(--err)'}">${v===null?'—':(v*100).toFixed(0)+'%'}</td>`).join('')}
+        </tr>
+        </tbody></table></div>
+      <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-top:12px">
+        ${TRIM.map(([lbl,i,f])=>{
+          const ns = dashInd.notas.slice(i,f).filter(v=>v!==null);
+          const v = ns.length ? ns.reduce((s,x)=>s+x,0)/ns.length : null;
+          return `<div class="kpi"><div class="v" style="font-size:20px;color:${v===null?'var(--muted)':v>=1?'var(--ok)':v>=0.95?'var(--warn)':'var(--err)'}">${v===null?'—':(v*100).toFixed(1)+'%'}</div><div class="l">${lbl}</div></div>`;
+        }).join('')}
+      </div>
+      <p style="color:var(--muted);font-size:12.5px;margin-top:10px"><b>Pontos de atenção:</b> ${
         dashInd.status==='Desligado' ? 'Colaborador desligado — histórico mantido para referência.'
-        : dashInd.status==='Em licença' ? 'Colaborador em licença — sem cobrança de meta no período.'
+        : dashInd.status==='Em licença' ? 'Colaborador em licença — indicadores zerados no período, sem cobrança de meta.'
         : dashInd.media===null ? 'Sem dados suficientes ainda.'
-        : dashInd.media>=1.05 ? 'Desempenho excelente — acima da meta. Reforçar e reconhecer.'
+        : dashInd.media>=1.02 ? 'Desempenho excelente — acima da meta. Reforçar e reconhecer.'
         : dashInd.media>=0.95 ? 'Dentro da meta, desempenho ótimo. Manter o padrão.'
-        : dashInd.media>=0.90 ? 'Atenção: perto do limite da meta (90%). Acompanhar de perto.'
+        : dashInd.media>=0.90 ? 'Atenção: perto do limite da meta. Acompanhar de perto.'
         : 'Abaixo da meta — priorizar plano de ação/treinamento com este colaborador.'
       }</p>
+      ${state.role === 'admin' ? '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="btnPesos" class="ghost">⚖️ Configurar indicadores e pesos</button><button id="btnLancarInd" class="ghost">✏️ Lançar resultado individual</button></div>' : ''}
     </div>` : ''}
     ${(kpis||[]).map(k => {
       const serie = meses.map(m => atingimento((porInd[k.id]||{})[m]));
@@ -1657,8 +1945,140 @@ async function renderMetas() {
   document.getElementById('metaAno').onchange = (e) => { state.metaAno = Number(e.target.value); renderMetas(); };
   const mc = document.getElementById('metaColaborador');
   if (mc) mc.onchange = (e) => { state.metaColaborador = e.target.value; renderMetas(); };
+  const bP = document.getElementById('btnPesos');
+  if (bP) bP.onclick = () => openPesosColaborador(kpis, dashInd);
+  const bLI = document.getElementById('btnLancarInd');
+  if (bLI) bLI.onclick = () => openLancarIndividual(kpis, dashInd);
   const bE = document.getElementById('btnEditarMetas');
   if (bE) bE.onclick = () => openLancarIndicadores(kpis, porInd);
+}
+
+async function openPesosColaborador(kpis, colab) {
+  const analista = (state.lookups.analistas||[]).find(a => a.nome === colab.nome);
+  if (!analista) { alert('Colaborador não encontrado no cadastro.'); return; }
+  const trimAtual = Math.ceil((new Date().getMonth()+1)/3);
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  const render = async (trim) => {
+    const { data: cfgs } = await sb.from('meta_colaborador_indicador').select('*')
+      .eq('analista_id', analista.id).eq('ano', state.metaAno).eq('trimestre', trim);
+    const porInd = {}; (cfgs||[]).forEach(c => porInd[c.indicador_id] = c);
+    div.innerHTML = `<div class="modal" style="width:620px">
+      <h2>⚖️ Indicadores e pesos — ${esc(colab.nome)}</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Os pesos mudam a cada trimestre. Marque só os indicadores que valem para este colaborador; a soma dos pesos deve dar 100%.</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        ${[1,2,3,4].map(t=>`<button class="ghost pc-trim ${t===trim?'active':''}" data-t="${t}">${t}º Trim ${state.metaAno}</button>`).join('')}
+      </div>
+      <div>${kpis.map(k => {
+        const c = porInd[k.id];
+        return `<div style="display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);padding:8px 0">
+          <input type="checkbox" class="pc-on" data-id="${k.id}" ${c?'checked':''}>
+          <span style="flex:1;font-size:12.5px">${esc(k.nome)}</span>
+          <span style="font-size:11px;color:var(--muted)">alvo</span>
+          <input class="pc-alvo" data-id="${k.id}" type="number" step="0.01" min="0" max="1" value="${c?.alvo ?? k.meta_percentual}" style="width:70px">
+          <span style="font-size:11px;color:var(--muted)">peso %</span>
+          <input class="pc-peso" data-id="${k.id}" type="number" step="1" min="0" max="100" value="${c ? Math.round(c.peso*100) : ''}" style="width:70px">
+        </div>`;
+      }).join('')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <b id="pcSoma" style="font-size:13px"></b>
+        <div class="msg" id="pcMsg" style="margin:0"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+        <button id="pcFechar" class="ghost">Fechar</button><button id="pcSalvar">Salvar ${trim}º trimestre</button>
+      </div>
+    </div>`;
+    const soma = () => {
+      let s = 0;
+      div.querySelectorAll('.pc-on').forEach(c => { if (c.checked) {
+        const p = div.querySelector(`.pc-peso[data-id="${c.dataset.id}"]`).value;
+        s += Number(p||0);
+      }});
+      div.querySelector('#pcSoma').textContent = `Soma dos pesos: ${s}%`;
+      div.querySelector('#pcSoma').style.color = s === 100 ? 'var(--ok)' : 'var(--warn)';
+    };
+    soma();
+    div.querySelectorAll('.pc-on, .pc-peso').forEach(el => el.oninput = soma);
+    div.querySelectorAll('.pc-trim').forEach(b => b.onclick = () => render(Number(b.dataset.t)));
+    div.querySelector('#pcFechar').onclick = () => { div.remove(); renderMetas(); };
+    div.querySelector('#pcSalvar').onclick = async () => {
+      await sb.from('meta_colaborador_indicador').delete()
+        .eq('analista_id', analista.id).eq('ano', state.metaAno).eq('trimestre', trim);
+      const linhas = [];
+      div.querySelectorAll('.pc-on').forEach(c => {
+        if (!c.checked) return;
+        const alvo = Number(div.querySelector(`.pc-alvo[data-id="${c.dataset.id}"]`).value || 0);
+        const peso = Number(div.querySelector(`.pc-peso[data-id="${c.dataset.id}"]`).value || 0) / 100;
+        if (peso > 0) linhas.push({ analista_id: analista.id, indicador_id: c.dataset.id, ano: state.metaAno, trimestre: trim, alvo, peso });
+      });
+      if (linhas.length) {
+        const { error } = await sb.from('meta_colaborador_indicador').insert(linhas);
+        if (error) { div.querySelector('#pcMsg').textContent = error.message; return; }
+      }
+      div.remove(); renderMetas();
+    };
+  };
+  document.body.appendChild(div);
+  render(trimAtual);
+}
+
+async function openLancarIndividual(kpis, colab) {
+  const analista = (state.lookups.analistas||[]).find(a => a.nome === colab.nome);
+  if (!analista) { alert('Colaborador não encontrado no cadastro.'); return; }
+  const mesPadrao = new Date().toISOString().slice(0,7);
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:620px">
+    <h2>✏️ Lançar resultado — ${esc(colab.nome)}</h2>
+    <div style="margin-bottom:12px"><label>Mês de referência</label><input id="liMes" type="month" value="${mesPadrao}"></div>
+    <div id="liCampos"></div>
+    <div class="msg" id="liMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="liCancel" class="ghost">Cancelar</button><button id="liSalvar">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const campos = async () => {
+    const m = div.querySelector('#liMes').value;
+    const trim = Math.ceil(Number(m.slice(5,7))/3);
+    const [{ data: cfgs }, { data: atuais }] = await Promise.all([
+      sb.from('meta_colaborador_indicador').select('*').eq('analista_id', analista.id).eq('ano', Number(m.slice(0,4))).eq('trimestre', trim),
+      sb.from('meta_colaborador_mensal').select('*').eq('analista_id', analista.id).eq('mes', m + '-01'),
+    ]);
+    const porInd = {}; (atuais||[]).forEach(r => porInd[r.indicador_id] = r);
+    const ativos = (cfgs||[]).map(c => ({ ...c, nome: (kpis.find(k=>k.id===c.indicador_id)||{}).nome }));
+    div.querySelector('#liCampos').innerHTML = ativos.length ? ativos.map(c => {
+      const r = porInd[c.indicador_id] || {};
+      return `<div style="border-top:1px solid var(--border);padding:10px 0">
+        <div style="font-size:12.5px;margin-bottom:6px"><b>${esc(c.nome)}</b> <span style="color:var(--muted)">· alvo ${(c.alvo*100).toFixed(0)}% · peso ${(c.peso*100).toFixed(0)}%</span></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}"></div>
+          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}"></div>
+        </div>
+        <div style="margin-top:6px"><label>Descrição / observação</label><textarea class="li-desc" data-id="${c.indicador_id}" rows="2">${esc(r.descricao)}</textarea></div>
+      </div>`;
+    }).join('') : '<p style="color:var(--warn);font-size:12.5px">Nenhum indicador configurado para este colaborador neste trimestre. Use "⚖️ Configurar indicadores e pesos" primeiro.</p>';
+  };
+  await campos();
+  div.querySelector('#liMes').onchange = campos;
+  div.querySelector('#liCancel').onclick = () => div.remove();
+  div.querySelector('#liSalvar').onclick = async () => {
+    const mes = div.querySelector('#liMes').value + '-01';
+    const linhas = [];
+    div.querySelectorAll('.li-qtd').forEach(inp => {
+      const id = inp.dataset.id;
+      const err = div.querySelector(`.li-err[data-id="${id}"]`);
+      const desc = div.querySelector(`.li-desc[data-id="${id}"]`);
+      if (inp.value === '' && err.value === '') return;
+      linhas.push({ analista_id: analista.id, indicador_id: id, mes,
+        quantidade_processos: Number(inp.value||0), quantidade_erros: Number(err.value||0),
+        descricao: desc.value || null, atualizado_em: new Date().toISOString() });
+    });
+    if (!linhas.length) { div.querySelector('#liMsg').textContent = 'Preencha ao menos um indicador.'; return; }
+    const { error } = await sb.from('meta_colaborador_mensal').upsert(linhas, { onConflict: 'analista_id,indicador_id,mes' });
+    if (error) { div.querySelector('#liMsg').textContent = error.message; return; }
+    div.remove(); renderMetas();
+  };
 }
 
 async function openLancarIndicadores(kpis, porInd) {
@@ -1713,6 +2133,7 @@ async function renderFechamento() {
   const ini = new Date(y, m-1, 1).toISOString(), fim = new Date(y, m, 1).toISOString();
   const { data: rows } = await sb.from('demandas')
     .select('numero,recebido_em,numero_processo,proponente1_nome,proponente1_cpf,unidade,status,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)')
+    .eq('fat_mensal', true)
     .gte('recebido_em', ini).lt('recebido_em', fim).order('recebido_em');
   const grp = {};
   (rows||[]).forEach(r => {
@@ -1725,16 +2146,16 @@ async function renderFechamento() {
         <h2 style="margin:0">💰 Fechamento mensal</h2>
         <input type="month" id="fechMes" value="${state.fechMes}">
         <button id="btnCsv" class="ghost">⬇ Exportar CSV</button>
-        <span style="color:var(--muted);font-size:13px">${(rows||[]).length} processos no mês</span>
+        <span style="color:var(--muted);font-size:13px">${(rows||[]).length} processos faturados no mês</span>
       </div>
       ${Object.entries(grp).map(([an, rs]) => `
         <h2 style="margin-top:14px">${esc(an)} — ${rs.length} processos</h2>
-        <table><thead><tr><th>Nº</th><th>Data</th><th>Canal</th><th>Proponente</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Status</th></tr></thead>
+        <table><thead><tr><th>Nº</th><th>Data</th><th>Canal</th><th>Proponente</th><th>CPF</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Status</th></tr></thead>
         <tbody>${rs.map(r => `<tr>
           <td>${r.numero ?? ''}</td><td>${fmtDt(r.recebido_em)}</td><td>${esc(r.numero_processo)}</td>
-          <td>${esc(r.proponente1_nome)}</td><td>${esc(r.empreendedoras?.nome)}</td><td>${esc(r.empreendimentos?.nome)}</td>
+          <td>${esc(r.proponente1_nome)}</td><td>${esc(r.proponente1_cpf)}</td><td>${esc(r.empreendedoras?.nome)}</td><td>${esc(r.empreendimentos?.nome)}</td>
           <td>${esc(r.unidade)}</td><td>${esc(r.atividades?.nome)}</td>
-          <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td></tr>`).join('')}</tbody></table>`).join('') || '<div class="msg">Nenhum processo no mês selecionado.</div>'}
+          <td><span class="tag ${esc(r.status)}">${esc(r.status)}</span></td></tr>`).join('')}</tbody></table>`).join('') || '<div class="msg">Nenhum processo faturado no mês selecionado.</div>'}
     </div>`);
   fechMes.onchange = (e) => { state.fechMes = e.target.value; renderFechamento(); };
   btnCsv.onclick = () => {
@@ -1788,17 +2209,25 @@ async function renderCadastros() {
           <button id="btnCriarUser">Enviar convite</button>
           <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
         </div>` : ''}
-        <table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Desde</th><th>Ações</th></tr></thead>
+        <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">💡 O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum.</p>
+        <table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Colaborador vinculado</th><th>Desde</th><th>Ações</th></tr></thead>
         <tbody>${(usuarios||[]).map(u => {
           const isSelf = u.user_id === state.session.user.id;
           const info = ROLE_INFO[u.role] || ROLE_INFO.analista;
           return `<tr style="${u.ativo===false?'opacity:.5':''}">
-          <td><div class="user-cell"><div class="user-avatar">${esc(u.email[0]?.toUpperCase() || '?')}</div>
-            <div><b>${esc(u.email)}</b>${isSelf ? ' <span class="tag RECEBIDO">você</span>' : ''}${u.ativo===false ? ' <span class="tag PENDENTE">inativo</span>' : ''}</div></div></td>
+          <td><div class="user-cell"><div class="user-avatar">${esc((u.nome_completo||u.email)[0]?.toUpperCase() || '?')}</div>
+            <div><b>${esc(u.nome_completo || u.email)}</b>${isSelf ? ' <span class="tag RECEBIDO">você</span>' : ''}${u.ativo===false ? ' <span class="tag PENDENTE">inativo</span>' : ''}
+            ${u.nome_completo ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(u.email)}</span>` : ''}
+            ${u.funcao ? `<br><span style="color:var(--muted2);font-size:11px">${esc(u.funcao)}</span>` : ''}
+            ${!u.cadastro_completo ? '<br><span class="tag PENDENTE" style="font-size:10px">cadastro pendente</span>' : ''}</div></div></td>
           <td>${state.role === 'admin' && !isSelf
             ? `<select class="selRole" data-uid="${u.user_id}">
                 ${Object.keys(ROLE_INFO).map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${ROLE_INFO[r].label}</option>`).join('')}</select>`
             : `<span class="tag ${info.cor}">${info.label}</span>`}</td>
+          <td>${state.role === 'admin'
+            ? `<select class="selAnalistaVinc" data-uid="${u.user_id}"><option value="">— sem vínculo —</option>
+                ${L.analistas.map(a=>`<option value="${a.id}" ${u.analista_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select>`
+            : `<span style="color:var(--muted)">${esc((L.analistas.find(a=>a.id===u.analista_id)||{}).nome || '—')}</span>`}</td>
           <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td>
           <td>${state.role === 'admin' && !isSelf ? `
             <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}" style="font-size:12px;padding:4px 9px">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
@@ -1810,6 +2239,10 @@ async function renderCadastros() {
     if (btnAbrir) btnAbrir.onclick = () => conviteBox.classList.toggle('hidden');
     document.querySelectorAll('.selRole').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('perfis').update({ role: s.value }).eq('user_id', s.dataset.uid);
+      if (error) alert(error.message);
+    });
+    document.querySelectorAll('.selAnalistaVinc').forEach(s => s.onchange = async () => {
+      const { error } = await sb.from('perfis').update({ analista_id: s.value || null }).eq('user_id', s.dataset.uid);
       if (error) alert(error.message);
     });
     document.querySelectorAll('.btn-toggle-ativo').forEach(b => b.onclick = async () => {
@@ -1829,6 +2262,10 @@ async function renderCadastros() {
       const email = nuEmail.value.trim(), nivel = nuNivel.value;
       const msg = document.getElementById('nuMsg');
       if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
+      if (!email.toLowerCase().endsWith(DOMINIO_CORPORATIVO)) {
+        msg.textContent = `Use o e-mail corporativo (${DOMINIO_CORPORATIVO}). E-mails pessoais não têm acesso ao sistema.`;
+        return;
+      }
       btnCU.disabled = true; msg.textContent = 'Enviando convite...';
       const { data, error } = await sb.functions.invoke('convidar-usuario', {
         body: { email, nivel, redirectTo: window.location.origin },
@@ -1923,6 +2360,8 @@ async function renderEsteira() {
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         ${ESTEIRA_TIPOS.map(([k,l]) => `<button class="ghost esteira-tab ${state.esteiraTipo===k?'active':''}" data-tipo="${k}">${l}</button>`).join('')}
+        <div class="spacer"></div>
+        <button id="btnHistEsteira" class="ghost">🗄️ Histórico de concluídos</button>
       </div>
       <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
         ${Object.entries(porAnalistaCount).sort((a,b)=>b[1]-a[1]).map(([n,q]) => `<span>👤 ${esc(n)}: <b style="color:var(--text)">${q}</b></span>`).join('') || '<span>Nenhum processo em aberto nesta esteira.</span>'}
@@ -1955,6 +2394,37 @@ async function renderEsteira() {
   const bE = document.getElementById('btnEtapas');
   if (bE) bE.onclick = () => openGerenciarEtapas(etapas);
   document.querySelectorAll('.esteira-tab').forEach(b => b.onclick = () => { state.esteiraTipo = b.dataset.tipo; renderEsteira(); });
+  document.getElementById('btnHistEsteira').onclick = () => openHistoricoEsteira();
+}
+
+async function openHistoricoEsteira() {
+  const { data: concluidos } = await sb.from('esteira_processos')
+    .select('*, etapas_esteira(nome), analistas(nome), clientes(nome)')
+    .eq('status', 'CONCLUIDO').order('concluido_em', { ascending: false }).limit(200);
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:900px">
+    <h2>🗄️ Histórico de processos concluídos</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Nada é apagado — todo processo encerrado fica aqui com o histórico completo de etapas.</p>
+    <div style="max-height:60vh;overflow-y:auto">
+    <table><thead><tr><th>Concluído em</th><th>Esteira</th><th>Processo</th><th>Última etapa</th><th>Desfecho</th><th></th></tr></thead>
+    <tbody>${(concluidos||[]).map(p => `<tr>
+      <td>${fmtDt(p.concluido_em)}</td>
+      <td>${p.esteira_tipo === 'analise_credito' ? 'Análise de Crédito' : 'Emissão de Contrato'}</td>
+      <td><b>${esc(p.titulo)}</b>${p.unidade ? `<br><span style="color:var(--muted);font-size:11px">${esc(p.unidade)}</span>` : ''}</td>
+      <td>${esc(p.etapas_esteira?.nome || '—')}</td>
+      <td>${p.devolvido_para ? `<span class="tag ERRO">Devolvido: ${esc(p.devolvido_para)}</span>${p.motivo_devolucao ? `<br><span style="font-size:11px;color:var(--muted)">${esc(p.motivo_devolucao)}</span>` : ''}` : '<span class="tag CONCLUIDO">Concluído</span>'}</td>
+      <td><button class="ghost hist-abrir" data-id="${p.id}">Ver histórico</button></td>
+    </tr>`).join('') || '<tr><td colspan="6">Nenhum processo concluído ainda.</td></tr>'}</tbody></table>
+    </div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="heFechar" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#heFechar').onclick = () => div.remove();
+  div.querySelectorAll('.hist-abrir').forEach(b => b.onclick = async () => {
+    const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem');
+    div.remove(); openProcessoEsteira(b.dataset.id, etapas || []);
+  });
 }
 
 async function openProcessoEsteira(id, etapas) {
@@ -1970,7 +2440,7 @@ async function openProcessoEsteira(id, etapas) {
     transicoes = tt || [];
   }
   const L = state.lookups;
-  const equipe = L.analistas.filter(a => a.status !== 'Inativo');
+  const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
   const etapaIdx = p ? etapas.findIndex(e => e.id === p.etapa_atual_id) : 0;
   const ro = state.role === 'leitura';
   const div = document.createElement('div');
@@ -1989,7 +2459,8 @@ async function openProcessoEsteira(id, etapas) {
       <div><label>Responsável atual</label><select id="epAnalista" ${ro?'disabled':''}><option value="">Sem responsável (na fila)</option>
         ${equipe.map(a=>`<option value="${a.id}" ${p?.analista_atual_id===a.id?'selected':''}>${esc(a.nome)}${a.cargo && a.cargo!=='analista' ? ' ('+esc(a.cargo)+')' : ''}</option>`).join('')}</select></div>
       ${id ? `<div><label>Etapa atual</label><input value="${esc(etapas[etapaIdx]?.nome)}" disabled></div>` : ''}
-      <div style="grid-column:1/-1"><label>Observações</label><input id="epObs" value="${esc(p?.obs)}" placeholder="Informações para o próximo responsável" ${ro?'disabled':''}></div>
+      <div style="grid-column:1/-1"><label>Recado para o próximo responsável</label><textarea id="epObs" rows="2" placeholder="Informações para quem pegar a próxima etapa" ${ro?'disabled':''}>${esc(p?.obs)}</textarea></div>
+      <div style="grid-column:1/-1"><label>📝 Observações do processo (acompanha todas as etapas)</label><textarea id="epObservacoes" rows="4" placeholder="Anotações que ficam com o processo do início ao fim — crédito e contrato" ${ro?'disabled':''}>${esc(p?.observacoes)}</textarea></div>
     </div>
     ${id ? `
     <h2 style="margin-top:18px">📎 Documentos e links</h2>
@@ -2049,6 +2520,7 @@ async function openProcessoEsteira(id, etapas) {
     prioridade: $('epPrioridade').value,
     analista_atual_id: $('epAnalista').value || null,
     obs: $('epObs').value || null,
+    observacoes: $('epObservacoes') ? ($('epObservacoes').value || null) : null,
   });
 
   const btnSalvar = $('epSalvar');
@@ -2069,16 +2541,35 @@ async function openProcessoEsteira(id, etapas) {
     const rotulo = btn.dataset.rotulo;
     const proxAnalista = $('epProxAnalista').value || null;
     if (!destino) {
-      const { error } = await sb.from('esteira_processos').update({ status: 'CONCLUIDO', concluido_em: new Date().toISOString() }).eq('id', id);
+      const obsAtual = $('epObservacoes') ? $('epObservacoes').value.trim() : '';
+      const enviarContrato = rotulo.includes('enviar para Emissão de Contrato');
+      const devolver = rotulo.includes('devolver ao Incorporador');
+      let motivo = null, paraQuem = null;
+      if (devolver) {
+        paraQuem = prompt('Devolver para quem? (Incorporador / Imobiliária / nome)', 'Incorporador') || 'Incorporador/Imobiliária';
+        motivo = prompt('Motivo da reprovação (fica registrado no histórico):') || null;
+      }
+      const { error } = await sb.from('esteira_processos').update({
+        status: 'CONCLUIDO', concluido_em: new Date().toISOString(),
+        observacoes: obsAtual || p.observacoes || null,
+        devolvido_para: paraQuem, motivo_devolucao: motivo,
+      }).eq('id', id);
       if (error) { $('epMsg').textContent = error.message; return; }
-      await sb.from('esteira_historico').insert({ processo_id: id, evento: rotulo, autor: state.session?.user?.email });
-      if (p.esteira_tipo === 'analise_credito' && confirm('Crédito aprovado! Encaminhar este processo para a esteira de Emissão de Contrato?')) {
+      await sb.from('esteira_historico').insert({ processo_id: id,
+        evento: rotulo + (paraQuem ? ` → ${paraQuem}` : '') + (motivo ? ` · Motivo: ${motivo}` : ''),
+        autor: state.session?.user?.email });
+      if (enviarContrato) {
         const { data: primeiraEtapa } = await sb.from('etapas_esteira').select('id').eq('esteira_tipo','emissao_contrato').eq('ativa',true).order('ordem').limit(1).single();
-        await sb.from('esteira_processos').insert({
+        const { data: novo } = await sb.from('esteira_processos').insert({
           titulo: p.titulo, cliente_id: p.cliente_id, empreendimento_id: p.empreendimento_id, unidade: p.unidade,
           prioridade: p.prioridade, esteira_tipo: 'emissao_contrato', etapa_atual_id: primeiraEtapa.id,
-          status: 'AGUARDANDO', processo_origem_id: id, obs: `Encaminhado da Análise de Crédito — ${p.titulo}`,
-        });
+          status: 'AGUARDANDO', processo_origem_id: id,
+          obs: `Veio da Análise de Crédito (aprovado)`,
+          observacoes: obsAtual || p.observacoes || null,
+        }).select('id').single();
+        if (novo) await sb.from('esteira_historico').insert({ processo_id: novo.id,
+          evento: `Criado a partir da Análise de Crédito aprovada (processo ${id.slice(0,8)})`, autor: state.session?.user?.email });
+        state.esteiraTipo = 'emissao_contrato';
       }
       div.remove(); renderEsteira(); return;
     }
@@ -2383,16 +2874,53 @@ async function init() {
   state.session = session;
   // garante perfil e carrega nível de acesso
   await sb.from('perfis').upsert({ user_id: session.user.id, email: session.user.email }, { onConflict: 'user_id', ignoreDuplicates: true });
-  const { data: perfil } = await sb.from('perfis').select('role,nome,ativo').eq('user_id', session.user.id).single();
+  const { data: perfil } = await sb.from('perfis').select('role,nome,ativo,analista_id,nome_completo,funcao,cadastro_completo').eq('user_id', session.user.id).single();
   if (perfil?.ativo === false) {
     await sb.auth.signOut();
     renderLogin('Sua conta foi desativada. Fale com o administrador do sistema.');
     return;
   }
   state.role = perfil?.role || 'analista';
-  state.perfilNome = perfil?.nome || '';
-  if (!podeVer(state.view)) state.view = 'pipeline';
+  state.perfilNome = perfil?.nome_completo || perfil?.nome || '';
+  state.meuAnalistaId = perfil?.analista_id || null;
   await loadLookups();
+  // primeiro acesso: exige nome completo e função antes de liberar o sistema
+  if (!perfil?.cadastro_completo) { renderCompletarCadastro(session, perfil); return; }
+  if (!podeVer(state.view)) state.view = 'inicio';
   render();
+}
+
+const DOMINIO_CORPORATIVO = '@neoservice.com.br';
+function renderCompletarCadastro(session, perfil) {
+  const emailCorp = (session.user.email || '').toLowerCase().endsWith(DOMINIO_CORPORATIVO);
+  app.innerHTML = `
+  <div class="login-wrap" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px">
+    <div class="card" style="width:100%;max-width:460px">
+      <h2 style="margin:0 0 4px">👋 Complete seu cadastro</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Precisamos de alguns dados antes do primeiro acesso.</p>
+      ${!emailCorp ? `<div class="msg" style="background:var(--warn-soft);border-color:var(--warn);margin-bottom:12px">
+        ⚠️ O acesso ao sistema exige e-mail corporativo (<b>${DOMINIO_CORPORATIVO}</b>).<br>
+        Você entrou com <b>${esc(session.user.email)}</b>. Peça ao administrador um convite para o seu e-mail corporativo.
+      </div>` : ''}
+      <div><label>Nome completo</label><input id="ccNome" value="${esc(perfil?.nome_completo)}" placeholder="Ex.: Maria Aparecida de Souza" ${!emailCorp?'disabled':''}></div>
+      <div style="margin-top:10px"><label>Função / cargo</label><input id="ccFuncao" value="${esc(perfil?.funcao)}" placeholder="Ex.: Analista de Contratos" ${!emailCorp?'disabled':''}></div>
+      <div style="margin-top:10px"><label>E-mail</label><input value="${esc(session.user.email)}" disabled></div>
+      <div class="msg" id="ccMsg"></div>
+      <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+        <button id="ccSair" class="ghost">Sair</button>
+        ${emailCorp ? '<button id="ccSalvar">Concluir cadastro</button>' : ''}
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('ccSair').onclick = async () => { await sb.auth.signOut(); renderLogin(); };
+  const bS = document.getElementById('ccSalvar');
+  if (bS) bS.onclick = async () => {
+    const nome = document.getElementById('ccNome').value.trim();
+    const funcao = document.getElementById('ccFuncao').value.trim();
+    if (!nome || !funcao) { document.getElementById('ccMsg').textContent = 'Preencha nome completo e função.'; return; }
+    const { error } = await sb.from('perfis').update({ nome_completo: nome, funcao, nome, cadastro_completo: true }).eq('user_id', session.user.id);
+    if (error) { document.getElementById('ccMsg').textContent = error.message; return; }
+    init();
+  };
 }
 init();
