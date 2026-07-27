@@ -2,6 +2,8 @@
 
 Sistema interno de gestão da equipe da Secretaria de Vendas — produção, pipeline de processos, escala de plantão, repasse bancário, insights e indicadores.
 
+**Autoria:** sistema desenvolvido por Ana Patrícia da Silva (coordenação/supervisão da Secretaria de Vendas), incluindo levantamento de requisitos, modelagem de dados, regras de negócio e todas as decisões de produto. Todo o histórico de autoria está preservado nos commits deste repositório (`git log`).
+
 ## Stack
 - Front-end: HTML + JavaScript puro (sem build step), Supabase JS SDK via CDN
 - Back-end: [Supabase](https://supabase.com) (Postgres + Auth + Edge Functions)
