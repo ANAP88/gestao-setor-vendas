@@ -2,7 +2,11 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { CONFIG } from './config.js';
 
-const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+// Ambiente de TESTE: qualquer site que não seja o domínio de produção usa o schema "staging"
+// (mesmo banco, dados copiados, isolado do que a equipe usa de verdade).
+const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
+const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey,
+  EH_STAGING ? { db: { schema: 'staging' } } : {});
 
 const app = document.getElementById('app');
 const PAGE = 25;
@@ -123,9 +127,11 @@ function shell(inner) {
     .map(([grp, items]) => [grp, items.filter(([v]) => podeVer(v))])
     .filter(([, items]) => items.length);
   app.innerHTML = `
-  <div class="layout">
+  ${EH_STAGING ? `<div style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#f59e0b;color:#1a1200;text-align:center;font-weight:700;font-size:12.5px;padding:5px">
+    🧪 AMBIENTE DE TESTE — nada aqui afeta o sistema real da equipe</div>` : ''}
+  <div class="layout" style="${EH_STAGING ? 'margin-top:26px' : ''}">
     <aside>
-      <div class="side-brand"><span class="logo">🏢</span><div><b>Secretaria de Vendas</b><small>Neo Service</small></div></div>
+      <div class="side-brand"><span class="logo">🏢</span><div><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b><small>Neo Service</small></div></div>
       ${pilaresVisiveis.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span>${ic}</span>${l}</button>`).join('')}
