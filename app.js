@@ -2200,17 +2200,22 @@ async function renderMetas() {
   (mensal || []).forEach(r => { (porInd[r.indicador_id] = porInd[r.indicador_id] || {})[r.mes.slice(0,7)] = r; });
   const meses = Array.from({length:12}, (_,i) => `${state.metaAno}-${String(i+1).padStart(2,'0')}`);
   const TRIM = [['1º Trim', 0, 3], ['2º Trim', 3, 6], ['3º Trim', 6, 9], ['4º Trim', 9, 12]];
-  const atingimento = (r) => (!r || !r.quantidade_processos) ? null
-    : 1 - (r.quantidade_erros / r.quantidade_processos);
-  const pctTxt = (v) => v === null ? '—' : (v*100).toFixed(1) + '%';
-  const cor = (v, meta) => v === null ? 'var(--muted)' : v >= meta ? 'var(--ok)' : v >= meta*0.95 ? 'var(--warn)' : 'var(--err)';
+  // Replica a fórmula exata da planilha de referência: Esperado = Processos × Meta;
+  // Ating.% = (Processos - Erros) / Esperado — por isso pode passar de 100% quando o time
+  // erra menos do que o esperado pra aquele volume (não é "1 - taxa de erro simples").
+  const esperado = (r, meta) => r ? r.quantidade_processos * meta : null;
+  const atingimento = (r, meta) => (!r || !r.quantidade_processos) ? null
+    : (r.quantidade_processos - r.quantidade_erros) / esperado(r, meta);
+  const pctTxt = (v) => v === null ? '—' : (v*100).toFixed(0) + '%';
+  const cor = (v) => v === null ? 'var(--muted)' : v >= 1 ? 'var(--ok)' : v >= 0.95 ? 'var(--warn)' : 'var(--err)';
   // agregado do trimestre: soma processos e erros do período (não média de percentuais)
-  const trimestre = (indId, ini, fim) => {
+  const trimestre = (indId, ini, fim, meta) => {
     const rs = meses.slice(ini, fim).map(m => (porInd[indId]||{})[m]).filter(Boolean);
     if (!rs.length) return null;
     const p = rs.reduce((s,r)=>s+r.quantidade_processos,0);
     const e = rs.reduce((s,r)=>s+r.quantidade_erros,0);
-    return p ? 1 - e/p : null;
+    const esp = p * meta;
+    return esp ? (p - e) / esp : null;
   };
   const anos = [...new Set([anoAtual, anoAtual-1, ...(mensal||[]).map(r=>+r.mes.slice(0,4))])].sort((a,b)=>b-a);
 
@@ -2402,35 +2407,42 @@ async function renderMetas() {
       ${state.role === 'admin' ? '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="btnPesos" class="ghost">⚖️ Configurar indicadores e pesos</button><button id="btnLancarInd" class="ghost">✏️ Lançar resultado individual</button></div>' : ''}
     </div>` : ''}
     ${(kpis||[]).map(k => {
-      const serie = meses.map(m => atingimento((porInd[k.id]||{})[m]));
+      const meta = Number(k.meta_percentual);
+      const serie = meses.map(m => atingimento((porInd[k.id]||{})[m], meta));
       const comDado = serie.filter(v => v !== null);
       const mediaAno = comDado.length ? comDado.reduce((s,v)=>s+v,0)/comDado.length : null;
       return `
       <div class="card" style="margin-bottom:12px">
         <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px">
           <h2 style="margin:0;font-size:15px">${esc(k.nome)}</h2>
-          <span class="tag ${mediaAno===null?'':mediaAno>=k.meta_percentual?'CONCLUIDO':'ERRO'}">Meta ${(k.meta_percentual*100).toFixed(0)}%</span>
+          <span class="tag ${mediaAno===null?'':mediaAno>=1?'CONCLUIDO':'ERRO'}">Meta ${(meta*100).toFixed(0)}%</span>
           <div class="spacer"></div>
           <span style="font-size:12.5px;color:var(--muted)">Média do ano:</span>
-          <b style="color:${cor(mediaAno, k.meta_percentual)}">${pctTxt(mediaAno)}</b>
+          <b style="color:${cor(mediaAno)}">${pctTxt(mediaAno)}</b>
         </div>
         <div style="overflow-x:auto">
-          <table style="min-width:760px">
+          <table style="min-width:840px">
             <thead><tr><th style="text-align:left">Mês</th>
               ${meses.map(m=>`<th>${mesLabel(m).slice(0,3)}</th>`).join('')}</tr></thead>
             <tbody>
-              <tr><td><b>Atingimento</b></td>
-                ${serie.map(v=>`<td style="color:${cor(v,k.meta_percentual)};font-weight:600">${pctTxt(v)}</td>`).join('')}</tr>
-              <tr><td style="color:var(--muted)">Processos</td>
+              <tr><td style="color:var(--muted)">Meta</td>
+                ${meses.map(()=>`<td style="color:var(--muted)">${(meta*100).toFixed(0)}%</td>`).join('')}</tr>
+              <tr><td><b>Ating.</b></td>
+                ${serie.map(v=>`<td style="color:${cor(v)};font-weight:600">${pctTxt(v)}</td>`).join('')}</tr>
+              <tr><td style="color:var(--muted)">Quantidade de processo</td>
                 ${meses.map(m=>`<td style="color:var(--muted)">${(porInd[k.id]||{})[m]?.quantidade_processos ?? '—'}</td>`).join('')}</tr>
-              <tr><td style="color:var(--muted)">Erros</td>
+              <tr><td style="color:var(--muted)">Quantidade Erros</td>
                 ${meses.map(m=>{const r=(porInd[k.id]||{})[m];return `<td style="color:${r&&r.quantidade_erros>0?'var(--err)':'var(--muted)'}">${r?r.quantidade_erros:'—'}</td>`;}).join('')}</tr>
+              <tr><td style="color:var(--muted)">Esperado</td>
+                ${meses.map(m=>{const r=(porInd[k.id]||{})[m];const e=esperado(r,meta);return `<td style="color:var(--muted)">${e===null?'—':e.toFixed(1)}</td>`;}).join('')}</tr>
+              <tr><td style="color:var(--muted)">Ating.</td>
+                ${meses.map(m=>{const r=(porInd[k.id]||{})[m];return `<td style="color:var(--muted)">${r?(r.quantidade_processos-r.quantidade_erros):'—'}</td>`;}).join('')}</tr>
             </tbody>
           </table>
         </div>
         <div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
-          ${TRIM.map(([lbl,i,f])=>{const v=trimestre(k.id,i,f);
-            return `<div class="kpi"><div class="v" style="font-size:20px;color:${cor(v,k.meta_percentual)}">${pctTxt(v)}</div><div class="l">${lbl}</div></div>`;}).join('')}
+          ${TRIM.map(([lbl,i,f])=>{const v=trimestre(k.id,i,f,meta);
+            return `<div class="kpi"><div class="v" style="font-size:20px;color:${cor(v)}">${pctTxt(v)}</div><div class="l">${lbl}</div></div>`;}).join('')}
         </div>
       </div>`;
     }).join('')}`);
