@@ -32,7 +32,6 @@ const ICONES = {
   fechamento: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1.1-3 2.5 1.3 2 3 2.5 3 1.1 3 2.5-1.3 2.5-3 2.5-3-1.1-3-2.5"/>'),
   escala: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
   cadastros: svgIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
-  cadastrosOperacionais: svgIcon('<path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>'),
   arquivos: svgIcon('<path d="M4 4h6l2 2h8v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 12h8M8 16h5"/>'),
   fluxosEsteira: svgIcon('<path d="M12 2 3 6.5 12 11l9-4.5Z"/><path d="M3 12 12 16.5 21 12"/><path d="M3 17 12 21.5 21 17"/>'),
 };
@@ -148,14 +147,13 @@ const PILARES = [
     ['implantacao', '🚀', 'Produtos em Implantação'],
     ['fechamento', '💰', 'Fechamento'],
     ['escala', '📅', 'Escala'],
-    ['cadastros', '👤', 'Usuários'],
-    ['cadastrosOperacionais', '🗂️', 'Cadastros operacionais'],
+    ['cadastros', '🛠️', 'Administração'],
     ['arquivos', '📁', 'Arquivos'],
     ['fluxosEsteira', '⛓️', 'Fluxos da Esteira'],
   ]],
 ];
 // Telas restritas a gestão (admin = supervisor/coordenador). Analistas não veem inteligência nem administração.
-const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'cadastros', 'cadastrosOperacionais', 'integracoes', 'automacoes', 'metas', 'implantacao', 'arquivos', 'fluxosEsteira'];
+const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'cadastros', 'integracoes', 'automacoes', 'metas', 'implantacao', 'arquivos', 'fluxosEsteira'];
 function podeVer(view) {
   return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
 }
@@ -227,7 +225,7 @@ function render() {
      documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
-     cadastros: renderCadastros, cadastrosOperacionais: renderCadastros,
+     cadastros: renderCadastros,
      arquivos: () => renderArquivos(''), fluxosEsteira: () => renderFluxosAdmin('') })[state.view]();
 }
 const FUNDO_NEOSERVICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400">
@@ -2855,14 +2853,16 @@ const ROLE_INFO = {
   leitura: { cor: 'PENDENTE', label: 'Leitura' },
 };
 async function renderCadastros() {
-  // Cada item vive no próprio menu (dentro de Gestão) em vez de abas dentro de uma tela só.
-  state.adminTab = state.view === 'cadastrosOperacionais' ? 'cadastros' : 'usuarios';
+  if (!state.adminTab) state.adminTab = 'usuarios';
   const L = state.lookups;
-  const tabsHtml = '';
+  const TABS = [['usuarios','👤 Usuários'], ['cadastros','🗂️ Cadastros operacionais']];
+  const tabsHtml = `<div class="admin-tabs">${TABS.map(([k,l]) =>
+    `<button class="admin-tab ${state.adminTab===k?'active':''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
 
   if (state.adminTab === 'usuarios') {
     const { data: usuarios } = await sb.from('perfis').select('*').order('criado_em');
     shell(`
+      ${tabsHtml}
       <div class="card">
         <div class="admin-head">
           <div>
