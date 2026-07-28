@@ -1635,6 +1635,13 @@ async function openChamado(c, areas, remetentePadrao) {
       <div style="grid-column:1/-1"><label>Mensagem</label>
         <textarea id="chDesc" rows="6" placeholder="Descreva o que precisa: valores, prazos, anexos..." ${ro}>${esc(c?.descricao)}</textarea></div>
     </div>
+    ${!novo ? `
+    <h2 style="margin-top:16px;font-size:15px">📎 Anexos</h2>
+    <div id="chAnexos" class="anexo-list"><p style="color:var(--muted);font-size:12.5px">Carregando...</p></div>
+    ${souDono ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <input id="chArquivo" type="file" style="flex:1">
+      <button id="btnChUpload" class="ghost">⬆ Anexar</button>
+    </div>` : ''}` : ''}
     ${c?.enviado_em ? `<div class="ok-box" style="margin-top:10px">✉️ E-mail enviado em ${fmtDt(c.enviado_em)} por ${esc(c.enviado_por||'')}</div>` : ''}
     <div class="msg" id="chMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px;flex-wrap:wrap">
@@ -1657,6 +1664,42 @@ async function openChamado(c, areas, remetentePadrao) {
   if (souDono) $('chArea').onchange = syncArea;
   if (c && !areas.some(a=>a.area===c.area)) $('chAreaOutraWrap').style.display = '';
   $('chCancel').onclick = () => div.remove();
+
+  const carregarAnexos = async () => {
+    if (novo) return;
+    const { data: anexos } = await sb.from('chamados_anexos').select('*').eq('chamado_id', c.id).order('criado_em', { ascending: false });
+    const wrap = $('chAnexos');
+    wrap.innerHTML = (anexos||[]).map(a => `
+      <div class="anexo-item">${iconeArquivo(a.nome)}
+        <span style="flex:1">${esc(a.nome)}</span>
+        <span style="color:var(--muted2);font-size:11px">${esc(a.criado_por||'')}</span>
+        <button class="ghost anexo-baixar" data-path="${esc(a.storage_path)}" data-nome="${esc(a.nome)}">⬇</button>
+        ${souDono ? `<button class="ghost anexo-excluir" data-id="${a.id}" data-path="${esc(a.storage_path)}">✕</button>` : ''}
+      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum anexo ainda.</p>';
+    wrap.querySelectorAll('.anexo-baixar').forEach(b => b.onclick = async () => {
+      const { data } = await sb.storage.from('chamados-anexos').createSignedUrl(b.dataset.path, 60);
+      if (data) window.open(data.signedUrl, '_blank');
+    });
+    wrap.querySelectorAll('.anexo-excluir').forEach(b => b.onclick = async () => {
+      await sb.storage.from('chamados-anexos').remove([b.dataset.path]);
+      await sb.from('chamados_anexos').delete().eq('id', b.dataset.id);
+      carregarAnexos();
+    });
+  };
+  carregarAnexos();
+  const bUp = $('btnChUpload');
+  if (bUp) bUp.onclick = async () => {
+    const f = $('chArquivo').files[0];
+    if (!f) { $('chMsg').textContent = 'Selecione um arquivo primeiro.'; return; }
+    bUp.disabled = true;
+    const path = `${c.id}/${Date.now()}-${f.name}`;
+    const { error } = await sb.storage.from('chamados-anexos').upload(path, f);
+    if (error) { $('chMsg').textContent = error.message; bUp.disabled = false; return; }
+    await sb.from('chamados_anexos').insert({ chamado_id: c.id, nome: f.name, storage_path: path, criado_por: state.session?.user?.email });
+    $('chArquivo').value = '';
+    bUp.disabled = false;
+    carregarAnexos();
+  };
 
   const coletar = () => {
     const areaSel = $('chArea').value;
@@ -1700,12 +1743,21 @@ async function openChamado(c, areas, remetentePadrao) {
 
 // Monta o e-mail pronto e oferece várias formas de enviar (mailto depende de cliente configurado,
 // então também damos Outlook Web, Gmail e "copiar tudo" — sempre funciona em alguma das opções).
-function abrirEnvioEmail(rec, chamadoId) {
+// Anexo de verdade não dá pra mandar via link de e-mail (bloqueio do navegador), então os arquivos
+// anexados ao chamado entram como link de download direto no corpo da mensagem.
+async function abrirEnvioEmail(rec, chamadoId) {
+  const { data: anexos } = await sb.from('chamados_anexos').select('*').eq('chamado_id', chamadoId);
+  const links = [];
+  for (const a of (anexos||[])) {
+    const { data: assinado } = await sb.storage.from('chamados-anexos').createSignedUrl(a.storage_path, 60*60*24*7);
+    if (assinado) links.push(`${a.nome}: ${assinado.signedUrl}`);
+  }
   const corpo = [
     rec.descricao || '',
     '',
     rec.processo_ref ? `Processo/Unidade: ${rec.processo_ref}` : '',
     `Prioridade: ${rec.prioridade}`,
+    links.length ? '\nAnexos (link válido por 7 dias):\n' + links.join('\n') : '',
     '',
     `— Enviado pelo Sistema de Gestão da Secretaria de Vendas (chamado ${String(chamadoId).slice(0,8)})`,
   ].filter(Boolean).join('\n');
