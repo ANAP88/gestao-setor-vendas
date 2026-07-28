@@ -1236,22 +1236,72 @@ const FLUXOGRAMA_PAGINAS = [
   ['NHuvtxXpHFfzDSOA2OXL', 'Fluxograma Gerencial'],
 ];
 async function renderFluxogramas() {
-  if (!state.fluxoPagina || /^\d+$/.test(state.fluxoPagina)) state.fluxoPagina = FLUXOGRAMA_PAGINAS[0][0];
-  const url = `${location.origin}/fluxogramas/sec-e-vendas3.drawio`;
-  const src = `https://viewer.diagrams.net/?highlight=0000ff&edit=_blank&layers=1&nav=1&page-id=${encodeURIComponent(state.fluxoPagina)}#U${encodeURIComponent(url)}`;
+  const { data: enviados } = await sb.storage.from('fluxogramas-uploads').list('', { sortBy: { column: 'created_at', order: 'desc' } });
+  const arquivos = (enviados||[]).filter(a => a.name !== '.emptyFolderPlaceholder');
+  if (!state.fluxoPagina) state.fluxoPagina = FLUXOGRAMA_PAGINAS[0][0];
+  const ehEnviado = arquivos.some(a => 'up:' + a.name === state.fluxoPagina);
+  if (!ehEnviado && !/^\d+$/.test(state.fluxoPagina) && !FLUXOGRAMA_PAGINAS.some(([id])=>id===state.fluxoPagina)) state.fluxoPagina = FLUXOGRAMA_PAGINAS[0][0];
+  let conteudo;
+  if (ehEnviado) {
+    const nome = state.fluxoPagina.slice(3);
+    const { data: pub } = sb.storage.from('fluxogramas-uploads').getPublicUrl(nome);
+    const ext = nome.split('.').pop().toLowerCase();
+    if (['png','jpg','jpeg','webp','gif'].includes(ext)) {
+      conteudo = `<img src="${esc(pub.publicUrl)}" style="width:100%;display:block">`;
+    } else if (ext === 'pdf') {
+      conteudo = `<embed src="${esc(pub.publicUrl)}" type="application/pdf" style="width:100%;height:78vh;border:0">`;
+    } else if (ext === 'drawio') {
+      const src2 = `https://viewer.diagrams.net/?highlight=0000ff&edit=_blank&layers=1&nav=1#U${encodeURIComponent(pub.publicUrl)}`;
+      conteudo = `<iframe src="${src2}" style="width:100%;height:78vh;border:0;display:block"></iframe>`;
+    } else {
+      conteudo = `<div class="msg" style="margin:16px">Não é possível pré-visualizar este tipo de arquivo. <a href="${esc(pub.publicUrl)}" target="_blank">Baixar arquivo</a></div>`;
+    }
+  } else {
+    const url = `${location.origin}/fluxogramas/sec-e-vendas3.drawio`;
+    const src = `https://viewer.diagrams.net/?highlight=0000ff&edit=_blank&layers=1&nav=1&page-id=${encodeURIComponent(state.fluxoPagina)}#U${encodeURIComponent(url)}`;
+    conteudo = `<iframe id="fluxoFrame" src="${src}" style="width:100%;height:78vh;border:0;display:block"></iframe>`;
+  }
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <h2 style="margin:0">🗺️ Fluxograma dos Empreendimentos</h2>
         <span style="color:var(--muted);font-size:12.5px">Um fluxo por empreendedora/grupo, conforme desenhado.</span>
         <div class="spacer"></div>
-        <select id="fluxoSelect">${FLUXOGRAMA_PAGINAS.map(([id,nome]) => `<option value="${id}" ${state.fluxoPagina===id?'selected':''}>${esc(nome)}</option>`).join('')}</select>
+        <select id="fluxoSelect">
+          <optgroup label="Fluxogramas do sistema">
+            ${FLUXOGRAMA_PAGINAS.map(([id,nome]) => `<option value="${id}" ${state.fluxoPagina===id?'selected':''}>${esc(nome)}</option>`).join('')}
+          </optgroup>
+          ${arquivos.length ? `<optgroup label="Enviados">
+            ${arquivos.map(a => `<option value="up:${esc(a.name)}" ${state.fluxoPagina==='up:'+a.name?'selected':''}>${esc(a.name)}</option>`).join('')}
+          </optgroup>` : ''}
+        </select>
+        ${state.role === 'admin' ? `
+          <input type="file" id="fluxoUpload" accept=".drawio,.pdf,.png,.jpg,.jpeg,.webp" style="max-width:220px">
+          ${ehEnviado ? '<button id="btnExcluirFluxo" class="ghost" style="color:var(--err)">🗑 Excluir este</button>' : ''}
+        ` : ''}
       </div>
+      <div class="msg" id="fluxoMsg" style="margin-top:6px"></div>
     </div>
-    <div class="card" style="padding:0;overflow:hidden">
-      <iframe id="fluxoFrame" src="${src}" style="width:100%;height:78vh;border:0;display:block"></iframe>
-    </div>`);
+    <div class="card" style="padding:0;overflow:hidden">${conteudo}</div>`);
   document.getElementById('fluxoSelect').onchange = (e) => { state.fluxoPagina = e.target.value; renderFluxogramas(); };
+  const upInp = document.getElementById('fluxoUpload');
+  if (upInp) upInp.onchange = async () => {
+    const f = upInp.files[0]; if (!f) return;
+    const msg = document.getElementById('fluxoMsg');
+    msg.textContent = 'Enviando...';
+    const { error } = await sb.storage.from('fluxogramas-uploads').upload(f.name, f, { upsert: true });
+    if (error) { msg.textContent = error.message; return; }
+    state.fluxoPagina = 'up:' + f.name;
+    renderFluxogramas();
+  };
+  const bExFluxo = document.getElementById('btnExcluirFluxo');
+  if (bExFluxo) bExFluxo.onclick = async () => {
+    const nome = state.fluxoPagina.slice(3);
+    if (!confirm(`Excluir "${nome}"? Essa ação não pode ser desfeita.`)) return;
+    await sb.storage.from('fluxogramas-uploads').remove([nome]);
+    state.fluxoPagina = FLUXOGRAMA_PAGINAS[0][0];
+    renderFluxogramas();
+  };
 }
 
 async function renderValidacao() {
