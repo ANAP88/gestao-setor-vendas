@@ -747,8 +747,17 @@ function abrirImportarPlanilha(aoTerminar) {
     const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
     const buf = await f.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-    if (!linhas.length) { msg.textContent = 'A planilha está vazia.'; return; }
+    // Chaves de cabeçalho às vezes vêm com espaços a mais/no fim (ex.: "Data do execução ") —
+    // normaliza espaços em vez de exigir bater exatamente.
+    const normKeys = (obj) => Object.fromEntries(Object.entries(obj).map(([k,v]) => [k.trim().replace(/\s+/g,' '), v]));
+    // A planilha modelo tem outras abas (ex.: uma aba oculta de referência antes da aba de dados),
+    // então varremos todas as abas e usamos a primeira que realmente tem a coluna do 1º proponente.
+    let linhas = [];
+    for (const nomeAba of wb.SheetNames) {
+      const tentativa = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { defval: '' }).map(normKeys);
+      if (tentativa.some(l => String(l['Nome 1° Proponente'] || l['Nome 1º Proponente'] || '').trim())) { linhas = tentativa; break; }
+    }
+    if (!linhas.length) { msg.textContent = 'Não encontrei nenhuma aba com a coluna "Nome 1° Proponente" preenchida nesta planilha.'; return; }
 
     const L = state.lookups;
     const acha = (lista, nome) => {
