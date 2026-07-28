@@ -678,7 +678,7 @@ async function renderDemandas() {
       <button id="btnFiltrar">Filtrar</button>
       <button id="btnLimpar" class="ghost">Limpar</button>
       <div class="spacer"></div>
-      ${state.role !== 'leitura' ? '<button id="btnNova">+ Novo processo</button>' : ''}
+      ${state.role !== 'leitura' ? '<button id="btnImportarPlanilha" class="ghost">⬆ Importar planilha</button><button id="btnNova">+ Novo processo</button>' : ''}
     </div>
     <div class="card">
       <div class="table-scroll">
@@ -707,11 +707,95 @@ async function renderDemandas() {
     </div>`);
   const bN = document.getElementById('btnNova');
   if (bN) bN.onclick = () => openForm(null);
+  const bImp = document.getElementById('btnImportarPlanilha');
+  if (bImp) bImp.onclick = () => abrirImportarPlanilha(renderDemandas);
   btnFiltrar.onclick = () => { state.filtros = { busca:fBusca.value.trim(), status:fStatus.value, analista:fAnalista.value, mes:fMes.value }; state.page=0; renderDemandas(); };
   btnLimpar.onclick = () => { state.filtros = { status:'',analista:'',busca:'',mes:'' }; state.page=0; renderDemandas(); };
   pgPrev.onclick = () => { state.page--; renderDemandas(); };
   pgNext.onclick = () => { state.page++; renderDemandas(); };
   document.querySelectorAll('.btnEdit').forEach(b => b.onclick = () => openForm(b.dataset.id));
+}
+
+// ---------- IMPORTAR PLANILHA (mesmo modelo do Fechamento) para Produção ----------
+function abrirImportarPlanilha(aoTerminar) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:480px">
+    <h2>⬆ Importar planilha para Produção</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
+      Use o mesmo modelo do Fechamento: Nome do Analista, Nº do processo, Data do execução,
+      Nome/CPF 1° e 2° Proponente, Consulta Serasa, Empreendedora, Empreendimento, Unidade, Prestação de Serviço.
+    </p>
+    <input id="impArquivo" type="file" accept=".xlsx,.xls,.csv" style="width:100%;margin-bottom:10px">
+    <label class="chk-inline" style="text-transform:none;font-weight:500;color:var(--text)">
+      <input type="checkbox" id="impFatMensal" checked> Marcar todas as linhas importadas como <b>Faturado</b> (entram no Fechamento Mensal)
+    </label>
+    <div class="msg" id="impMsg" style="margin-top:10px"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:end">
+      <button id="impCancelar" class="ghost">Fechar</button>
+      <button id="impConfirmar">Importar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#impCancelar').onclick = () => div.remove();
+  div.querySelector('#impConfirmar').onclick = async () => {
+    const f = div.querySelector('#impArquivo').files[0];
+    const msg = div.querySelector('#impMsg');
+    if (!f) { msg.textContent = 'Selecione um arquivo primeiro.'; return; }
+    const marcarFat = div.querySelector('#impFatMensal').checked;
+    msg.textContent = 'Lendo planilha...';
+    const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    if (!linhas.length) { msg.textContent = 'A planilha está vazia.'; return; }
+
+    const L = state.lookups;
+    const acha = (lista, nome) => {
+      const alvo = String(nome||'').trim().toLowerCase();
+      if (!alvo) return null;
+      return lista.find(x => x.nome.trim().toLowerCase() === alvo)?.id || null;
+    };
+    const paraData = (v) => {
+      if (!v) return new Date().toISOString();
+      if (v instanceof Date) return v.toISOString();
+      const s = String(v).trim();
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (m) { const [,d,mo,y] = m; return new Date(+y.length===2?'20'+y:y, +mo-1, +d, 12).toISOString(); }
+      const dt = new Date(s); return isNaN(dt) ? new Date().toISOString() : dt.toISOString();
+    };
+
+    let ok = 0, semProponente = 0;
+    const registros = [];
+    for (const l of linhas) {
+      const p1 = l['Nome 1° Proponente'] || l['Nome 1º Proponente'] || '';
+      if (!String(p1).trim()) { semProponente++; continue; }
+      registros.push({
+        proponente1_nome: String(p1).trim(),
+        proponente1_cpf: String(l['CPF 1° Proponente'] || l['CPF 1º Proponente'] || '').trim() || null,
+        proponente2_nome: String(l['Nome 2° Proponente'] || l['Nome 2º Proponente'] || '').trim() || null,
+        proponente2_cpf: String(l['CPF 2° Proponente'] || l['CPF 2º Proponente'] || '').trim() || null,
+        numero_processo: String(l['Nº do processo'] || '').trim() || null,
+        unidade: String(l['Unidade'] || '').trim() || null,
+        recebido_em: paraData(l['Data do execução']),
+        analista_id: acha(L.analistas, l['Nome do Analista']),
+        empreendedora_id: acha(L.empreendedoras, l['Empreendedora']),
+        empreendimento_id: acha(L.empreendimentos, l['Empreendimento']),
+        atividade_id: acha(L.atividades, l['Prestação de Serviço']),
+        status: 'CONCLUIDO',
+        concluido_em: new Date().toISOString(),
+        fat_mensal: marcarFat,
+      });
+      ok++;
+    }
+    if (!registros.length) { msg.textContent = 'Nenhuma linha com "Nome 1° Proponente" preenchido — nada foi importado.'; return; }
+    msg.textContent = `Importando ${registros.length} linha(s)...`;
+    const { error } = await sb.from('demandas').insert(registros);
+    if (error) { msg.textContent = 'Erro ao importar: ' + error.message; return; }
+    msg.style.color = 'var(--ok)';
+    msg.textContent = `✅ ${ok} processo(s) importado(s)${semProponente ? ` · ${semProponente} linha(s) ignorada(s) por falta do 1° Proponente` : ''}.`;
+    setTimeout(() => { div.remove(); aoTerminar(); }, 1600);
+  };
 }
 
 // ---------- FORM DEMANDA + FUP + CHECKLIST ----------
@@ -2063,6 +2147,13 @@ async function renderMetas() {
   const taxaErroGlobal = processosTotais ? errosTotais/processosTotais : null;
   const errosPorMes = mesesLancados ? Math.round(errosTotais/mesesLancados) : 0;
   const ultimaNotaEq = [...notasEquipe].reverse().find(v => v !== null) ?? null;
+  // acompanhamento mensal da meta da equipe: processos, erros e atingimento mês a mês
+  const acompMensal = meses.map((m, i) => {
+    const doMes = linhasAno.filter(l => l.mes.slice(0,7) === m);
+    const proc = doMes.reduce((s,l)=>s+l.quantidade_processos,0);
+    const err = doMes.reduce((s,l)=>s+l.quantidade_erros,0);
+    return { mes: m, proc, err, taxaErro: proc ? err/proc : null, ating: notasEquipe[i] };
+  });
 
   shell(`
     <div class="card" style="margin-bottom:14px">
@@ -2104,6 +2195,15 @@ async function renderMetas() {
           <div style="font-size:11px;color:var(--muted)">${meses.map(m=>mesLabel(m).slice(0,3)).join(' · ')}</div>
         </div>
       </div>
+      <h2 style="margin:18px 0 8px;font-size:14px">📅 Acompanhamento mensal da meta da equipe — ${state.metaAno}</h2>
+      <table><thead><tr><th>Mês</th><th>Processos</th><th>Erros</th><th>Taxa de erro</th><th>Atingimento</th></tr></thead>
+      <tbody>${acompMensal.map(r => `<tr>
+        <td>${mesLabel(r.mes)}</td>
+        <td>${r.proc.toLocaleString('pt-BR')}</td>
+        <td>${r.err}</td>
+        <td>${r.taxaErro===null?'—':(r.taxaErro*100).toFixed(2)+'%'}</td>
+        <td style="font-weight:600;color:${r.ating===null?'var(--muted)':r.ating>=1?'var(--ok)':r.ating>=0.95?'var(--warn)':'var(--err)'}">${pctTxt(r.ating)}</td>
+      </tr>`).join('')}</tbody></table>
     </div>
     <div class="card" style="margin-bottom:14px">
       <h2 style="margin:0 0 4px">🏆 Ranking individual — nota ponderada (todos os indicadores × peso)</h2>
@@ -2415,6 +2515,7 @@ async function renderFechamento() {
         <h2 style="margin:0">💰 Fechamento mensal</h2>
         <input type="month" id="fechMes" value="${state.fechMes}">
         <button id="btnCsv" class="ghost">⬇ Exportar planilha de fechamento</button>
+        ${state.role !== 'leitura' ? '<button id="btnImportarFech" class="ghost">⬆ Importar planilha</button>' : ''}
         <span style="color:var(--muted);font-size:13px">${(rows||[]).length} processos faturados no mês</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
@@ -2435,6 +2536,8 @@ async function renderFechamento() {
           </tr>`).join('')}</tbody></table></div>`).join('') || '<div class="msg">Nenhum processo faturado no mês selecionado.</div>'}
     </div>`);
   fechMes.onchange = (e) => { state.fechMes = e.target.value; renderFechamento(); };
+  const bImpF = document.getElementById('btnImportarFech');
+  if (bImpF) bImpF.onclick = () => abrirImportarPlanilha(renderFechamento);
   // Exporta no MESMO layout da planilha de fechamento usada pela equipe
   btnCsv.onclick = async () => {
     btnCsv.disabled = true; const rotulo = btnCsv.textContent; btnCsv.textContent = 'Gerando...';
@@ -2583,7 +2686,7 @@ const ROLE_INFO = {
 async function renderCadastros() {
   if (!state.adminTab) state.adminTab = 'usuarios';
   const L = state.lookups;
-  const TABS = [['usuarios','👤 Usuários'], ['cadastros','🗂️ Cadastros operacionais']];
+  const TABS = [['usuarios','👤 Usuários'], ['cadastros','🗂️ Cadastros operacionais'], ['arquivos','📁 Arquivos'], ['fluxos','⛓️ Fluxos da Esteira']];
   const tabsHtml = `<div class="admin-tabs">${TABS.map(([k,l]) =>
     `<button class="admin-tab ${state.adminTab===k?'active':''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
 
@@ -2688,6 +2791,10 @@ async function renderCadastros() {
       nuEmail.value = '';
       renderCadastros();
     };
+  } else if (state.adminTab === 'arquivos') {
+    return renderArquivos(tabsHtml);
+  } else if (state.adminTab === 'fluxos') {
+    return renderFluxosAdmin(tabsHtml);
   } else {
     if (!state.cadBusca) state.cadBusca = {};
     const filtra = (items, tipo) => {
@@ -2784,6 +2891,172 @@ async function renderCadastros() {
     document.querySelectorAll('.cad-edit').forEach(b => b.onclick = () => openEditarCadastro(b.dataset.t, b.dataset.id, b.dataset.n, L));
     document.querySelectorAll('.cad-del').forEach(b => b.onclick = () => openExcluirCadastro(b.dataset.t, b.dataset.id, b.dataset.n));
   }
+  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
+}
+
+// ---------- ARQUIVOS (Excel de Fechamento arquivado + Apresentações PPT) — só admin ----------
+function bytesFmt(n) {
+  if (!n) return '—';
+  if (n < 1024*1024) return (n/1024).toFixed(0) + ' KB';
+  return (n/1024/1024).toFixed(1) + ' MB';
+}
+async function renderArquivos(tabsHtml) {
+  const blocoArquivos = async (bucket, titulo, accept) => {
+    const { data: arquivos } = await sb.storage.from(bucket).list('', { sortBy: { column: 'created_at', order: 'desc' } });
+    return `
+    <div class="card">
+      <h2>${titulo} <span class="count-badge">${(arquivos||[]).length}</span></h2>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <input type="file" class="arq-upload" data-bucket="${bucket}" accept="${accept}" style="flex:1;min-width:200px">
+      </div>
+      <div class="msg arq-msg" data-bucket="${bucket}" style="margin-bottom:8px"></div>
+      <div class="cad-list">${(arquivos||[]).filter(a=>a.name!=='.emptyFolderPlaceholder').map(a => `
+        <div class="cad-item">
+          <span style="flex:1">${esc(a.name)} <span style="color:var(--muted2);font-size:11px">· ${bytesFmt(a.metadata?.size)} · ${fmtDt(a.created_at)}</span></span>
+          <button class="ghost arq-baixar" data-bucket="${bucket}" data-nome="${esc(a.name)}" title="Baixar">⬇</button>
+          <button class="ghost arq-substituir" data-bucket="${bucket}" data-nome="${esc(a.name)}" data-accept="${accept}" title="Substituir">🔁</button>
+          <button class="ghost arq-excluir" data-bucket="${bucket}" data-nome="${esc(a.name)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+        </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum arquivo.</p>'}</div>
+    </div>`;
+  };
+  shell(`
+    ${tabsHtml}
+    <div class="grid-cad">
+      ${await blocoArquivos('fechamentos-arquivo', '📊 Fechamentos em Excel', '.xlsx,.xls,.csv')}
+      ${await blocoArquivos('apresentacoes-ppt', '📽️ Apresentações em PPT', '.ppt,.pptx')}
+    </div>`);
+  const msgDe = (bucket, texto, erro) => {
+    const el = document.querySelector(`.arq-msg[data-bucket="${bucket}"]`);
+    if (el) { el.textContent = texto; el.style.color = erro ? 'var(--err)' : 'var(--ok)'; }
+  };
+  document.querySelectorAll('.arq-upload').forEach(inp => inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    const bucket = inp.dataset.bucket;
+    msgDe(bucket, 'Enviando...');
+    const { error } = await sb.storage.from(bucket).upload(f.name, f, { upsert: false });
+    if (error) { msgDe(bucket, error.message.includes('exists') ? 'Já existe um arquivo com esse nome. Use "Substituir" na lista.' : error.message, true); return; }
+    renderArquivos(tabsHtml);
+  });
+  document.querySelectorAll('.arq-baixar').forEach(b => b.onclick = async () => {
+    const { data, error } = await sb.storage.from(b.dataset.bucket).createSignedUrl(b.dataset.nome, 60);
+    if (error) { alert(error.message); return; }
+    window.open(data.signedUrl, '_blank');
+  });
+  document.querySelectorAll('.arq-substituir').forEach(b => b.onclick = () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = b.dataset.accept;
+    inp.onchange = async () => {
+      const f = inp.files[0]; if (!f) return;
+      const { error } = await sb.storage.from(b.dataset.bucket).upload(b.dataset.nome, f, { upsert: true });
+      if (error) { alert(error.message); return; }
+      renderArquivos(tabsHtml);
+    };
+    inp.click();
+  });
+  document.querySelectorAll('.arq-excluir').forEach(b => b.onclick = async () => {
+    if (!confirm(`Excluir "${b.dataset.nome}"? Essa ação não pode ser desfeita.`)) return;
+    const { error } = await sb.storage.from(b.dataset.bucket).remove([b.dataset.nome]);
+    if (error) { alert(error.message); return; }
+    renderArquivos(tabsHtml);
+  });
+  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
+}
+
+// ---------- FLUXOS DA ESTEIRA (criar/editar/excluir etapas e transições) — só admin ----------
+async function renderFluxosAdmin(tabsHtml) {
+  if (!state.fluxoAdminTipo) state.fluxoAdminTipo = 'analise_credito';
+  const TIPOS_ESTEIRA = [['analise_credito','Análise de Crédito'], ['emissao_contrato','Emissão de Contrato']];
+  const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', state.fluxoAdminTipo).order('ordem');
+  const { data: transicoes } = await sb.from('esteira_transicoes').select('*').in('etapa_origem_id', (etapas||[]).map(e=>e.id));
+  const nomeEtapa = (id) => (etapas||[]).find(e=>e.id===id)?.nome || '(processo concluído)';
+  shell(`
+    ${tabsHtml}
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <h2 style="margin:0">⛓️ Fluxos da Esteira</h2>
+        <select id="fluxoAdminSel">${TIPOS_ESTEIRA.map(([k,l])=>`<option value="${k}" ${state.fluxoAdminTipo===k?'selected':''}>${l}</option>`).join('')}</select>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:6px">Aqui você cria, renomeia, reordena e exclui etapas, e configura os botões de transição entre elas.</p>
+    </div>
+    <div class="grid-cad">
+      <div class="card">
+        <h2>📍 Etapas <span class="count-badge">${(etapas||[]).length}</span></h2>
+        <div class="cad-list">${(etapas||[]).map((e,i) => `
+          <div class="cad-item">
+            <span style="flex:1">${i+1}. ${esc(e.nome)}${e.ativa===false?' <span class="tag PENDENTE">inativa</span>':''}</span>
+            <button class="ghost et-subir" data-id="${e.id}" ${i===0?'disabled':''} title="Mover para cima">↑</button>
+            <button class="ghost et-descer" data-id="${e.id}" ${i===(etapas.length-1)?'disabled':''} title="Mover para baixo">↓</button>
+            <button class="ghost et-renomear" data-id="${e.id}" data-nome="${esc(e.nome)}" title="Renomear">✎</button>
+            <button class="ghost et-excluir" data-id="${e.id}" data-nome="${esc(e.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+          </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhuma etapa.</p>'}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input id="novaEtapaNome" placeholder="Nome da nova etapa..." style="flex:1">
+          <button id="btnAddEtapa">+ Adicionar</button>
+        </div>
+        <div class="msg" id="fluxoMsg" style="margin-top:6px"></div>
+      </div>
+      <div class="card">
+        <h2>➡️ Transições (botões de avançar/devolver)</h2>
+        <div class="cad-list">${(transicoes||[]).map(t => `
+          <div class="cad-item">
+            <span style="flex:1">${esc(nomeEtapa(t.etapa_origem_id))} → <b>${esc(t.rotulo)}</b> → ${esc(nomeEtapa(t.etapa_destino_id))}</span>
+            <button class="ghost tr-excluir" data-id="${t.id}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+          </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhuma transição configurada.</p>'}</div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <select id="novaTrOrigem" style="min-width:150px">${(etapas||[]).map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>
+          <input id="novaTrRotulo" placeholder="Texto do botão (ex.: Aprovar)" style="flex:1;min-width:140px">
+          <select id="novaTrDestino" style="min-width:150px"><option value="">— Conclui o processo —</option>${(etapas||[]).map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>
+          <button id="btnAddTr">+ Adicionar</button>
+        </div>
+      </div>
+    </div>`);
+  const msg = (t, erro) => { const el = document.getElementById('fluxoMsg'); if (el) { el.textContent = t; el.style.color = erro?'var(--err)':'var(--ok)'; } };
+  document.getElementById('fluxoAdminSel').onchange = (e) => { state.fluxoAdminTipo = e.target.value; renderFluxosAdmin(tabsHtml); };
+  document.getElementById('btnAddEtapa').onclick = async () => {
+    const nome = document.getElementById('novaEtapaNome').value.trim();
+    if (!nome) { msg('Digite o nome da etapa.', true); return; }
+    const maxOrdem = Math.max(0, ...(etapas||[]).map(e=>e.ordem));
+    const { error } = await sb.from('etapas_esteira').insert({ nome, ordem: maxOrdem+1, ativa: true, esteira_tipo: state.fluxoAdminTipo });
+    if (error) { msg(error.message, true); return; }
+    renderFluxosAdmin(tabsHtml);
+  };
+  document.querySelectorAll('.et-renomear').forEach(b => b.onclick = async () => {
+    const novo = prompt('Novo nome da etapa:', b.dataset.nome);
+    if (!novo || novo === b.dataset.nome) return;
+    const { error } = await sb.from('etapas_esteira').update({ nome: novo }).eq('id', b.dataset.id);
+    if (error) { alert(error.message); return; }
+    renderFluxosAdmin(tabsHtml);
+  });
+  document.querySelectorAll('.et-excluir').forEach(b => b.onclick = async () => {
+    if (!confirm(`Excluir a etapa "${b.dataset.nome}"? Só é possível se não houver processo nela e nenhuma transição apontando pra ela.`)) return;
+    const { error } = await sb.from('etapas_esteira').delete().eq('id', b.dataset.id);
+    if (error) { alert(error.message.includes('foreign key') || error.code === '23503' ? 'Não é possível excluir: existem processos ou transições usando essa etapa.' : error.message); return; }
+    renderFluxosAdmin(tabsHtml);
+  });
+  const mover = async (id, delta) => {
+    const idx = etapas.findIndex(e=>e.id===id);
+    const alvo = etapas[idx+delta];
+    if (!alvo) return;
+    await sb.from('etapas_esteira').update({ ordem: alvo.ordem }).eq('id', id);
+    await sb.from('etapas_esteira').update({ ordem: etapas[idx].ordem }).eq('id', alvo.id);
+    renderFluxosAdmin(tabsHtml);
+  };
+  document.querySelectorAll('.et-subir').forEach(b => b.onclick = () => mover(b.dataset.id, -1));
+  document.querySelectorAll('.et-descer').forEach(b => b.onclick = () => mover(b.dataset.id, 1));
+  document.getElementById('btnAddTr').onclick = async () => {
+    const rotulo = document.getElementById('novaTrRotulo').value.trim();
+    if (!rotulo) { msg('Digite o texto do botão.', true); return; }
+    const origem = document.getElementById('novaTrOrigem').value;
+    const destino = document.getElementById('novaTrDestino').value || null;
+    const maxOrdem = Math.max(0, ...(transicoes||[]).filter(t=>t.etapa_origem_id===origem).map(t=>t.ordem_botao));
+    const { error } = await sb.from('esteira_transicoes').insert({ etapa_origem_id: origem, etapa_destino_id: destino, rotulo, ordem_botao: maxOrdem+1 });
+    if (error) { msg(error.message, true); return; }
+    renderFluxosAdmin(tabsHtml);
+  };
+  document.querySelectorAll('.tr-excluir').forEach(b => b.onclick = async () => {
+    if (!confirm('Excluir essa transição?')) return;
+    await sb.from('esteira_transicoes').delete().eq('id', b.dataset.id);
+    renderFluxosAdmin(tabsHtml);
+  });
   document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
 
