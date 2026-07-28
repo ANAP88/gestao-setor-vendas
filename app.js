@@ -168,6 +168,7 @@ function shell(inner) {
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${l}</button>`).join('')}
       `).join('')}
       <div class="side-footer">
+        <button id="btnTrocarSenha" class="ghost">🔑 Trocar minha senha</button>
         <button id="btnApresentacao" class="ghost">${state.modoApresentacao ? '👁️ Modo Normal' : '📺 Modo Apresentação'}</button>
         <button id="btnExportAll" class="ghost">⬇ Exportar planilha</button>
         <button id="btnSair" class="ghost">Sair</button>
@@ -179,6 +180,34 @@ function shell(inner) {
   btnSair.onclick = async () => { await sb.auth.signOut(); renderLogin(); };
   btnExportAll.onclick = exportarPlanilhaCompleta;
   btnApresentacao.onclick = () => { state.modoApresentacao = !state.modoApresentacao; render(); };
+  btnTrocarSenha.onclick = () => abrirTrocarSenha();
+}
+
+function abrirTrocarSenha() {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:400px">
+    <h2>🔑 Trocar minha senha</h2>
+    <div><label>Nova senha</label><input id="tsSenha1" type="password" placeholder="Mínimo 6 caracteres"></div>
+    <div style="margin-top:10px"><label>Confirmar nova senha</label><input id="tsSenha2" type="password"></div>
+    <div class="msg" id="tsMsg" style="margin-top:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="tsCancel" class="ghost">Fechar</button>
+      <button id="tsSalvar">Salvar nova senha</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#tsCancel').onclick = () => div.remove();
+  div.querySelector('#tsSalvar').onclick = async () => {
+    const s1 = div.querySelector('#tsSenha1').value, s2 = div.querySelector('#tsSenha2').value;
+    const msg = div.querySelector('#tsMsg');
+    if (!s1 || s1.length < 6) { msg.textContent = 'A senha precisa ter pelo menos 6 caracteres.'; return; }
+    if (s1 !== s2) { msg.textContent = 'As senhas não coincidem.'; return; }
+    const { error } = await sb.auth.updateUser({ password: s1 });
+    if (error) { msg.textContent = error.message; return; }
+    msg.style.color = 'var(--ok)'; msg.textContent = '✅ Senha alterada com sucesso.';
+    setTimeout(() => div.remove(), 1400);
+  };
 }
 function nomeExib(nome, rank) {
   return state.modoApresentacao ? `Colaborador ${rank}` : nome;
@@ -2916,15 +2945,16 @@ async function renderCadastros() {
         msg.textContent = `Use o e-mail corporativo (${DOMINIO_CORPORATIVO}). E-mails pessoais não têm acesso ao sistema.`;
         return;
       }
-      btnCU.disabled = true; msg.textContent = 'Enviando convite...';
+      btnCU.disabled = true; msg.textContent = 'Criando acesso...';
       const { data, error } = await sb.functions.invoke('convidar-usuario', {
-        body: { email, nivel, redirectTo: window.location.origin },
+        body: { email, nivel },
       });
       btnCU.disabled = false;
       if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
-      msg.textContent = `Convite enviado para ${email}.`;
+      msg.textContent = `Acesso criado para ${email}.`;
       nuEmail.value = '';
       renderCadastros();
+      prompt(`Acesso criado para ${email}. Copie a senha temporária abaixo e envie por um canal seguro — ela pode trocar depois em "Minha conta → Trocar senha":`, data.senha);
     };
   } else if (state.adminTab === 'arquivos') {
     return renderArquivos(tabsHtml);
