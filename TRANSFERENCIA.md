@@ -5,11 +5,8 @@ Escrito para a equipe de TI/desenvolvimento que vai assumir o projeto.
 
 ## Autoria
 
-Este sistema foi concebido e desenvolvido por **Ana Patrícia da Silva**, responsável pela
-coordenação/supervisão da Secretaria de Vendas — incluindo o levantamento de todas as regras
-de negócio, a modelagem de dados e as decisões de produto refletidas no código. O histórico
-completo de autoria fica preservado no Git (`git log`, autor em todos os commits). A hospedagem
-em infraestrutura interna da empresa não altera a autoria do sistema.
+Ver [AUTHORS.md](AUTHORS.md). A hospedagem em infraestrutura interna da empresa não altera a
+autoria do sistema.
 
 ## Hospedagem em servidor Windows interno (IIS)
 
