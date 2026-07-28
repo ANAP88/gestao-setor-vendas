@@ -3,6 +3,34 @@
 Este documento descreve como transferir o sistema para a infraestrutura da organização.
 Escrito para a equipe de TI/desenvolvimento que vai assumir o projeto.
 
+## Autoria
+
+Este sistema foi concebido e desenvolvido por **Ana Patrícia da Silva**, responsável pela
+coordenação/supervisão da Secretaria de Vendas — incluindo o levantamento de todas as regras
+de negócio, a modelagem de dados e as decisões de produto refletidas no código. O histórico
+completo de autoria fica preservado no Git (`git log`, autor em todos os commits). A hospedagem
+em infraestrutura interna da empresa não altera a autoria do sistema.
+
+## Hospedagem em servidor Windows interno (IIS)
+
+Passo a passo para o TI publicar os arquivos num servidor Windows já existente na empresa:
+
+1. No **Gerenciador do Servidor**, adicionar a função **Web Server (IIS)** (se ainda não estiver instalada).
+2. Copiar os arquivos `index.html`, `app.js`, `config.js` e a pasta `fluxogramas/` para uma pasta
+   dentro de `C:\inetpub\wwwroot\` (ex.: `C:\inetpub\wwwroot\secretaria-vendas\`).
+3. No **Gerenciador do IIS**, criar um novo **Site** (ou aplicativo) apontando para essa pasta,
+   com `index.html` como documento padrão.
+4. **Importante:** garantir que o IIS sirva arquivos `.js` como `text/javascript` (não `application/octet-stream`).
+   Isso já vem configurado por padrão nas versões recentes do IIS; se der erro de "tipo MIME não permitido",
+   adicionar em **Tipos MIME** do site: extensão `.js` → `text/javascript`.
+5. Liberar HTTPS (certificado interno ou da empresa) — o sistema faz login e trafega dados sensíveis,
+   não deve rodar em HTTP puro.
+6. Não há build, `npm install` nem Node.js a instalar — é copiar e servir, só isso.
+
+Depois de publicado, o acesso aos dados continua passando pelo Supabase (nuvem), então o servidor
+interno só precisa de saída de internet liberada para `https://dbhqgxdsbploioujmqrs.supabase.co`.
+Se a empresa quiser trazer o banco também para dentro da rede interna, ver a seção "Banco de dados" abaixo.
+
 ## Visão geral da arquitetura
 
 | Camada | Tecnologia | Observação |
