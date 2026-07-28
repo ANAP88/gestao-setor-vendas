@@ -3437,12 +3437,21 @@ async function openProcessoEsteira(id, etapas) {
   if (btnSalvar) btnSalvar.onclick = async () => {
     const rec = coletar();
     if (!rec.titulo) { $('epMsg').textContent = 'Informe o título do processo.'; return; }
+    if (!id && !etapas.length) { $('epMsg').textContent = 'Não há nenhuma etapa ativa configurada para esta esteira — avise o administrador (Administração → Fluxos da Esteira).'; return; }
     rec.status = rec.analista_atual_id ? 'EM_ANDAMENTO' : 'AGUARDANDO';
-    let r;
-    if (id) r = await sb.from('esteira_processos').update(rec).eq('id', id);
-    else { rec.etapa_atual_id = etapas[0].id; rec.esteira_tipo = state.esteiraTipo; r = await sb.from('esteira_processos').insert(rec); }
-    if (r.error) { $('epMsg').textContent = r.error.message; return; }
-    div.remove(); renderEsteira();
+    btnSalvar.disabled = true;
+    const txtOriginal = btnSalvar.textContent; btnSalvar.textContent = 'Salvando...';
+    try {
+      let r;
+      if (id) r = await sb.from('esteira_processos').update(rec).eq('id', id);
+      else { rec.etapa_atual_id = etapas[0].id; rec.esteira_tipo = state.esteiraTipo; r = await sb.from('esteira_processos').insert(rec); }
+      if (r.error) { $('epMsg').textContent = r.error.message; btnSalvar.disabled = false; btnSalvar.textContent = txtOriginal; return; }
+      div.remove();
+      await renderEsteira();
+    } catch (e) {
+      $('epMsg').textContent = 'Ocorreu um erro inesperado ao salvar: ' + (e?.message || e);
+      btnSalvar.disabled = false; btnSalvar.textContent = txtOriginal;
+    }
   };
   if (!id) return;
 
