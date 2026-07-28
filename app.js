@@ -2633,6 +2633,7 @@ async function renderCadastros() {
             : `<span style="color:var(--muted)">${esc((L.analistas.find(a=>a.id===u.analista_id)||{}).nome || '—')}</span>`}</td>
           <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td>
           <td>${state.role === 'admin' && !isSelf ? `
+            <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px">🔑 Resetar senha</button>
             <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}" style="font-size:12px;padding:4px 9px">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
             <button class="ghost btn-excluir-user" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px;color:var(--err)">🗑 Excluir</button>`
             : ''}</td></tr>`;
@@ -2653,6 +2654,14 @@ async function renderCadastros() {
       const { error } = await sb.from('perfis').update({ ativo: !ativoAtual }).eq('user_id', b.dataset.uid);
       if (error) { alert(error.message); return; }
       renderCadastros();
+    });
+    document.querySelectorAll('.btn-resetar-senha').forEach(b => b.onclick = async () => {
+      if (!confirm(`Gerar uma nova senha temporária para ${b.dataset.email}? A senha atual dessa pessoa deixará de funcionar.`)) return;
+      b.disabled = true; const txtOriginal = b.textContent; b.textContent = 'Gerando...';
+      const { data, error } = await sb.functions.invoke('resetar-senha', { body: { userId: b.dataset.uid } });
+      b.disabled = false; b.textContent = txtOriginal;
+      if (error || data?.error) { alert(data?.error || error.message); return; }
+      prompt(`Senha temporária gerada para ${b.dataset.email}. Copie e envie para a pessoa por um canal seguro (ela não pode mais ser vista depois de fechar esta janela):`, data.senha);
     });
     document.querySelectorAll('.btn-excluir-user').forEach(b => b.onclick = async () => {
       if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
