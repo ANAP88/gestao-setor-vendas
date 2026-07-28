@@ -807,6 +807,66 @@ function abrirImportarPlanilha(aoTerminar) {
   };
 }
 
+// ---------- VALIDADOR DE DOCUMENTOS (CPF/CNPJ por dígito verificador + duplicidade) ----------
+function cpfValido(cpf) {
+  const s = String(cpf||'').replace(/\D/g,'');
+  if (s.length !== 11 || /^(\d)\1{10}$/.test(s)) return false;
+  const calc = (len) => {
+    let soma = 0;
+    for (let i = 0; i < len; i++) soma += Number(s[i]) * (len+1-i);
+    const r = (soma*10) % 11;
+    return r === 10 ? 0 : r;
+  };
+  return calc(9) === Number(s[9]) && calc(10) === Number(s[10]);
+}
+function cnpjValido(cnpj) {
+  const s = String(cnpj||'').replace(/\D/g,'');
+  if (s.length !== 14 || /^(\d)\1{13}$/.test(s)) return false;
+  const calc = (len) => {
+    const pesos = len === 12 ? [5,4,3,2,9,8,7,6,5,4,3,2] : [6,5,4,3,2,9,8,7,6,5,4,3,2];
+    let soma = 0;
+    for (let i = 0; i < len; i++) soma += Number(s[i]) * pesos[i];
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return calc(12) === Number(s[12]) && calc(13) === Number(s[13]);
+}
+// Aceita CPF (11 dígitos) ou CNPJ (14 dígitos) — o cadastro do sistema não distingue os dois campos.
+function documentoValido(v) {
+  const s = String(v||'').replace(/\D/g,'');
+  if (!s) return true; // campo vazio não é "inválido", é "não preenchido"
+  if (s.length === 11) return cpfValido(s);
+  if (s.length === 14) return cnpjValido(s);
+  return false;
+}
+// Liga a um <input> de CPF/CNPJ um aviso visual ao sair do campo, e (se demandaIdAtual for passado)
+// avisa se esse mesmo documento já está cadastrado em outro processo.
+function ligarValidadorDocumento(inputEl, avisoEl, demandaIdAtual) {
+  inputEl.addEventListener('blur', async () => {
+    const v = inputEl.value.trim();
+    if (!v) { avisoEl.textContent = ''; return; }
+    if (!documentoValido(v)) {
+      avisoEl.textContent = '⚠️ CPF/CNPJ com dígito verificador inválido — confira se foi digitado certo.';
+      avisoEl.style.color = 'var(--err)';
+      return;
+    }
+    const somenteDigitos = v.replace(/\D/g,'');
+    const { data: existentes } = await sb.from('demandas')
+      .select('id,numero,proponente1_nome,proponente1_cpf,proponente2_nome,proponente2_cpf')
+      .or(`proponente1_cpf.eq.${v},proponente2_cpf.eq.${v}`);
+    const outros = (existentes||[]).filter(d => d.id !== demandaIdAtual &&
+      [d.proponente1_cpf, d.proponente2_cpf].some(c => c && c.replace(/\D/g,'') === somenteDigitos));
+    if (outros.length) {
+      const nums = outros.map(d => d.numero ?? '?').join(', ');
+      avisoEl.textContent = `ℹ️ Esse documento já aparece no(s) processo(s) nº ${nums}.`;
+      avisoEl.style.color = 'var(--warn)';
+    } else {
+      avisoEl.textContent = '✅ Documento válido.';
+      avisoEl.style.color = 'var(--ok)';
+    }
+  });
+}
+
 // ---------- FORM DEMANDA + FUP + CHECKLIST ----------
 async function openForm(id) {
   let d = { status: 'RECEBIDO', recebido_em: new Date().toISOString() };
@@ -829,9 +889,9 @@ async function openForm(id) {
       <div><label>Recebido em</label><input id="mReceb" type="datetime-local" value="${dtLocal(d.recebido_em)}"></div>
       <div><label>Nº processo / canal</label><input id="mProc" value="${esc(d.numero_processo)}"></div>
       <div><label>Proponente 1</label><input id="mP1" value="${esc(d.proponente1_nome)}"></div>
-      <div><label>CPF 1</label><input id="mC1" value="${esc(d.proponente1_cpf)}"></div>
+      <div><label>CPF 1</label><input id="mC1" value="${esc(d.proponente1_cpf)}"><small id="mC1Aviso" style="display:block;font-size:11px;margin-top:3px"></small></div>
       <div><label>Proponente 2</label><input id="mP2" value="${esc(d.proponente2_nome)}"></div>
-      <div><label>CPF 2</label><input id="mC2" value="${esc(d.proponente2_cpf)}"></div>
+      <div><label>CPF 2</label><input id="mC2" value="${esc(d.proponente2_cpf)}"><small id="mC2Aviso" style="display:block;font-size:11px;margin-top:3px"></small></div>
       <div><label>Empreendedora</label><select id="mEmpdora"><option value=""></option>
         ${L.empreendedoras.map(e=>`<option value="${e.id}" ${d.empreendedora_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
       <div><label>Empreendimento</label><select id="mEmp"><option value=""></option>
@@ -878,6 +938,8 @@ async function openForm(id) {
     [...$('mEmp').options].forEach(o => o.hidden = !!o.value && !!ed && o.dataset.ed !== ed);
   };
   $('mCancel').onclick = () => div.remove();
+  ligarValidadorDocumento($('mC1'), $('mC1Aviso'), id || null);
+  ligarValidadorDocumento($('mC2'), $('mC2Aviso'), id || null);
   if (id) {
     div.querySelectorAll('#mChecks input[type=checkbox]').forEach(c => c.onchange = async () => {
       await sb.from('validacao_itens').update({ ok: c.checked }).eq('id', c.dataset.cid);
@@ -912,6 +974,8 @@ async function openForm(id) {
       obs: $('mObs').value || null,
     };
     if (!rec.recebido_em) { $('mMsg').textContent = 'Informe a data de recebimento.'; return; }
+    const docsInvalidos = [rec.proponente1_cpf, rec.proponente2_cpf].filter(v => v && !documentoValido(v));
+    if (docsInvalidos.length && !confirm(`O CPF/CNPJ "${docsInvalidos[0]}" tem dígito verificador inválido — pode ter sido digitado errado. Salvar mesmo assim?`)) return;
     const r = id ? await sb.from('demandas').update(rec).eq('id', id) : await sb.from('demandas').insert(rec);
     if (r.error) { $('mMsg').textContent = r.error.message; return; }
     div.remove(); render();
