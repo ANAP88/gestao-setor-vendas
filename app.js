@@ -2797,6 +2797,15 @@ function svgLine(points, w, h, color, dash) {
 }
 // ---------- ESTEIRA (fila de produção por etapa) ----------
 const PRIORIDADES = ['NORMAL', 'ALTA', 'URGENTE'];
+// Categorias de motivo quando um processo REGRIDE de etapa na esteira.
+// "pedido_vendedor" é a única que NÃO gera erro automático (mudança de escopo, não falha de análise).
+const MOTIVOS_REGRESSAO = [
+  ['pedido_vendedor', 'Pedido do vendedor (inclusão/alteração — não é erro)'],
+  ['erro_analise', 'Erro de análise'],
+  ['erro_documental', 'Documentação incompleta ou incorreta'],
+  ['erro_proposta', 'Erro na proposta/contrato'],
+  ['outro', 'Outro motivo'],
+];
 const ESTEIRA_TIPOS = [
   ['analise_credito', 'Análise de Crédito'],
   ['emissao_contrato', 'Emissão de Contrato'],
@@ -3151,11 +3160,58 @@ async function openProcessoEsteira(id, etapas) {
       }
       div.remove(); renderEsteira(); return;
     }
+    const origemIdx = etapas.findIndex(e => e.id === p.etapa_atual_id);
+    const destinoIdx = etapas.findIndex(e => e.id === destino);
+    const ehRegressao = destinoIdx > -1 && origemIdx > -1 && destinoIdx < origemIdx;
+
+    let motivoCategoria = null, motivoTexto = null;
+    if (ehRegressao) {
+      const opcoes = MOTIVOS_REGRESSAO.map(([k,l], i) => `${i+1}. ${l}`).join('\n');
+      const escolha = prompt(`Esse processo está regredindo para uma etapa anterior. Qual o motivo?\n\n${opcoes}\n\nDigite o número:`);
+      const idxMotivo = Number(escolha) - 1;
+      if (!MOTIVOS_REGRESSAO[idxMotivo]) { $('epMsg').textContent = 'Regressão cancelada: escolha um motivo válido para continuar.'; return; }
+      motivoCategoria = MOTIVOS_REGRESSAO[idxMotivo][0];
+      motivoTexto = prompt('Descreva rapidamente o que aconteceu (fica registrado no histórico e, se for erro, no apontamento):') || MOTIVOS_REGRESSAO[idxMotivo][1];
+    }
+
     const rec = { ...coletar(), etapa_atual_id: destino, analista_atual_id: proxAnalista,
       status: proxAnalista ? 'EM_ANDAMENTO' : 'AGUARDANDO' };
     const { error } = await sb.from('esteira_processos').update(rec).eq('id', id);
     if (error) { $('epMsg').textContent = error.message; return; }
-    await sb.from('esteira_historico').insert({ processo_id: id, evento: rotulo, autor: state.session?.user?.email });
+    await sb.from('esteira_historico').insert({
+      processo_id: id, evento: rotulo + (ehRegressao ? ` · Motivo: ${motivoTexto}` : ''),
+      autor: state.session?.user?.email, motivo_categoria: motivoCategoria,
+    });
+
+    if (ehRegressao) {
+      // Erro automático: vai para quem validou (avançou) a etapa que está sendo reaberta —
+      // exceto quando o motivo é "pedido do vendedor" (mudança de escopo, não é falha de análise).
+      if (motivoCategoria !== 'pedido_vendedor') {
+        const { data: ultimaValidacao } = await sb.from('esteira_validacoes')
+          .select('validado_por_analista_id, validado_por_email')
+          .eq('processo_id', id).eq('etapa_id', destino)
+          .order('criado_em', { ascending: false }).limit(1).maybeSingle();
+        if (ultimaValidacao?.validado_por_analista_id) {
+          await sb.from('apontamentos_erro').insert({
+            analista_id: ultimaValidacao.validado_por_analista_id,
+            origem: 'esteira_regressao', categoria: 'Retrabalho — regressão de etapa',
+            subcategoria: etapas[destinoIdx]?.nome || null,
+            descricao: `Processo "${p.titulo}" devolvido de "${etapas[origemIdx]?.nome}" para "${etapas[destinoIdx]?.nome}". Motivo: ${motivoTexto}`,
+            registrado_por: state.session?.user?.id, resolvido: false,
+          });
+        } else {
+          await sb.from('esteira_historico').insert({ processo_id: id,
+            evento: `⚠️ Não foi possível atribuir erro automático: não há registro de quem validou "${etapas[destinoIdx]?.nome}".`,
+            autor: 'sistema' });
+        }
+      }
+    } else {
+      // Avanço: registra quem validou a etapa que está sendo concluída agora.
+      await sb.from('esteira_validacoes').insert({
+        processo_id: id, etapa_id: p.etapa_atual_id,
+        validado_por_analista_id: state.meuAnalistaId, validado_por_email: state.session?.user?.email,
+      });
+    }
     div.remove(); renderEsteira();
   });
   const btnFinalizar = $('btnFinalizar');
