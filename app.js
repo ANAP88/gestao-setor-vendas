@@ -4964,11 +4964,26 @@ function renderCompletarCadastro(session, perfil) {
 // Incorporadoras/loteadoras acompanham seus empreendimentos e processos em tempo real,
 // sem acesso ao sistema interno da equipe. Escopo de dados garantido por RLS (perfis.empreendedora_id).
 let portalCanal = null;
-function portalShell(perfil, inner, marca, topo) {
+// Itens do menu lateral do portal. Só "inicio" tem tela própria hoje — os demais abrem um aviso "em breve"
+// até termos os dados correspondentes (boletos, repasse, relatórios etc.) modelados no banco.
+const PORTAL_NAV = [
+  ['inicio', '🏠', 'Meus Empreendimentos'],
+  ['processos', '📊', 'Processos'],
+  ['pendencias', '📄', 'Pendências'],
+  ['assinaturas', '✍️', 'Assinaturas'],
+  ['boletos', '💳', 'Boletos'],
+  ['repasse', '🏦', 'Repasse'],
+  ['relatorios', '📈', 'Relatórios'],
+  ['interacoes', '💬', 'Central de Interações'],
+  ['documentos', '📁', 'Documentos'],
+  ['conhecimento', '❓', 'Base de Conhecimento'],
+];
+function portalShell(perfil, inner, marca, topo, viewAtiva) {
   if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
   const logoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
   const nome = perfil.nome_completo || perfil.nome || perfil.email || '';
   const iniciais = nome ? nome.trim().charAt(0).toUpperCase() : '?';
+  const ativa = viewAtiva || 'inicio';
   app.innerHTML = `
   <div class="portal-shell"${marca?.cor_secundaria ? ` style="--accent2:${esc(marca.cor_secundaria)}"` : ''}>
     <aside class="portal-sidebar">
@@ -4976,7 +4991,7 @@ function portalShell(perfil, inner, marca, topo) {
         ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<span class="logo" style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">${ICONE_PREDIO}</span>`}
         <div class="txt"><b>NEO SERVICE</b><small>${marca ? esc(marca.nome) : 'Portal do Cliente'}</small></div>
       </div>
-      <button class="portal-nav-item active">🏠 Meus empreendimentos</button>
+      ${PORTAL_NAV.map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}">${ic} ${esc(label)}</button>`).join('')}
       <div class="portal-sidebar-foot">
         <div class="who">👤 ${esc(nome)}</div>
         <button id="pcSair">Sair</button>
@@ -4991,6 +5006,16 @@ function portalShell(perfil, inner, marca, topo) {
     </div>
   </div>`;
   document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); };
+  document.querySelectorAll('.portal-nav-item').forEach(b => b.onclick = () => {
+    if (b.dataset.nav === 'inicio') { renderPortalCliente(perfil); return; }
+    const label = PORTAL_NAV.find(([v]) => v === b.dataset.nav)?.[2] || '';
+    portalShell(perfil, `
+      <div class="card" style="text-align:center;padding:48px 20px">
+        <div style="font-size:34px;margin-bottom:10px">🚧</div>
+        <h2 style="margin-bottom:6px">${esc(label)}</h2>
+        <p style="color:var(--muted);font-size:13px">Essa área está em desenvolvimento e vai aparecer em breve por aqui.</p>
+      </div>`, marca, { titulo: label, subtitulo: 'Em breve.' }, b.dataset.nav);
+  });
 }
 // Assina mudanças em tempo real e re-renderiza a tela atual quando algo muda
 function portalRealtime(tabelas, aoMudar) {
@@ -5034,6 +5059,21 @@ async function renderPortalCliente(perfil) {
     ['Concluído', concluidos],
   ];
   const maxFunil = Math.max(1, ...funilPassos.map(([,n]) => n));
+  // Donut de status (dados reais: em andamento x concluído — não temos granularidade de assinatura ainda)
+  const totalProc = Math.max(1, (processos||[]).length);
+  const pctAndamento = Math.round(emAndamento / totalProc * 100);
+  const donutDeg = Math.round(emAndamento / totalProc * 360);
+  const procIds = (processos||[]).map(p => p.id);
+  const { data: historico } = await sb.from('esteira_historico').select('processo_id,evento,criado_em')
+    .in('processo_id', procIds.length ? procIds : ['00000000-0000-0000-0000-000000000000'])
+    .order('criado_em', { ascending: false }).limit(6);
+  const tituloPorProc = {}; (processos||[]).forEach(p => tituloPorProc[p.id] = p.titulo);
+  const tempoRelativo = (iso) => {
+    const diffMin = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (diffMin < 60) return diffMin + 'min atrás';
+    if (diffMin < 1440) return Math.round(diffMin/60) + 'h atrás';
+    return Math.round(diffMin/1440) + 'd atrás';
+  };
   portalShell(perfil, `
     <div class="pkpis">
       <div class="pkpi"><div class="pkpi-ic">🏗️</div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
@@ -5048,15 +5088,39 @@ async function renderPortalCliente(perfil) {
         <div class="l">${esc(nome)}</div>
         <div class="bar"><i style="width:${Math.round(n/maxFunil*100)}%"></i></div>
       </div>`).join('')}</div>
-    <h2 style="font-size:15px;margin-bottom:12px">Seus empreendimentos</h2>
-    <div class="table-scroll"><table class="users-table"><thead><tr><th>Empreendimento</th><th>Em andamento</th><th>Concluídos</th><th></th></tr></thead>
-    <tbody>${(emps||[]).map(e => `
-      <tr class="portal-card" data-id="${e.id}" style="cursor:pointer">
-        <td><b>${esc(e.nome)}</b></td>
-        <td>${procPorEmp[e.id]?.abertos || 0}</td>
-        <td>${procPorEmp[e.id]?.concluidos || 0}</td>
-        <td style="text-align:right;color:var(--muted2)">→</td>
-      </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</td></tr>'}</tbody></table></div>`,
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start">
+      <div>
+        <h2 style="font-size:15px;margin-bottom:12px">Seus empreendimentos</h2>
+        <div class="table-scroll"><table class="users-table"><thead><tr><th>Empreendimento</th><th>Em andamento</th><th>Concluídos</th><th></th></tr></thead>
+        <tbody>${(emps||[]).map(e => `
+          <tr class="portal-card" data-id="${e.id}" style="cursor:pointer">
+            <td><b>${esc(e.nome)}</b></td>
+            <td>${procPorEmp[e.id]?.abertos || 0}</td>
+            <td>${procPorEmp[e.id]?.concluidos || 0}</td>
+            <td style="text-align:right;color:var(--muted2)">→</td>
+          </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</td></tr>'}</tbody></table></div>
+      </div>
+      <div>
+        <h2 style="font-size:15px;margin-bottom:12px">Status dos Processos</h2>
+        <div class="card" style="display:flex;align-items:center;gap:18px;margin-bottom:16px">
+          <div style="width:84px;height:84px;border-radius:50%;flex-shrink:0;
+            background:conic-gradient(var(--accent) 0deg ${donutDeg}deg, var(--border) ${donutDeg}deg 360deg);
+            display:flex;align-items:center;justify-content:center">
+            <div style="width:54px;height:54px;border-radius:50%;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">${totalProc}</div>
+          </div>
+          <div style="font-size:12.5px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span>Em andamento (${pctAndamento}%)</div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:var(--border);display:inline-block"></span>Concluídos (${100-pctAndamento}%)</div>
+          </div>
+        </div>
+        <h2 style="font-size:15px;margin-bottom:12px">Atividades recentes</h2>
+        <div class="card">${(historico||[]).length ? historico.map(h => `
+          <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+            <div>${esc(h.evento)}</div>
+            <div style="color:var(--muted);font-size:11px;margin-top:2px">${esc(tituloPorProc[h.processo_id] || '')} · ${tempoRelativo(h.criado_em)}</div>
+          </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px">Nenhuma atividade recente.</p>'}</div>
+      </div>
+    </div>`,
     marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! 👋`,
              subtitulo: 'Aqui está o resumo do andamento dos seus processos.' });
   document.querySelectorAll('.portal-card').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
