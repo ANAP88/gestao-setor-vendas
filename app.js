@@ -3803,6 +3803,7 @@ async function openHistoricoEsteira() {
 
 const CHECKLIST_REPASSE_PADRAO = ['RG','CPF','Certidão de nascimento','Certidão de casamento','Holerites',
   'Extrato bancário','Declaração de IR','Comprovante de residência','Carteira de Trabalho','CNIS','FGTS','Procuração'];
+const BANCOS_REPASSE = ['Caixa Econômica Federal','Banco do Brasil','Itaú','Bradesco','Santander','Inter','Banrisul','Sicredi','Sicoob','Outro'];
 async function openProcessoEsteira(id, etapas) {
   let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [];
   if (id) {
