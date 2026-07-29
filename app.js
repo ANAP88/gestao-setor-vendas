@@ -3583,16 +3583,23 @@ const ESTEIRA_TIPOS = [
 ];
 const BLOCOS_ESTEIRA = {
   analise_credito: [['analise', '📄 Análise'], ['reanalise', '🔁 Reanálise']],
-  emissao_contrato: [['geracao', '📄 Geração de Contrato'], ['reemissao', '🔁 Reemissão de Contrato']],
+  emissao_contrato: [['geracao', '📄 Contrato novo'], ['reemissao', '🔁 Reemissão de contrato']],
 };
 async function renderEsteira() {
   if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
   if (!state.esteiraBloco) state.esteiraBloco = '';
   const [{ data: etapas }, { data: processos }, { data: naoLidas }] = await Promise.all([
     sb.from('etapas_esteira').select('*').eq('ativa', true).eq('esteira_tipo', state.esteiraTipo).order('ordem'),
-    sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
+    sb.from('esteira_processos').select('*').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
     sb.from('processo_mensagens').select('processo_id').eq('autor_tipo', 'cliente').eq('lida', false),
   ]);
+  // nome do analista/cliente vem das listas já carregadas (não via join, que não funciona no ambiente de teste)
+  const nomeAnalista = {}; (state.lookups?.analistas || []).forEach(a => nomeAnalista[a.id] = a.nome);
+  const nomeCliente = {}; (state.clientesLookup || []).forEach(c => nomeCliente[c.id] = c.nome);
+  (processos || []).forEach(p => {
+    p.analistas = p.analista_atual_id ? { nome: nomeAnalista[p.analista_atual_id] || '—' } : null;
+    p.clientes = p.cliente_id ? { nome: nomeCliente[p.cliente_id] || '' } : null;
+  });
   const processosComAviso = new Set((naoLidas||[]).map(m => m.processo_id));
   if (!state.esteiraFiltro) state.esteiraFiltro = { busca:'', analista:'', prioridade:'' };
   const ef = state.esteiraFiltro;
@@ -3804,11 +3811,19 @@ async function openHistoricoEsteira() {
 const CHECKLIST_REPASSE_PADRAO = ['RG','CPF','Certidão de nascimento','Certidão de casamento','Holerites',
   'Extrato bancário','Declaração de IR','Comprovante de residência','Carteira de Trabalho','CNIS','FGTS','Procuração'];
 const BANCOS_REPASSE = ['Caixa Econômica Federal','Banco do Brasil','Itaú','Bradesco','Santander','Inter','Banrisul','Sicredi','Sicoob','Outro'];
+// Parecer da Análise de Crédito — define para onde o processo vai (automação no banco)
+const PARECERES_CREDITO = [
+  ['aprovado', 'Aprovado'],
+  ['aprovado_contrato', 'Aprovado e enviar para emissão de contrato'],
+  ['aprovado_pendencia', 'Aprovado com pendência'],
+  ['aprovado_pendencia_contrato', 'Aprovado com pendência e enviar para emissão de contrato'],
+  ['reprovado', 'Reprovado'],
+];
 async function openProcessoEsteira(id, etapas) {
   let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [];
   if (id) {
     const [pp, hh, aa, mm] = await Promise.all([
-      sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('id', id).single(),
+      sb.from('esteira_processos').select('*').eq('id', id).single(),
       sb.from('esteira_historico').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
       sb.from('esteira_anexos').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
       sb.from('processo_mensagens').select('*').eq('processo_id', id).order('criado_em'),
@@ -3904,7 +3919,17 @@ async function openProcessoEsteira(id, etapas) {
         <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}${h.autor ? ` <span style="color:var(--muted2);font-size:11px">· ${esc(h.autor)}</span>` : ''}</div></div>`).join('')}</div>
     ` : ''}
     <div class="msg" id="epMsg"></div>
-    ${id && !ro ? `
+    ${id && !ro && p?.esteira_tipo === 'analise_credito' ? `
+    <div class="transfer-box">
+      <b style="font-size:13px">📋 Parecer da análise de crédito</b>
+      <p style="color:var(--muted);font-size:12px;margin:4px 0 8px">Escolha o resultado da sua análise. O processo é encaminhado automaticamente conforme o parecer.</p>
+      <select id="epParecer" style="width:100%">
+        <option value="">— escolher o parecer —</option>
+        ${PARECERES_CREDITO.map(([k,l]) => `<option value="${k}" ${p.parecer_credito===k?'selected':''}>${l}</option>`).join('')}
+      </select>
+      <div style="margin-top:10px"><button id="epRegistrarParecer">Registrar parecer</button></div>
+    </div>` : ''}
+    ${id && !ro && p?.esteira_tipo !== 'analise_credito' ? `
     <div class="transfer-box">
       <b style="font-size:13px">➡️ Concluir minha etapa e transferir</b>
       <div style="margin-top:8px"><label>Enviar para (responsável pela próxima etapa)</label><select id="epProxAnalista">
@@ -3952,6 +3977,20 @@ async function openProcessoEsteira(id, etapas) {
     ...( $('epBloco') ? { bloco: $('epBloco').value } : {} ),
     ...( $('epFaturado') ? { sera_faturado: $('epFaturado').value === '' ? null : $('epFaturado').value === 'sim' } : {} ),
   });
+
+  const btnParecer = $('epRegistrarParecer');
+  if (btnParecer) btnParecer.onclick = async () => {
+    const parecer = $('epParecer').value;
+    if (!parecer) { $('epMsg').textContent = 'Escolha o parecer antes de registrar.'; return; }
+    const rotulo = (PARECERES_CREDITO.find(x => x[0] === parecer) || [])[1] || parecer;
+    if (!confirm(`Registrar o parecer "${rotulo}"?`)) return;
+    btnParecer.disabled = true; $('epMsg').textContent = 'Registrando...';
+    // o restante (mover de bloco, encerrar, criar o card de contrato) é feito automaticamente pelo banco
+    const { error } = await sb.from('esteira_processos').update({ parecer_credito: parecer }).eq('id', id);
+    if (error) { $('epMsg').textContent = error.message; btnParecer.disabled = false; return; }
+    div.remove();
+    renderEsteira();
+  };
 
   const btnSalvar = $('epSalvar');
   if (btnSalvar) btnSalvar.onclick = async () => {
