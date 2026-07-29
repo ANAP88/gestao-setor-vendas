@@ -3006,7 +3006,7 @@ async function renderCadastros() {
           <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
         </div>` : ''}
         <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">💡 O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum.</p>
-        <table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Colaborador vinculado</th><th>Desde</th><th>Ações</th></tr></thead>
+        <div class="table-scroll"><table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Colaborador vinculado</th><th>Desde</th><th>Ações</th></tr></thead>
         <tbody>${(usuarios||[]).map(u => {
           const isSelf = u.user_id === state.session.user.id;
           const info = ROLE_INFO[u.role] || ROLE_INFO.analista;
@@ -3029,13 +3029,14 @@ async function renderCadastros() {
                 ? `<select class="selAnalistaVinc" data-uid="${u.user_id}"><option value="">— sem vínculo —</option>
                     ${L.analistas.map(a=>`<option value="${a.id}" ${u.analista_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select>`
                 : `<span style="color:var(--muted)">${esc((L.analistas.find(a=>a.id===u.analista_id)||{}).nome || '—')}</span>`)}</td>
-          <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td>
-          <td>${state.role === 'admin' && !isSelf ? `
-            <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="${esc(u.role)}" style="font-size:12px;padding:4px 9px">🔑 Resetar senha</button>
-            <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}" style="font-size:12px;padding:4px 9px">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
-            <button class="ghost btn-excluir-user" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px;color:var(--err)">🗑 Excluir</button>`
-            : ''}</td></tr>`;
-        }).join('')}</tbody></table>
+          <td style="color:var(--muted);white-space:nowrap">${fmtDt(u.criado_em)}</td>
+          <td style="min-width:230px">${state.role === 'admin' && !isSelf ? `
+            <div class="row-actions">
+              <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="${esc(u.role)}">🔑 Resetar senha</button>
+              <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
+              <button class="ghost btn-excluir-user danger" data-uid="${u.user_id}" data-email="${esc(u.email)}">🗑 Excluir</button>
+            </div>` : ''}</td></tr>`;
+        }).join('')}</tbody></table></div>
       </div>`);
     const btnAbrir = document.getElementById('btnAbrirConvite');
     if (btnAbrir) btnAbrir.onclick = () => conviteBox.classList.toggle('hidden');
@@ -4558,21 +4559,17 @@ async function renderPortalCliente(perfil) {
   const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
   const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
   portalShell(perfil, `
-    <div class="kpis" style="margin-bottom:18px">
+    <div class="kpis" style="margin-bottom:20px">
       <div class="kpi"><div class="v">${(emps||[]).length}</div><div class="l">🏗️ Empreendimentos ativos</div></div>
       <div class="kpi"><div class="v">${emAndamento}</div><div class="l">⏳ Processos em andamento</div></div>
       <div class="kpi"><div class="v">${concluidos}</div><div class="l">✅ Processos concluídos</div></div>
       <div class="kpi"><div class="v">${(demandasAtivas||[]).length}</div><div class="l">📋 Total de processos na produção</div></div>
     </div>
-    <div class="card">
-      <h2>🏗️ Seus empreendimentos</h2>
-      <div class="grid-cad">${(emps||[]).map(e => `
-        <div class="cad-item" style="cursor:pointer" data-id="${e.id}">
-          <span style="flex:1;font-size:14px;font-weight:600">${esc(e.nome)}</span>
-          <span style="color:var(--muted)">→</span>
-        </div>`).join('') || '<p style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</p>'}</div>
-    </div>`);
-  document.querySelectorAll('.cad-item').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
+    <h2 style="font-size:15px;margin-bottom:12px">🏗️ Seus empreendimentos</h2>
+    <div class="portal-grid">${(emps||[]).map(e => `
+      <div class="portal-card" data-id="${e.id}"><b>${esc(e.nome)}</b><span class="arrow">→</span></div>`).join('')
+      || '<p style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</p>'}</div>`);
+  document.querySelectorAll('.portal-card').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalCliente(perfil));
 }
 
@@ -4582,17 +4579,16 @@ async function renderPortalEmpreendimento(perfil, empId) {
     sb.from('esteira_processos').select('*').eq('empreendimento_id', empId).order('criado_em', { ascending: false }),
   ]);
   portalShell(perfil, `
-    <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← Todos os empreendimentos</button>
-    <div class="card">
-      <h2>🏗️ ${esc(emp?.nome)}</h2>
-      <table><thead><tr><th>Processo</th><th>Status</th><th>Unidade</th><th></th></tr></thead>
-      <tbody>${(processos||[]).map(p => `<tr>
-        <td>${esc(p.titulo)}</td>
-        <td><span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${esc(p.status)}</span></td>
-        <td>${esc(p.unidade)||'—'}</td>
-        <td><button class="ghost pcAbrir" data-id="${p.id}">Acompanhar</button></td>
-      </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</td></tr>'}</tbody></table>
-    </div>`);
+    <button id="pcVoltar" class="ghost" style="margin-bottom:16px">← Todos os empreendimentos</button>
+    <h2 style="font-size:16px;margin-bottom:14px">🏗️ ${esc(emp?.nome)}</h2>
+    ${(processos||[]).map(p => `
+      <div class="portal-proc-card">
+        <div><b>${esc(p.titulo)}</b><div class="portal-proc-meta">${p.unidade?`Unidade ${esc(p.unidade)}`:'Sem unidade informada'}</div></div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${esc(p.status)}</span>
+          <button class="pcAbrir" data-id="${p.id}">Acompanhar →</button>
+        </div>
+      </div>`).join('') || '<p style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</p>'}`);
   document.getElementById('pcVoltar').onclick = () => renderPortalCliente(perfil);
   document.querySelectorAll('.pcAbrir').forEach(b => b.onclick = () => renderPortalProcesso(perfil, b.dataset.id, empId));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalEmpreendimento(perfil, empId));
@@ -4633,18 +4629,22 @@ async function renderPortalProcesso(perfil, processoId, empId) {
         ${p.analistas?.nome ? ` · Responsável atual: ${esc(p.analistas.nome)}` : ''}</p>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 style="font-size:14px">Andamento</h2>
-      <div class="table-scroll"><table style="min-width:640px">
-        <thead><tr><th>Etapa</th><th>Status</th><th>Concluído em</th><th>Responsável</th><th>Tempo na etapa</th></tr></thead>
-        <tbody>${linhasEtapa.map(({e,concluida,atual,v,tempoTxt}) => `<tr>
-          <td style="color:${concluida||atual?'var(--text)':'var(--muted)'};font-weight:${atual?'700':'400'}">${concluida?'✅':atual?'🟡':'⚪'} ${esc(e.nome)}</td>
-          <td>${concluida?'<span class="tag CONCLUIDO">Concluída</span>':atual?'<span class="tag PENDENTE">Em andamento</span>':'<span style="color:var(--muted2)">Aguardando</span>'}</td>
-          <td style="white-space:nowrap">${v?fmtDt(v.criado_em):'—'}</td>
-          <td>${v?esc(v.validado_por_email||'—'):'—'}</td>
-          <td style="white-space:nowrap">${tempoTxt}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>
-      <p style="color:var(--muted2);font-size:11px;margin-top:8px">SLA por etapa ainda não configurado — assim que houver um prazo padrão definido para cada etapa, aparece aqui também.</p>
+      <h2 style="font-size:14px;margin-bottom:16px">Andamento</h2>
+      <div class="stepper">${linhasEtapa.map(({e,concluida,atual,v,tempoTxt}) => `
+        <div class="step-row ${concluida?'done':atual?'current':'pending'}">
+          <div class="step-line"></div>
+          <div class="step-dot">${concluida?'✓':atual?'●':''}</div>
+          <div class="step-body">
+            <b>${esc(e.nome)}</b>
+            <div class="step-meta">
+              ${concluida?`<span>Concluída em ${fmtDt(v?.criado_em)}</span>`:atual?`<span>Em andamento</span>`:`<span>Aguardando</span>`}
+              ${v?.validado_por_email ? `<span>Responsável: ${esc(v.validado_por_email)}</span>` : ''}
+              <span>Tempo: ${tempoTxt}</span>
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>
+      <p style="color:var(--muted2);font-size:11px;margin-top:14px">SLA por etapa ainda não configurado — assim que houver um prazo padrão definido para cada etapa, aparece aqui também.</p>
     </div>
     <div class="card">
       <h2 style="font-size:14px">🕓 Histórico completo</h2>
