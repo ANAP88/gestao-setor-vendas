@@ -32,6 +32,7 @@ const ICONES = {
   fechamento: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1.1-3 2.5 1.3 2 3 2.5 3 1.1 3 2.5-1.3 2.5-3 2.5-3-1.1-3-2.5"/>'),
   escala: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
   cadastros: svgIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
+  bibliotecaRepasse: svgIcon('<path d="M4 5.5A2 2 0 0 1 6 3.5h6v17H6a2 2 0 0 0-2 2Z"/><path d="M20 5.5A2 2 0 0 0 18 3.5h-6v17h6a2 2 0 0 1 2 2Z"/>'),
   arquivos: svgIcon('<path d="M4 4h6l2 2h8v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 12h8M8 16h5"/>'),
   fluxosEsteira: svgIcon('<path d="M12 2 3 6.5 12 11l9-4.5Z"/><path d="M3 12 12 16.5 21 12"/><path d="M3 17 12 21.5 21 17"/>'),
 };
@@ -131,6 +132,7 @@ const PILARES = [
     ['chamados', '📨', 'Chamados entre Áreas'],
     ['operacoes', '🗂️', 'Operações'],
     ['repasse', '🏦', 'Repasse'],
+    ['bibliotecaRepasse', '📚', 'Biblioteca do Repasse'],
     ['fluxogramas', '🗺️', 'Fluxograma dos Empreendimentos'],
     ['followup', '💬', 'Follow-up'],
   ]],
@@ -226,7 +228,8 @@ function render() {
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      cadastros: renderCadastros,
-     arquivos: () => renderArquivos(''), fluxosEsteira: () => renderFluxosAdmin('') })[state.view]();
+     arquivos: () => renderArquivos(''), fluxosEsteira: () => renderFluxosAdmin(''),
+     bibliotecaRepasse: renderBibliotecaRepasse })[state.view]();
 }
 const FUNDO_NEOSERVICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400">
   <defs>
@@ -4102,6 +4105,219 @@ async function renderRepasse() {
       div.remove(); renderRepasse();
     };
   }
+}
+
+// ---------- BIBLIOTECA DO REPASSE (formulários por banco, conhecimento, cartórios, prefeituras) ----------
+const CATEGORIAS_CONHECIMENTO = ['FGTS','HMP','HIS','MCMV','Cartórios','Prefeituras','Receita Federal','Legislação','Procedimentos internos'];
+async function renderBibliotecaRepasse() {
+  if (!state.bibliotecaTab) state.bibliotecaTab = 'formularios';
+  const TABS = [['formularios','📁 Formulários por banco'], ['conhecimento','📚 Base de conhecimento'],
+    ['cartorios','🏛️ Cartórios'], ['prefeituras','🏢 Prefeituras & Receita Federal']];
+  const tabsHtml = `<div class="admin-tabs">${TABS.map(([k,l]) =>
+    `<button class="admin-tab ${state.bibliotecaTab===k?'active':''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
+  const ro = state.role === 'leitura';
+
+  if (state.bibliotecaTab === 'formularios') {
+    if (!state.bibliotecaBanco) state.bibliotecaBanco = BANCOS_REPASSE[0];
+    const { data: arquivos } = await sb.storage.from('repasse-formularios').list(state.bibliotecaBanco, { sortBy: { column: 'created_at', order: 'desc' } });
+    const validos = (arquivos||[]).filter(a=>a.name!=='.emptyFolderPlaceholder');
+    // agrupa por "nome base" (sem o prefixo de timestamp) pra achar a versao vigente
+    const porBase = {};
+    validos.forEach(a => {
+      const base = a.name.includes('__') ? a.name.split('__').slice(1).join('__') : a.name;
+      (porBase[base] = porBase[base] || []).push(a);
+    });
+    shell(`
+      ${tabsHtml}
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <h2 style="margin:0">📁 Formulários por banco</h2>
+          <select id="bibBanco">${BANCOS_REPASSE.map(b=>`<option ${state.bibliotecaBanco===b?'selected':''}>${b}</option>`).join('')}</select>
+          ${!ro ? `<input type="file" id="bibUpload" style="max-width:220px">` : ''}
+        </div>
+        <div class="msg" id="bibMsg"></div>
+        ${Object.keys(porBase).length ? Object.entries(porBase).map(([base, versoes]) => `
+          <div class="cad-item" style="flex-wrap:wrap">
+            <span style="flex:1">${iconeArquivo(base)} <b>${esc(base)}</b> <span class="tag CONCLUIDO">vigente</span>
+              <span style="color:var(--muted2);font-size:11px"> · atualizado ${fmtDt(versoes[0].created_at)}</span></span>
+            <button class="ghost bibBaixar" data-path="${state.bibliotecaBanco}/${esc(versoes[0].name)}">⬇ Baixar</button>
+            ${versoes.length>1 ? `<span style="color:var(--muted2);font-size:11px">+${versoes.length-1} versão(ões) anterior(es)</span>` : ''}
+          </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum formulário enviado para este banco ainda.</p>'}
+      </div>`);
+    document.getElementById('bibBanco').onchange = (e) => { state.bibliotecaBanco = e.target.value; renderBibliotecaRepasse(); };
+    document.querySelectorAll('.bibBaixar').forEach(b => b.onclick = async () => {
+      const { data } = await sb.storage.from('repasse-formularios').createSignedUrl(b.dataset.path, 60);
+      if (data) window.open(data.signedUrl, '_blank');
+    });
+    const up = document.getElementById('bibUpload');
+    if (up) up.onchange = async () => {
+      const f = up.files[0]; if (!f) return;
+      const msg = document.getElementById('bibMsg'); msg.textContent = 'Enviando...';
+      const path = `${state.bibliotecaBanco}/${Date.now()}__${f.name}`;
+      const { error } = await sb.storage.from('repasse-formularios').upload(path, f);
+      if (error) { msg.textContent = error.message; return; }
+      renderBibliotecaRepasse();
+    };
+
+  } else if (state.bibliotecaTab === 'conhecimento') {
+    if (!state.conhecimentoCat) state.conhecimentoCat = 'Todas';
+    const { data: artigos } = await sb.from('conhecimento_artigos').select('*').order('criado_em', { ascending: false });
+    const filtrados = state.conhecimentoCat === 'Todas' ? (artigos||[]) : (artigos||[]).filter(a=>a.categoria===state.conhecimentoCat);
+    shell(`
+      ${tabsHtml}
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <h2 style="margin:0">📚 Base de conhecimento</h2>
+          <select id="conhCatFiltro"><option ${state.conhecimentoCat==='Todas'?'selected':''}>Todas</option>
+            ${CATEGORIAS_CONHECIMENTO.map(c=>`<option ${state.conhecimentoCat===c?'selected':''}>${c}</option>`).join('')}</select>
+        </div>
+        ${!ro ? `<div class="grid2" style="margin-bottom:14px">
+          <div><label>Categoria</label><select id="conhCat">${CATEGORIAS_CONHECIMENTO.map(c=>`<option>${c}</option>`).join('')}</select></div>
+          <div><label>Tipo</label><select id="conhTipo"><option value="artigo">Artigo</option><option value="pdf">PDF</option><option value="link">Link</option><option value="modelo">Modelo</option><option value="video">Vídeo</option></select></div>
+          <div style="grid-column:1/-1"><label>Título</label><input id="conhTitulo"></div>
+          <div style="grid-column:1/-1"><label>Conteúdo / observação</label><textarea id="conhConteudo" rows="2"></textarea></div>
+          <div style="grid-column:1/-1"><label>Link (se houver)</label><input id="conhUrl" placeholder="https://..."></div>
+          <div style="grid-column:1/-1"><button id="btnAddConh" class="ghost">+ Adicionar</button></div>
+        </div>
+        <div class="msg" id="conhMsg" style="margin-bottom:10px"></div>` : ''}
+        ${filtrados.length ? filtrados.map(a => `
+          <div class="cad-item" style="align-items:flex-start;flex-wrap:wrap">
+            <span style="flex:1"><span class="tag RECEBIDO">${esc(a.categoria)}</span> <b>${esc(a.titulo)}</b>
+              ${a.conteudo?`<br><span style="color:var(--muted);font-size:12.5px">${esc(a.conteudo)}</span>`:''}
+              ${a.url?`<br><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.url)}</a>`:''}</span>
+            ${!ro ? `<button class="ghost conhDel" data-id="${a.id}">✕</button>` : ''}
+          </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nada cadastrado nesta categoria ainda.</p>'}
+      </div>`);
+    document.getElementById('conhCatFiltro').onchange = (e) => { state.conhecimentoCat = e.target.value; renderBibliotecaRepasse(); };
+    const btnAddConh = document.getElementById('btnAddConh');
+    if (btnAddConh) btnAddConh.onclick = async () => {
+      const titulo = document.getElementById('conhTitulo').value.trim();
+      const msg = document.getElementById('conhMsg');
+      if (!titulo) { msg.textContent = 'Informe o título.'; return; }
+      const { error } = await sb.from('conhecimento_artigos').insert({
+        categoria: document.getElementById('conhCat').value, tipo: document.getElementById('conhTipo').value,
+        titulo, conteudo: document.getElementById('conhConteudo').value || null, url: document.getElementById('conhUrl').value || null,
+        criado_por: state.session?.user?.email,
+      });
+      if (error) { msg.textContent = error.message; return; }
+      renderBibliotecaRepasse();
+    };
+    document.querySelectorAll('.conhDel').forEach(b => b.onclick = async () => {
+      await sb.from('conhecimento_artigos').delete().eq('id', b.dataset.id);
+      renderBibliotecaRepasse();
+    });
+
+  } else if (state.bibliotecaTab === 'cartorios') {
+    const { data: cartorios } = await sb.from('cartorios_registro').select('*').order('nome');
+    shell(`
+      ${tabsHtml}
+      <div class="card">
+        <h2>🏛️ Cartórios de Registro de Imóveis <span class="count-badge">${(cartorios||[]).length}</span></h2>
+        ${!ro ? `<div class="grid2" style="margin:10px 0">
+          <div><label>Nome</label><input id="cartNome"></div>
+          <div><label>Cidade</label><input id="cartCidade"></div>
+          <div><label>Estado</label><input id="cartEstado" placeholder="SP"></div>
+          <div><label>Telefone</label><input id="cartTel"></div>
+          <div><label>Site</label><input id="cartSite"></div>
+          <div><label>E-mail</label><input id="cartEmail"></div>
+          <div><label>Tempo médio</label><input id="cartTempo" placeholder="Ex.: 15 dias úteis"></div>
+          <div style="display:flex;align-items:end"><label class="chk-inline" style="text-transform:none;font-weight:500;color:var(--text)"><input type="checkbox" id="cartDigital"> Aceita documentos digitais</label></div>
+          <div style="grid-column:1/-1"><label>Observações / requisitos / forma de protocolo</label><textarea id="cartObs" rows="2"></textarea></div>
+          <div style="grid-column:1/-1"><button id="btnAddCart" class="ghost">+ Cadastrar cartório</button></div>
+        </div>
+        <div class="msg" id="cartMsg" style="margin-bottom:10px"></div>` : ''}
+        ${(cartorios||[]).length ? cartorios.map(c => `
+          <div class="cad-item" style="align-items:flex-start;flex-wrap:wrap">
+            <span style="flex:1"><b>${esc(c.nome)}</b> ${c.cidade?`— ${esc(c.cidade)}/${esc(c.estado)}`:''}${c.aceita_digital?' <span class="tag CONCLUIDO">aceita digital</span>':''}
+              ${c.telefone?`<br><span style="color:var(--muted);font-size:12px">📞 ${esc(c.telefone)}</span>`:''}
+              ${c.tempo_medio?`<br><span style="color:var(--muted);font-size:12px">⏱ ${esc(c.tempo_medio)}</span>`:''}
+              ${c.observacoes?`<br><span style="color:var(--muted);font-size:12px">${esc(c.observacoes)}</span>`:''}</span>
+            ${!ro ? `<button class="ghost cartDel" data-id="${c.id}">✕</button>` : ''}
+          </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum cartório cadastrado ainda — adicione os que sua equipe mais usa.</p>'}
+      </div>`);
+    const btnAddCart = document.getElementById('btnAddCart');
+    if (btnAddCart) btnAddCart.onclick = async () => {
+      const nome = document.getElementById('cartNome').value.trim();
+      const msg = document.getElementById('cartMsg');
+      if (!nome) { msg.textContent = 'Informe o nome do cartório.'; return; }
+      const { error } = await sb.from('cartorios_registro').insert({
+        nome, cidade: document.getElementById('cartCidade').value || null, estado: document.getElementById('cartEstado').value || null,
+        telefone: document.getElementById('cartTel').value || null, site: document.getElementById('cartSite').value || null,
+        email: document.getElementById('cartEmail').value || null, tempo_medio: document.getElementById('cartTempo').value || null,
+        aceita_digital: document.getElementById('cartDigital').checked, observacoes: document.getElementById('cartObs').value || null,
+      });
+      if (error) { msg.textContent = error.message; return; }
+      renderBibliotecaRepasse();
+    };
+    document.querySelectorAll('.cartDel').forEach(b => b.onclick = async () => {
+      await sb.from('cartorios_registro').delete().eq('id', b.dataset.id);
+      renderBibliotecaRepasse();
+    });
+
+  } else {
+    const [{ data: prefeituras }, { data: atalhos }] = await Promise.all([
+      sb.from('prefeituras_repasse').select('*').order('municipio'),
+      sb.from('atalhos_uteis').select('*').order('categoria'),
+    ]);
+    shell(`
+      ${tabsHtml}
+      <div class="grid-cad">
+        <div class="card">
+          <h2>🏢 Prefeituras <span class="count-badge">${(prefeituras||[]).length}</span></h2>
+          ${!ro ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
+            <input id="prefMunicipio" placeholder="Município" style="flex:1;min-width:120px">
+            <input id="prefEstado" placeholder="UF" style="width:60px">
+            <input id="prefItbi" placeholder="Link emissão ITBI" style="flex:1;min-width:150px">
+            <button id="btnAddPref" class="ghost">+ Adicionar</button>
+          </div>
+          <div class="msg" id="prefMsg"></div>` : ''}
+          ${(prefeituras||[]).length ? prefeituras.map(p => `
+            <div class="cad-item"><span style="flex:1"><b>${esc(p.municipio)}</b>${p.estado?'/'+esc(p.estado):''}
+              ${p.link_itbi?` · <a href="${esc(p.link_itbi)}" target="_blank" rel="noopener">ITBI</a>`:''}</span>
+              ${!ro?`<button class="ghost prefDel" data-id="${p.id}">✕</button>`:''}</div>`).join('')
+            : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhuma prefeitura cadastrada ainda.</p>'}
+        </div>
+        <div class="card">
+          <h2>🏦 Receita Federal & Atalhos <span class="count-badge">${(atalhos||[]).length}</span></h2>
+          ${!ro ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
+            <input id="atNome" placeholder="Nome do atalho" style="flex:1;min-width:120px">
+            <input id="atUrl" placeholder="https://..." style="flex:1;min-width:150px">
+            <button id="btnAddAt" class="ghost">+ Adicionar</button>
+          </div>` : ''}
+          ${(atalhos||[]).length ? atalhos.map(a => `
+            <div class="cad-item"><span style="flex:1"><span class="tag RECEBIDO">${esc(a.categoria)}</span> <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a></span>
+              ${!ro?`<button class="ghost atDel" data-id="${a.id}">✕</button>`:''}</div>`).join('')
+            : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum atalho cadastrado.</p>'}
+        </div>
+      </div>`);
+    const btnAddPref = document.getElementById('btnAddPref');
+    if (btnAddPref) btnAddPref.onclick = async () => {
+      const municipio = document.getElementById('prefMunicipio').value.trim();
+      const msg = document.getElementById('prefMsg');
+      if (!municipio) { msg.textContent = 'Informe o município.'; return; }
+      const { error } = await sb.from('prefeituras_repasse').insert({
+        municipio, estado: document.getElementById('prefEstado').value || null, link_itbi: document.getElementById('prefItbi').value || null,
+      });
+      if (error) { msg.textContent = error.message; return; }
+      renderBibliotecaRepasse();
+    };
+    document.querySelectorAll('.prefDel').forEach(b => b.onclick = async () => {
+      await sb.from('prefeituras_repasse').delete().eq('id', b.dataset.id);
+      renderBibliotecaRepasse();
+    });
+    const btnAddAt = document.getElementById('btnAddAt');
+    if (btnAddAt) btnAddAt.onclick = async () => {
+      const nome = document.getElementById('atNome').value.trim(), url = document.getElementById('atUrl').value.trim();
+      if (!nome || !url) return;
+      await sb.from('atalhos_uteis').insert({ nome, url, categoria: 'Geral' });
+      renderBibliotecaRepasse();
+    };
+    document.querySelectorAll('.atDel').forEach(b => b.onclick = async () => {
+      await sb.from('atalhos_uteis').delete().eq('id', b.dataset.id);
+      renderBibliotecaRepasse();
+    });
+  }
+  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.bibliotecaTab = b.dataset.tab; renderBibliotecaRepasse(); });
 }
 
 // ---------- EXPORTAR PLANILHA COMPLETA (todas as abas, formato da planilha mãe) ----------
