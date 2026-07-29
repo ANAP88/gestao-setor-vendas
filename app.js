@@ -149,13 +149,21 @@ const PILARES = [
     ['implantacao', '🚀', 'Produtos em Implantação'],
     ['fechamento', '💰', 'Fechamento'],
     ['escala', '📅', 'Escala'],
-    ['cadastros', '🛠️', 'Administração'],
     ['arquivos', '📁', 'Arquivos'],
-    ['fluxosEsteira', '⛓️', 'Fluxos da Esteira'],
+  ]],
+  ['🛠️ Administração', [
+    ['usuariosEquipe', '👤', 'Usuários'],
+    ['cadastroOperacional', '🗂️', 'Cadastro operacional'],
+  ]],
+  ['🌐 Portal do Cliente', [
+    ['portalUsuarios', '👤', 'Usuários do portal'],
+    ['portalEmpreendimentos', '🏗️', 'Empreendimentos'],
+    ['portalFluxo', '⛓️', 'Fluxo do portal'],
   ]],
 ];
 // Telas restritas a gestão (admin = supervisor/coordenador). Analistas não veem inteligência nem administração.
-const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'cadastros', 'integracoes', 'automacoes', 'metas', 'implantacao', 'arquivos', 'fluxosEsteira'];
+const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'arquivos', 'integracoes', 'automacoes', 'metas', 'implantacao',
+  'usuariosEquipe', 'cadastroOperacional', 'portalUsuarios', 'portalEmpreendimentos', 'portalFluxo'];
 function podeVer(view) {
   return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
 }
@@ -227,8 +235,9 @@ function render() {
      documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
-     cadastros: renderCadastros,
-     arquivos: () => renderArquivos(''), fluxosEsteira: () => renderFluxosAdmin(''),
+     usuariosEquipe: renderUsuariosEquipe, cadastroOperacional: renderCadastroOperacional,
+     portalUsuarios: renderPortalUsuarios, portalEmpreendimentos: renderCadastroOperacional, portalFluxo: () => renderFluxosAdmin(''),
+     arquivos: () => renderArquivos(''),
      bibliotecaRepasse: renderBibliotecaRepasse })[state.view]();
 }
 const FUNDO_NEOSERVICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400">
@@ -2953,7 +2962,7 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
     if (tipo === 'atividades' && $('edAtiva')) rec.ativa = $('edAtiva').value === 'true';
     const { error } = await sb.from(tipo).update(rec).eq('id', id);
     if (error) { $('edMsg').textContent = error.message.includes('duplicate') ? 'Já existe outro registro com esse nome.' : error.message; return; }
-    div.remove(); await loadLookups(); renderCadastros();
+    div.remove(); await loadLookups(); renderCadastroOperacional();
   };
 }
 
@@ -3063,7 +3072,7 @@ async function openExcluirCadastro(tipo, id, nome) {
     const rec = tipo === 'analistas' ? { status: 'Inativo' } : { ativa: false };
     const { error } = await sb.from(tipo).update(rec).eq('id', id);
     if (error) { $('exMsg').textContent = error.message; return; }
-    div.remove(); await loadLookups(); renderCadastros();
+    div.remove(); await loadLookups(); renderCadastroOperacional();
   };
   $('exExcluir').onclick = async () => {
     if (temVinculo && !confirm(`Confirma excluir "${nome}" mesmo com ${vinculos.join(' e ')} vinculado(s)?`)) return;
@@ -3074,7 +3083,7 @@ async function openExcluirCadastro(tipo, id, nome) {
         : error.message;
       return;
     }
-    div.remove(); await loadLookups(); renderCadastros();
+    div.remove(); await loadLookups(); renderCadastroOperacional();
   };
 }
 
@@ -3085,21 +3094,15 @@ const ROLE_INFO = {
   leitura: { cor: 'PENDENTE', label: 'Leitura' },
   cliente: { cor: 'PENDENTE', label: 'Cliente (portal)' },
 };
-async function renderCadastros() {
-  if (!state.adminTab) state.adminTab = 'usuarios';
+async function renderUsuariosEquipe() {
   const L = state.lookups;
-  const TABS = [['usuarios','👤 Usuários'], ['cadastros','🗂️ Cadastros operacionais']];
-  const tabsHtml = `<div class="admin-tabs">${TABS.map(([k,l]) =>
-    `<button class="admin-tab ${state.adminTab===k?'active':''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
-
-  if (state.adminTab === 'usuarios') {
-    const { data: usuarios } = await sb.from('perfis').select('*').order('criado_em');
-    shell(`
-      ${tabsHtml}
+  const { data: todosUsuarios } = await sb.from('perfis').select('*').order('criado_em');
+  const usuarios = (todosUsuarios || []).filter(u => u.role !== 'cliente');
+  shell(`
       <div class="card">
         <div class="admin-head">
           <div>
-            <h2 style="margin-bottom:2px">Usuários e níveis de acesso</h2>
+            <h2 style="margin-bottom:2px">Usuários da equipe e níveis de acesso</h2>
             <p style="color:var(--muted);font-size:12.5px">
               <b>Admin</b> — acesso total, inclusive metas e usuários &nbsp;·&nbsp;
               <b>Analista</b> — opera o sistema &nbsp;·&nbsp;
@@ -3113,15 +3116,11 @@ async function renderCadastros() {
           <div><label>E-mail para convidar</label><input id="nuEmail" type="email" placeholder="pessoa@neoservice.com.br"></div>
           <div><label>Nível de acesso</label><select id="nuNivel">
             <option value="analista">Analista</option><option value="admin">Admin</option><option value="leitura">Leitura</option>
-            <option value="cliente">Cliente (portal externo)</option>
           </select></div>
-          <div id="nuEmpdoraWrap" class="hidden"><label>Empreendedora (incorporadora/loteadora)</label>
-            <select id="nuEmpdora"><option value="">— escolher —</option>
-              ${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select></div>
           <button id="btnCriarUser">Criar acesso</button>
           <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
         </div>` : ''}
-        <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">💡 O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum.</p>
+        <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">💡 O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum. Usuários do Portal do Cliente ficam em Portal do Cliente → Usuários.</p>
         <div class="table-scroll"><table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Colaborador vinculado</th><th>Desde</th><th>Ações</th></tr></thead>
         <tbody>${(usuarios||[]).map(u => {
           const isSelf = u.user_id === state.session.user.id;
@@ -3156,28 +3155,20 @@ async function renderCadastros() {
       </div>`);
     const btnAbrir = document.getElementById('btnAbrirConvite');
     if (btnAbrir) btnAbrir.onclick = () => conviteBox.classList.toggle('hidden');
-    const nuNivelEl = document.getElementById('nuNivel');
-    if (nuNivelEl) nuNivelEl.onchange = () => {
-      document.getElementById('nuEmpdoraWrap').classList.toggle('hidden', nuNivelEl.value !== 'cliente');
-    };
     document.querySelectorAll('.selRole').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('perfis').update({ role: s.value }).eq('user_id', s.dataset.uid);
       if (error) alert(error.message);
-      else renderCadastros();
+      else renderUsuariosEquipe();
     });
     document.querySelectorAll('.selAnalistaVinc').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('perfis').update({ analista_id: s.value || null }).eq('user_id', s.dataset.uid);
-      if (error) alert(error.message);
-    });
-    document.querySelectorAll('.selEmpdoraVinc').forEach(s => s.onchange = async () => {
-      const { error } = await sb.from('perfis').update({ empreendedora_id: s.value || null }).eq('user_id', s.dataset.uid);
       if (error) alert(error.message);
     });
     document.querySelectorAll('.btn-toggle-ativo').forEach(b => b.onclick = async () => {
       const ativoAtual = b.dataset.ativo === 'true';
       const { error } = await sb.from('perfis').update({ ativo: !ativoAtual }).eq('user_id', b.dataset.uid);
       if (error) { alert(error.message); return; }
-      renderCadastros();
+      renderUsuariosEquipe();
     });
     document.querySelectorAll('.btn-resetar-senha').forEach(b => b.onclick = async () => {
       if (!confirm(`Gerar uma nova senha temporária para ${b.dataset.email}? A senha atual dessa pessoa deixará de funcionar.`)) return;
@@ -3191,32 +3182,119 @@ async function renderCadastros() {
       if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
       const { data, error } = await sb.functions.invoke('excluir-usuario', { body: { user_id: b.dataset.uid } });
       if (error || data?.error) { alert(data?.error || error.message); return; }
-      renderCadastros();
+      renderUsuariosEquipe();
     });
     const btnCU = document.getElementById('btnCriarUser');
     if (btnCU) btnCU.onclick = async () => {
       const email = nuEmail.value.trim(), nivel = nuNivel.value;
-      const empreendedoraId = nivel === 'cliente' ? document.getElementById('nuEmpdora').value : null;
       const msg = document.getElementById('nuMsg');
       if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
-      if (nivel === 'cliente') {
-        if (!empreendedoraId) { msg.textContent = 'Escolha a empreendedora vinculada a esse acesso.'; return; }
-      } else if (!email.toLowerCase().endsWith(DOMINIO_CORPORATIVO)) {
+      if (!email.toLowerCase().endsWith(DOMINIO_CORPORATIVO)) {
         msg.textContent = `Use o e-mail corporativo (${DOMINIO_CORPORATIVO}). E-mails pessoais não têm acesso ao sistema.`;
         return;
       }
       btnCU.disabled = true; msg.textContent = 'Criando acesso...';
       const { data, error } = await sb.functions.invoke('convidar-usuario', {
-        body: { email, nivel, empreendedoraId },
+        body: { email, nivel, empreendedoraId: null },
       });
       btnCU.disabled = false;
       if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
       msg.textContent = `Acesso criado para ${email}.`;
       nuEmail.value = '';
-      renderCadastros();
+      renderUsuariosEquipe();
       abrirEnvioAcessoEmail(email, data.senha, nivel);
     };
-  } else {
+}
+
+async function renderPortalUsuarios() {
+  const L = state.lookups;
+  const { data: todosUsuarios } = await sb.from('perfis').select('*').order('criado_em');
+  const usuarios = (todosUsuarios || []).filter(u => u.role === 'cliente');
+  shell(`
+      <div class="card">
+        <div class="admin-head">
+          <div>
+            <h2 style="margin-bottom:2px">Usuários do Portal do Cliente</h2>
+            <p style="color:var(--muted);font-size:12.5px">Cada acesso é vinculado a uma empreendedora (incorporadora/loteadora) e só enxerga os empreendimentos e processos dela.</p>
+          </div>
+          ${state.role === 'admin' ? '<button id="btnAbrirConvitePortal">✉️ Cadastrar usuário do portal</button>' : ''}
+        </div>
+        ${state.role === 'admin' ? `
+        <div id="convitePortalBox" class="invite-box hidden">
+          <div><label>E-mail do usuário (empreendimento/incorporadora)</label><input id="npEmail" type="email" placeholder="contato@incorporadora.com.br"></div>
+          <div><label>Empreendedora (incorporadora/loteadora)</label>
+            <select id="npEmpdora"><option value="">— escolher —</option>
+              ${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select></div>
+          <button id="btnCriarUserPortal">Criar acesso</button>
+          <span id="npMsg" class="msg" style="margin:0;flex-basis:100%"></span>
+        </div>` : ''}
+        <div class="table-scroll"><table class="users-table"><thead><tr><th>Usuário</th><th>Empreendedora vinculada</th><th>Desde</th><th>Ações</th></tr></thead>
+        <tbody>${(usuarios||[]).map(u => `<tr style="${u.ativo===false?'opacity:.5':''}">
+          <td><div class="user-cell"><div class="user-avatar">${esc((u.nome_completo||u.email)[0]?.toUpperCase() || '?')}</div>
+            <div><b>${esc(u.nome_completo || u.email)}</b>${u.ativo===false ? ' <span class="tag PENDENTE">inativo</span>' : ''}
+            ${u.nome_completo ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(u.email)}</span>` : ''}
+            ${!u.cadastro_completo ? '<br><span class="tag PENDENTE" style="font-size:10px">cadastro pendente</span>' : ''}</div></div></td>
+          <td>${state.role === 'admin'
+            ? `<select class="selEmpdoraVincPortal" data-uid="${u.user_id}"><option value="">— escolher empreendedora —</option>
+                ${L.empreendedoras.map(e=>`<option value="${e.id}" ${u.empreendedora_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select>`
+            : `<span style="color:var(--muted)">${esc((L.empreendedoras.find(e=>e.id===u.empreendedora_id)||{}).nome || '—')}</span>`}</td>
+          <td style="color:var(--muted);white-space:nowrap">${fmtDt(u.criado_em)}</td>
+          <td style="min-width:230px">${state.role === 'admin' ? `
+            <div class="row-actions">
+              <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="cliente">🔑 Resetar senha</button>
+              <button class="ghost btn-toggle-ativo-portal" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
+              <button class="ghost btn-excluir-user-portal danger" data-uid="${u.user_id}" data-email="${esc(u.email)}">🗑 Excluir</button>
+            </div>` : ''}</td></tr>`).join('') || '<tr><td colspan="4">Nenhum usuário do portal cadastrado ainda.</td></tr>'}</tbody></table></div>
+      </div>`);
+  const btnAbrir = document.getElementById('btnAbrirConvitePortal');
+  if (btnAbrir) btnAbrir.onclick = () => convitePortalBox.classList.toggle('hidden');
+  document.querySelectorAll('.selEmpdoraVincPortal').forEach(s => s.onchange = async () => {
+    const { error } = await sb.from('perfis').update({ empreendedora_id: s.value || null }).eq('user_id', s.dataset.uid);
+    if (error) alert(error.message);
+  });
+  document.querySelectorAll('.btn-toggle-ativo-portal').forEach(b => b.onclick = async () => {
+    const ativoAtual = b.dataset.ativo === 'true';
+    const { error } = await sb.from('perfis').update({ ativo: !ativoAtual }).eq('user_id', b.dataset.uid);
+    if (error) { alert(error.message); return; }
+    renderPortalUsuarios();
+  });
+  document.querySelectorAll('.btn-resetar-senha').forEach(b => b.onclick = async () => {
+    if (!confirm(`Gerar uma nova senha temporária para ${b.dataset.email}? A senha atual dessa pessoa deixará de funcionar.`)) return;
+    b.disabled = true; const txtOriginal = b.textContent; b.textContent = 'Gerando...';
+    const { data, error } = await sb.functions.invoke('resetar-senha', { body: { userId: b.dataset.uid } });
+    b.disabled = false; b.textContent = txtOriginal;
+    if (error || data?.error) { alert(data?.error || error.message); return; }
+    abrirEnvioAcessoEmail(b.dataset.email, data.senha, b.dataset.role);
+  });
+  document.querySelectorAll('.btn-excluir-user-portal').forEach(b => b.onclick = async () => {
+    if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
+    const { data, error } = await sb.functions.invoke('excluir-usuario', { body: { user_id: b.dataset.uid } });
+    if (error || data?.error) { alert(data?.error || error.message); return; }
+    renderPortalUsuarios();
+  });
+  const btnCUP = document.getElementById('btnCriarUserPortal');
+  if (btnCUP) btnCUP.onclick = async () => {
+    const email = npEmail.value.trim();
+    const empreendedoraId = npEmpdora.value;
+    const msg = document.getElementById('npMsg');
+    if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
+    if (!empreendedoraId) { msg.textContent = 'Escolha a empreendedora vinculada a esse acesso.'; return; }
+    btnCUP.disabled = true; msg.textContent = 'Criando acesso...';
+    const { data, error } = await sb.functions.invoke('convidar-usuario', {
+      body: { email, nivel: 'cliente', empreendedoraId },
+    });
+    btnCUP.disabled = false;
+    if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
+    msg.textContent = `Acesso criado para ${email}.`;
+    npEmail.value = '';
+    renderPortalUsuarios();
+    abrirEnvioAcessoEmail(email, data.senha, 'cliente');
+  };
+}
+
+async function renderCadastroOperacional() {
+  const L = state.lookups;
+  {
     if (!state.cadBusca) state.cadBusca = {};
     const filtra = (items, tipo) => {
       const q = (state.cadBusca[tipo] || '').toLowerCase().trim();
@@ -3245,7 +3323,6 @@ async function renderCadastros() {
     };
     const analistasVis = filtra(L.analistas, 'analistas');
     shell(`
-      ${tabsHtml}
       <div class="grid-cad">
         <div class="card">
           <h2>👥 Colaboradores <span class="count-badge">${L.analistas.length}</span></h2>
@@ -3283,7 +3360,7 @@ async function renderCadastros() {
     };
     document.querySelectorAll('.cad-busca').forEach(inp => {
       let tm; inp.oninput = () => { clearTimeout(tm); tm = setTimeout(() => {
-        state.cadBusca[inp.dataset.t] = inp.value; renderCadastros();
+        state.cadBusca[inp.dataset.t] = inp.value; renderCadastroOperacional();
       }, 350); };
     });
     document.querySelectorAll('.cad-add').forEach(b => b.onclick = async () => {
@@ -3298,23 +3375,22 @@ async function renderCadastros() {
       b.disabled = false;
       if (error) { msgDe(t, error.message.includes('duplicate') ? 'Já existe um registro com esse nome.' : error.message, true); return; }
       state.cadBusca[t] = '';
-      await loadLookups(); renderCadastros();
+      await loadLookups(); renderCadastroOperacional();
     });
     document.querySelectorAll('.col-cargo').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('analistas').update({ cargo: s.value }).eq('id', s.dataset.id);
       if (error) { msgDe('analistas', error.message, true); return; }
-      await loadLookups(); renderCadastros();
+      await loadLookups(); renderCadastroOperacional();
     });
     document.querySelectorAll('.col-status').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('analistas').update({ status: s.value }).eq('id', s.dataset.id);
       if (error) { msgDe('analistas', error.message, true); return; }
-      await loadLookups(); renderCadastros();
+      await loadLookups(); renderCadastroOperacional();
     });
     document.querySelectorAll('.cad-edit').forEach(b => b.onclick = () => openEditarCadastro(b.dataset.t, b.dataset.id, b.dataset.n, L));
     document.querySelectorAll('.cad-del').forEach(b => b.onclick = () => openExcluirCadastro(b.dataset.t, b.dataset.id, b.dataset.n));
     document.querySelectorAll('.cad-identidade').forEach(b => b.onclick = () => openIdentidadeEmpreendedora(b.dataset.id, b.dataset.n));
   }
-  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
 
 // ---------- ARQUIVOS (Excel de Fechamento arquivado + Apresentações PPT) — só admin ----------
@@ -3381,7 +3457,6 @@ async function renderArquivos(tabsHtml) {
     if (error) { alert(error.message); return; }
     renderArquivos(tabsHtml);
   });
-  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
 
 // ---------- FLUXOS DA ESTEIRA (criar/editar/excluir etapas e transições) — só admin ----------
@@ -3480,7 +3555,6 @@ async function renderFluxosAdmin(tabsHtml) {
     await sb.from('esteira_transicoes').delete().eq('id', b.dataset.id);
     renderFluxosAdmin(tabsHtml);
   });
-  document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
 
 // ---------- PRODUÇÃO (análise avançada + metas) ----------
@@ -3860,7 +3934,7 @@ async function openProcessoEsteira(id, etapas) {
   if (btnSalvar) btnSalvar.onclick = async () => {
     const rec = coletar();
     if (!rec.titulo) { $('epMsg').textContent = 'Informe o título do processo.'; return; }
-    if (!id && !etapas.length) { $('epMsg').textContent = 'Não há nenhuma etapa ativa configurada para esta esteira — avise o administrador (Administração → Fluxos da Esteira).'; return; }
+    if (!id && !etapas.length) { $('epMsg').textContent = 'Não há nenhuma etapa ativa configurada para esta esteira — avise o administrador (Portal do Cliente → Fluxo do portal).'; return; }
     rec.status = rec.analista_atual_id ? 'EM_ANDAMENTO' : 'AGUARDANDO';
     btnSalvar.disabled = true;
     const txtOriginal = btnSalvar.textContent; btnSalvar.textContent = 'Salvando...';
