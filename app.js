@@ -1748,6 +1748,67 @@ async function openChamado(c, areas, remetentePadrao) {
 // então também damos Outlook Web, Gmail e "copiar tudo" — sempre funciona em alguma das opções).
 // Anexo de verdade não dá pra mandar via link de e-mail (bloqueio do navegador), então os arquivos
 // anexados ao chamado entram como link de download direto no corpo da mensagem.
+// Monta o e-mail de "primeiro acesso" já pronto, com a senha temporária e o passo a passo,
+// e oferece os mesmos jeitos de enviar do Chamados (Outlook Web, Gmail, app local, copiar tudo).
+function abrirEnvioAcessoEmail(email, senha, nivel) {
+  const NIVEL_LABEL = { admin: 'Admin', analista: 'Analista', leitura: 'Leitura', cliente: 'Cliente (portal externo)' };
+  const url = 'https://secretaria-vendas-gestao.netlify.app';
+  const corpo = [
+    'Olá!',
+    '',
+    'Seu acesso ao sistema de gestão da Secretaria de Vendas foi criado.',
+    '',
+    `Link de acesso: ${url}`,
+    `E-mail de login: ${email}`,
+    `Senha provisória: ${senha}`,
+    `Nível de acesso: ${NIVEL_LABEL[nivel] || nivel}`,
+    '',
+    'Passo a passo do primeiro acesso:',
+    '1. Acesse o link acima.',
+    '2. Entre com o e-mail e a senha provisória informados.',
+    '3. No menu, use a opção "Trocar minha senha" para criar sua própria senha.',
+    '',
+    'Qualquer dúvida, fale com o administrador do sistema.',
+    '',
+    '— Sistema de Gestão da Secretaria de Vendas',
+  ].join('\n');
+  const assunto = 'Seu acesso ao sistema da Secretaria de Vendas';
+  const enc = (s) => encodeURIComponent(s);
+  const mailtoUrl = `mailto:${email}?subject=${enc(assunto)}&body=${enc(corpo)}`;
+  const outlookUrl = `https://outlook.office.com/mail/deeplink/compose?to=${enc(email)}&subject=${enc(assunto)}&body=${enc(corpo)}`;
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(email)}&su=${enc(assunto)}&body=${enc(corpo)}`;
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:620px">
+    <h2>✉️ Enviar instruções de primeiro acesso</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">O acesso já foi criado. Escolha como enviar o e-mail com a senha provisória:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button id="acOutlook">📧 Abrir no Outlook Web</button>
+      <button id="acMailto" class="ghost">💻 Abrir no app de e-mail</button>
+      <button id="acGmail" class="ghost">Abrir no Gmail</button>
+      <button id="acCopiar" class="ghost">📋 Copiar tudo</button>
+    </div>
+    <div class="grid2">
+      <div style="grid-column:1/-1"><label>Para</label><input value="${esc(email)}" readonly></div>
+      <div style="grid-column:1/-1"><label>Assunto</label><input value="${esc(assunto)}" readonly></div>
+      <div style="grid-column:1/-1"><label>Mensagem</label><textarea id="acCorpo" rows="12" readonly>${esc(corpo)}</textarea></div>
+    </div>
+    <div class="msg" id="acMsg"></div>
+    <div style="display:flex;justify-content:end;margin-top:14px"><button id="acFechar" class="ghost">Fechar</button></div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('acFechar').onclick = () => div.remove();
+  $('acOutlook').onclick = () => window.open(outlookUrl, '_blank', 'noopener');
+  $('acGmail').onclick = () => window.open(gmailUrl, '_blank', 'noopener');
+  $('acMailto').onclick = () => { window.location.href = mailtoUrl; };
+  $('acCopiar').onclick = async () => {
+    const txt = `Para: ${email}\nAssunto: ${assunto}\n\n${corpo}`;
+    try { await navigator.clipboard.writeText(txt); $('acMsg').textContent = '✅ Copiado! Cole no seu e-mail.'; }
+    catch { $('acCorpo').select(); $('acMsg').textContent = 'Selecione o texto e copie com Ctrl+C.'; }
+  };
+}
+
 async function abrirEnvioEmail(rec, chamadoId) {
   const { data: anexos } = await sb.from('chamados_anexos').select('*').eq('chamado_id', chamadoId);
   const links = [];
@@ -2970,7 +3031,7 @@ async function renderCadastros() {
                 : `<span style="color:var(--muted)">${esc((L.analistas.find(a=>a.id===u.analista_id)||{}).nome || '—')}</span>`)}</td>
           <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td>
           <td>${state.role === 'admin' && !isSelf ? `
-            <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px">🔑 Resetar senha</button>
+            <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="${esc(u.role)}" style="font-size:12px;padding:4px 9px">🔑 Resetar senha</button>
             <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}" style="font-size:12px;padding:4px 9px">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
             <button class="ghost btn-excluir-user" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px;color:var(--err)">🗑 Excluir</button>`
             : ''}</td></tr>`;
@@ -3007,7 +3068,7 @@ async function renderCadastros() {
       const { data, error } = await sb.functions.invoke('resetar-senha', { body: { userId: b.dataset.uid } });
       b.disabled = false; b.textContent = txtOriginal;
       if (error || data?.error) { alert(data?.error || error.message); return; }
-      prompt(`Senha temporária gerada para ${b.dataset.email}. Copie e envie para a pessoa por um canal seguro (ela não pode mais ser vista depois de fechar esta janela):`, data.senha);
+      abrirEnvioAcessoEmail(b.dataset.email, data.senha, b.dataset.role);
     });
     document.querySelectorAll('.btn-excluir-user').forEach(b => b.onclick = async () => {
       if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
@@ -3036,7 +3097,7 @@ async function renderCadastros() {
       msg.textContent = `Acesso criado para ${email}.`;
       nuEmail.value = '';
       renderCadastros();
-      prompt(`Acesso criado para ${email}. Copie a senha temporária abaixo e envie por um canal seguro — ela pode trocar depois em "Minha conta → Trocar senha":`, data.senha);
+      abrirEnvioAcessoEmail(email, data.senha, nivel);
     };
   } else {
     if (!state.cadBusca) state.cadBusca = {};
