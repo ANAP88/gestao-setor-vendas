@@ -4599,28 +4599,55 @@ async function renderPortalEmpreendimento(perfil, empId) {
 }
 
 async function renderPortalProcesso(perfil, processoId, empId) {
-  const [{ data: p }, { data: historico }] = await Promise.all([
-    sb.from('esteira_processos').select('*').eq('id', processoId).single(),
+  const [{ data: p }, { data: historico }, { data: validacoes }] = await Promise.all([
+    sb.from('esteira_processos').select('*, analistas(nome)').eq('id', processoId).single(),
     sb.from('esteira_historico').select('*').eq('processo_id', processoId).order('criado_em', { ascending: false }),
+    sb.from('esteira_validacoes').select('*').eq('processo_id', processoId).order('criado_em'),
   ]);
   if (!p) { renderPortalEmpreendimento(perfil, empId); return; }
   const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', p.esteira_tipo).eq('ativa', true).order('ordem');
   const etapaAtualIdx = (etapas||[]).findIndex(e => e.id === p.etapa_atual_id);
+  // última validação registrada para cada etapa (quem confirmou aquele passo como pronto, e quando)
+  const validacaoPorEtapa = {};
+  (validacoes||[]).forEach(v => { validacaoPorEtapa[v.etapa_id] = v; }); // a última sobrescreve as anteriores
+  const fmtDuracao = (ms) => {
+    const h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
+    if (h < 24) return `${h}h${m ? ' '+m+'min' : ''}`;
+    return `${Math.floor(h/24)}d ${h%24}h`;
+  };
+  let horarioAnterior = new Date(p.criado_em);
+  const linhasEtapa = (etapas||[]).map((e, i) => {
+    const v = validacaoPorEtapa[e.id];
+    const concluida = i < etapaAtualIdx, atual = i === etapaAtualIdx;
+    let tempoTxt = '—';
+    if (v) { tempoTxt = fmtDuracao(new Date(v.criado_em) - horarioAnterior); horarioAnterior = new Date(v.criado_em); }
+    else if (atual) { tempoTxt = fmtDuracao(new Date() - horarioAnterior) + ' (em andamento)'; }
+    return { e, i, concluida, atual, v, tempoTxt };
+  });
+  const empNome = (await sb.from('empreendimentos').select('nome').eq('id', empId).single()).data?.nome || 'Empreendimento';
   portalShell(perfil, `
-    <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← ${esc((await sb.from('empreendimentos').select('nome').eq('id', empId).single()).data?.nome || 'Empreendimento')}</button>
+    <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← ${esc(empNome)}</button>
     <div class="card" style="margin-bottom:14px">
       <h2>${esc(p.titulo)}</h2>
-      <p style="color:var(--muted);font-size:13px">Unidade ${esc(p.unidade)||'—'} · Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}">${esc(p.status)}</span></p>
+      <p style="color:var(--muted);font-size:13px">Unidade ${esc(p.unidade)||'—'} · Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}">${esc(p.status)}</span>
+        ${p.analistas?.nome ? ` · Responsável atual: ${esc(p.analistas.nome)}` : ''}</p>
     </div>
     <div class="card" style="margin-bottom:14px">
       <h2 style="font-size:14px">Andamento</h2>
-      <div class="timeline">${(etapas||[]).map((e,i) => `
-        <div class="tl-item"><div class="tl-dot" style="background:${i<etapaAtualIdx?'var(--ok)':i===etapaAtualIdx?'var(--accent)':'var(--border)'}"></div>
-          <div><b style="color:${i<=etapaAtualIdx?'var(--text)':'var(--muted)'}">${i<etapaAtualIdx?'✅':i===etapaAtualIdx?'🟡':'⚪'} ${esc(e.nome)}</b></div></div>`).join('')}
-      </div>
+      <div class="table-scroll"><table style="min-width:640px">
+        <thead><tr><th>Etapa</th><th>Status</th><th>Concluído em</th><th>Responsável</th><th>Tempo na etapa</th></tr></thead>
+        <tbody>${linhasEtapa.map(({e,concluida,atual,v,tempoTxt}) => `<tr>
+          <td style="color:${concluida||atual?'var(--text)':'var(--muted)'};font-weight:${atual?'700':'400'}">${concluida?'✅':atual?'🟡':'⚪'} ${esc(e.nome)}</td>
+          <td>${concluida?'<span class="tag CONCLUIDO">Concluída</span>':atual?'<span class="tag PENDENTE">Em andamento</span>':'<span style="color:var(--muted2)">Aguardando</span>'}</td>
+          <td style="white-space:nowrap">${v?fmtDt(v.criado_em):'—'}</td>
+          <td>${v?esc(v.validado_por_email||'—'):'—'}</td>
+          <td style="white-space:nowrap">${tempoTxt}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <p style="color:var(--muted2);font-size:11px;margin-top:8px">SLA por etapa ainda não configurado — assim que houver um prazo padrão definido para cada etapa, aparece aqui também.</p>
     </div>
     <div class="card">
-      <h2 style="font-size:14px">🕓 Histórico</h2>
+      <h2 style="font-size:14px">🕓 Histórico completo</h2>
       <div class="timeline">${(historico||[]).map(h => `
         <div class="tl-item"><div class="tl-dot"></div>
           <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}</div></div>`).join('') || '<p style="color:var(--muted);font-size:13px">Nenhuma movimentação registrada ainda.</p>'}
