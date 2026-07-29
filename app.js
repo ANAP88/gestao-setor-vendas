@@ -5063,17 +5063,6 @@ async function renderPortalCliente(perfil) {
   const totalProc = Math.max(1, (processos||[]).length);
   const pctAndamento = Math.round(emAndamento / totalProc * 100);
   const donutDeg = Math.round(emAndamento / totalProc * 360);
-  const procIds = (processos||[]).map(p => p.id);
-  const { data: historico } = await sb.from('esteira_historico').select('processo_id,evento,criado_em')
-    .in('processo_id', procIds.length ? procIds : ['00000000-0000-0000-0000-000000000000'])
-    .order('criado_em', { ascending: false }).limit(6);
-  const tituloPorProc = {}; (processos||[]).forEach(p => tituloPorProc[p.id] = p.titulo);
-  const tempoRelativo = (iso) => {
-    const diffMin = Math.round((Date.now() - new Date(iso)) / 60000);
-    if (diffMin < 60) return diffMin + 'min atrás';
-    if (diffMin < 1440) return Math.round(diffMin/60) + 'h atrás';
-    return Math.round(diffMin/1440) + 'd atrás';
-  };
   portalShell(perfil, `
     <div class="pkpis">
       <div class="pkpi"><div class="pkpi-ic">🏗️</div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
@@ -5113,12 +5102,6 @@ async function renderPortalCliente(perfil) {
             <div style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:var(--border);display:inline-block"></span>Concluídos (${100-pctAndamento}%)</div>
           </div>
         </div>
-        <h2 style="font-size:15px;margin-bottom:12px">Atividades recentes</h2>
-        <div class="card">${(historico||[]).length ? historico.map(h => `
-          <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px">
-            <div>${esc(h.evento)}</div>
-            <div style="color:var(--muted);font-size:11px;margin-top:2px">${esc(tituloPorProc[h.processo_id] || '')} · ${tempoRelativo(h.criado_em)}</div>
-          </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px">Nenhuma atividade recente.</p>'}</div>
       </div>
     </div>`,
     marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! 👋`,
@@ -5150,9 +5133,8 @@ async function renderPortalEmpreendimento(perfil, empId) {
 }
 
 async function renderPortalProcesso(perfil, processoId, empId) {
-  const [{ data: p }, { data: historico }, { data: validacoes }, marca] = await Promise.all([
+  const [{ data: p }, { data: validacoes }, marca] = await Promise.all([
     sb.from('esteira_processos').select('*').eq('id', processoId).single(),
-    sb.from('esteira_historico').select('*').eq('processo_id', processoId).order('criado_em', { ascending: false }),
     sb.from('esteira_validacoes').select('*').eq('processo_id', processoId).order('criado_em'),
     marcaDoCliente(perfil),
   ]);
@@ -5215,13 +5197,6 @@ async function renderPortalProcesso(perfil, processoId, empId) {
       <div style="display:flex;gap:8px">
         <input id="pcChatInput" placeholder="Escreva sua mensagem..." style="flex:1">
         <button id="pcChatEnviar">Enviar</button>
-      </div>
-    </div>
-    <div class="card">
-      <h2 style="font-size:14px">🕓 Histórico completo</h2>
-      <div class="timeline">${(historico||[]).map(h => `
-        <div class="tl-item"><div class="tl-dot"></div>
-          <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}</div></div>`).join('') || '<p style="color:var(--muted);font-size:13px">Nenhuma movimentação registrada ainda.</p>'}
       </div>
     </div>`, marca, { titulo: p.titulo, subtitulo: `${empNome}${p.unidade ? ' · Unidade ' + p.unidade : ''}` });
   document.getElementById('pcVoltar').onclick = () => renderPortalEmpreendimento(perfil, empId);
