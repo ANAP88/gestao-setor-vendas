@@ -3581,8 +3581,13 @@ const ESTEIRA_TIPOS = [
   ['emissao_contrato', 'Emissão de Contrato'],
   ['repasse', 'Repasse Imobiliário'],
 ];
+const BLOCOS_ESTEIRA = {
+  analise_credito: [['analise', '📄 Análise'], ['reanalise', '🔁 Reanálise']],
+  emissao_contrato: [['geracao', '📄 Geração de Contrato'], ['reemissao', '🔁 Reemissão de Contrato']],
+};
 async function renderEsteira() {
   if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
+  if (!state.esteiraBloco) state.esteiraBloco = '';
   const [{ data: etapas }, { data: processos }, { data: naoLidas }] = await Promise.all([
     sb.from('etapas_esteira').select('*').eq('ativa', true).eq('esteira_tipo', state.esteiraTipo).order('ordem'),
     sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
@@ -3591,9 +3596,11 @@ async function renderEsteira() {
   const processosComAviso = new Set((naoLidas||[]).map(m => m.processo_id));
   if (!state.esteiraFiltro) state.esteiraFiltro = { busca:'', analista:'', prioridade:'' };
   const ef = state.esteiraFiltro;
+  const blocosDisponiveis = BLOCOS_ESTEIRA[state.esteiraTipo] || null;
   const processosFiltrados = (processos || []).filter(p => {
     if (ef.analista === '__semdono__' ? p.analista_atual_id : (ef.analista && p.analista_atual_id !== ef.analista)) return false;
     if (ef.prioridade && (p.prioridade || 'NORMAL') !== ef.prioridade) return false;
+    if (state.esteiraBloco && p.bloco !== state.esteiraBloco) return false;
     if (ef.busca) {
       const alvo = [p.titulo, p.unidade, p.clientes?.nome, p.observacoes, p.obs].filter(Boolean).join(' ').toLowerCase();
       if (!alvo.includes(ef.busca.toLowerCase())) return false;
@@ -3617,14 +3624,19 @@ async function renderEsteira() {
         <h2 style="margin:0">⛓️ Esteira de Produção</h2>
         <span style="color:var(--muted);font-size:12.5px">Conclua sua etapa e transfira o processo para o próximo colega, anexando os documentos.</span>
         <div class="spacer"></div>
-        ${state.role !== 'leitura' ? '<button id="btnNovoEsteira">+ Novo processo</button>' : ''}
+        ${(state.role === 'admin' || (state.role !== 'leitura' && !['analise_credito','emissao_contrato'].includes(state.esteiraTipo))) ? '<button id="btnNovoEsteira">+ Novo processo</button>' : ''}
         ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">⚙️ Etapas</button>' : ''}
       </div>
+      ${['analise_credito','emissao_contrato'].includes(state.esteiraTipo) ? `<p style="color:var(--muted);font-size:11.5px;margin-top:8px">💡 Os cards desta esteira são criados automaticamente a partir da Produção (ou da aprovação do crédito). Criação manual é restrita a administradores.</p>` : ''}
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         ${ESTEIRA_TIPOS.map(([k,l]) => `<button class="ghost esteira-tab ${state.esteiraTipo===k?'active':''}" data-tipo="${k}">${l}</button>`).join('')}
         <div class="spacer"></div>
         <button id="btnHistEsteira" class="ghost">🗄️ Histórico de concluídos</button>
       </div>
+      ${blocosDisponiveis ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="ghost esteira-bloco-tab ${!state.esteiraBloco?'active':''}" data-bloco="">Todos</button>
+        ${blocosDisponiveis.map(([k,l]) => `<button class="ghost esteira-bloco-tab ${state.esteiraBloco===k?'active':''}" data-bloco="${k}">${l}</button>`).join('')}
+      </div>` : ''}
       <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
         ${Object.entries(porAnalistaCount).sort((a,b)=>b[1]-a[1]).map(([n,q]) => `<span>👤 ${esc(n)}: <b style="color:var(--text)">${q}</b></span>`).join('') || '<span>Nenhum processo em aberto nesta esteira.</span>'}
       </div>
@@ -3651,13 +3663,14 @@ async function renderEsteira() {
           <div class="esteira-cards">
             ${(porEtapa[et.id] || []).map(p => `
               <div class="esteira-card ${p.prioridade==='URGENTE'?'urgente':p.prioridade==='ALTA'?'alta':''}" data-id="${p.id}">
-                <div class="ec-title">${processosComAviso.has(p.id) ? '<span class="tag ERRO" title="Cliente aguardando retorno">💬 cliente</span> ' : ''}${esc(p.titulo)}</div>
+                <div class="ec-title">${processosComAviso.has(p.id) ? '<span class="tag ERRO" title="Cliente aguardando retorno">💬 cliente</span> ' : ''}${p.bloco==='reanalise' || p.bloco==='reemissao' ? '<span class="tag PENDENTE" title="Reanálise/Reemissão">🔁</span> ' : ''}${esc(p.titulo)}</div>
                 ${p.clientes?.nome ? `<div class="ec-sub">👤 ${esc(p.clientes.nome)}</div>` : ''}
                 ${p.unidade ? `<div class="ec-sub">🏠 ${esc(p.unidade)}</div>` : ''}
                 <div class="ec-foot">
                   ${p.analista_atual_id
                     ? `<span class="tag ${p.analistas?.nome===meuNome?'CONCLUIDO':'RECEBIDO'}">${esc(p.analistas.nome)}</span>`
                     : `<span class="tag PENDENTE">Sem responsável</span>`}
+                  ${p.sera_faturado ? `<span class="tag CONCLUIDO" title="Processo será faturado">💰</span>` : ''}
                   ${p.prioridade && p.prioridade !== 'NORMAL' ? `<span class="tag ${p.prioridade==='URGENTE'?'ERRO':'PENDENTE'}" style="margin-left:auto">${esc(p.prioridade)}</span>` : ''}
                 </div>
               </div>`).join('') || '<div class="ec-empty">Fila vazia</div>'}
@@ -3670,7 +3683,8 @@ async function renderEsteira() {
   if (bN) bN.onclick = () => openProcessoEsteira(null, etapas);
   const bE = document.getElementById('btnEtapas');
   if (bE) bE.onclick = () => openGerenciarEtapas(etapas);
-  document.querySelectorAll('.esteira-tab').forEach(b => b.onclick = () => { state.esteiraTipo = b.dataset.tipo; renderEsteira(); });
+  document.querySelectorAll('.esteira-tab').forEach(b => b.onclick = () => { state.esteiraTipo = b.dataset.tipo; state.esteiraBloco = ''; renderEsteira(); });
+  document.querySelectorAll('.esteira-bloco-tab').forEach(b => b.onclick = () => { state.esteiraBloco = b.dataset.bloco; renderEsteira(); });
   document.getElementById('btnHistEsteira').onclick = () => openHistoricoEsteira();
   let efTm;
   document.getElementById('efBusca').oninput = (e) => {
@@ -3832,6 +3846,12 @@ async function openProcessoEsteira(id, etapas) {
       <div><label>Responsável atual</label><select id="epAnalista" ${ro?'disabled':''}><option value="">Sem responsável (na fila)</option>
         ${equipe.map(a=>`<option value="${a.id}" ${p?.analista_atual_id===a.id?'selected':''}>${esc(a.nome)}${a.cargo && a.cargo!=='analista' ? ' ('+esc(a.cargo)+')' : ''}</option>`).join('')}</select></div>
       ${id ? `<div><label>Etapa atual</label><input value="${esc(etapas[etapaIdx]?.nome)}" disabled></div>` : ''}
+      ${BLOCOS_ESTEIRA[p?.esteira_tipo || state.esteiraTipo] ? `<div><label>Bloco</label><select id="epBloco" ${ro?'disabled':''}>
+        ${BLOCOS_ESTEIRA[p?.esteira_tipo || state.esteiraTipo].map(([k,l])=>`<option value="${k}" ${(p?.bloco||BLOCOS_ESTEIRA[p?.esteira_tipo || state.esteiraTipo][0][0])===k?'selected':''}>${l}</option>`).join('')}</select></div>` : ''}
+      ${(p?.esteira_tipo || state.esteiraTipo) === 'analise_credito' || (p?.esteira_tipo || state.esteiraTipo) === 'emissao_contrato' ? `<div><label>Processo será faturado?</label><select id="epFaturado" ${ro?'disabled':''}>
+        <option value="">— não definido —</option>
+        <option value="sim" ${p?.sera_faturado===true?'selected':''}>SIM</option>
+        <option value="nao" ${p?.sera_faturado===false?'selected':''}>NÃO</option></select></div>` : ''}
       <div style="grid-column:1/-1"><label>Recado para o próximo responsável</label><textarea id="epObs" rows="2" placeholder="Informações para quem pegar a próxima etapa" ${ro?'disabled':''}>${esc(p?.obs)}</textarea></div>
       <div style="grid-column:1/-1"><label>📝 Observações do processo (acompanha todas as etapas)</label><textarea id="epObservacoes" rows="4" placeholder="Anotações que ficam com o processo do início ao fim — crédito e contrato" ${ro?'disabled':''}>${esc(p?.observacoes)}</textarea></div>
     </div>
@@ -3928,6 +3948,8 @@ async function openProcessoEsteira(id, etapas) {
     analista_atual_id: $('epAnalista').value || null,
     obs: $('epObs').value || null,
     observacoes: $('epObservacoes') ? ($('epObservacoes').value || null) : null,
+    ...( $('epBloco') ? { bloco: $('epBloco').value } : {} ),
+    ...( $('epFaturado') ? { sera_faturado: $('epFaturado').value === '' ? null : $('epFaturado').value === 'sim' } : {} ),
   });
 
   const btnSalvar = $('epSalvar');
