@@ -154,7 +154,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
     <div class="pl-left">
       <div class="pl-left-bg">${PL_SKYLINE_BG}</div>
       <div class="pl-left-content">
-        <span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO CLIENTE</span>
+        <span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO INCORPORADOR</span>
         <h1>Acompanhe seus processos<br><span>em tempo real.</span></h1>
         <p class="pl-left-sub">Tenha acesso a todas as etapas da Secretaria de Vendas em um único lugar, desde o recebimento da venda até a conclusão da operação.</p>
         <div class="pl-features">
@@ -174,7 +174,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
     <div class="pl-right">
       <div class="pl-card">
         <div class="pl-card-icon">${ICONE_CADEADO}</div>
-        <h2>Portal do Cliente</h2>
+        <h2>Portal do Incorporador</h2>
         <div class="pl-sub">Acompanhamento Operacional</div>
         <label>E-mail</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="plEmail" type="email" autocomplete="username" placeholder="seu.email@incorporadora.com.br"></div>
@@ -5014,33 +5014,50 @@ async function renderPortalCliente(perfil) {
   ]);
   const empIds = (emps||[]).map(e=>e.id);
   const [{ data: processos }, { data: demandasAtivas }] = await Promise.all([
-    sb.from('esteira_processos').select('id,titulo,status,empreendimento_id').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
+    sb.from('esteira_processos').select('id,titulo,status,empreendimento_id,etapa_atual_id,esteira_tipo').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
     sb.from('demandas').select('id,status').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
   ]);
+  const { data: etapas } = await sb.from('etapas_esteira').select('id,nome,ordem,esteira_tipo').eq('ativa', true).order('ordem');
   const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
   const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
   const procPorEmp = {};
   (processos||[]).forEach(p => {
-    const r = procPorEmp[p.empreendimento_id] = procPorEmp[p.empreendimento_id] || { abertos: 0 };
-    if (p.status !== 'CONCLUIDO') r.abertos++;
+    const r = procPorEmp[p.empreendimento_id] = procPorEmp[p.empreendimento_id] || { abertos: 0, concluidos: 0 };
+    if (p.status !== 'CONCLUIDO') r.abertos++; else r.concluidos++;
   });
+  // Funil: agrupa por nome da etapa atual (ordem única entre os tipos de esteira), + concluídos no fim
+  const nomesEtapaOrdenados = [...new Map((etapas||[]).map(e => [e.nome, e])).values()].sort((a,b) => a.ordem - b.ordem).map(e => e.nome);
+  const contagemPorEtapa = {};
+  nomesEtapaOrdenados.forEach(n => contagemPorEtapa[n] = 0);
+  (processos||[]).filter(p => p.status !== 'CONCLUIDO').forEach(p => {
+    const et = (etapas||[]).find(e => e.id === p.etapa_atual_id);
+    if (et) contagemPorEtapa[et.nome] = (contagemPorEtapa[et.nome] || 0) + 1;
+  });
+  const funilPassos = [...nomesEtapaOrdenados.map(n => [n, contagemPorEtapa[n] || 0]), ['Concluído', concluidos]];
+  const maxFunil = Math.max(1, ...funilPassos.map(([,n]) => n));
   portalShell(perfil, `
-    <div class="kpis" style="margin-bottom:22px">
-      <div class="kpi"><div class="v">${(emps||[]).length}</div><div class="l">Empreendimentos ativos</div></div>
-      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">Processos em andamento</div></div>
-      <div class="kpi"><div class="v">${concluidos}</div><div class="l">Processos concluídos</div></div>
-      <div class="kpi"><div class="v">${(demandasAtivas||[]).length}</div><div class="l">Total na produção</div></div>
+    <div class="pkpis">
+      <div class="pkpi"><div class="pkpi-ic">🏗️</div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
+      <div class="pkpi"><div class="pkpi-ic">⛓️</div><div><div class="pkpi-v">${emAndamento}</div><div class="pkpi-l">EM ANDAMENTO</div></div></div>
+      <div class="pkpi ok"><div class="pkpi-ic">✅</div><div><div class="pkpi-v">${concluidos}</div><div class="pkpi-l">CONCLUÍDOS</div></div></div>
+      <div class="pkpi warn"><div class="pkpi-ic">📊</div><div><div class="pkpi-v">${(demandasAtivas||[]).length}</div><div class="pkpi-l">TOTAL NA PRODUÇÃO</div></div></div>
     </div>
+    <h2 style="font-size:15px;margin-bottom:12px">Evolução dos processos</h2>
+    <div class="pfunil">${funilPassos.map(([nome, n]) => `
+      <div class="pfunil-step">
+        <div class="n">${n}</div>
+        <div class="l">${esc(nome)}</div>
+        <div class="bar"><i style="width:${Math.round(n/maxFunil*100)}%"></i></div>
+      </div>`).join('')}</div>
     <h2 style="font-size:15px;margin-bottom:12px">Seus empreendimentos</h2>
-    <div class="portal-grid">${(emps||[]).map(e => `
-      <div class="portal-card" data-id="${e.id}">
-        <div style="min-width:0">
-          <b>${esc(e.nome)}</b>
-          <div style="color:var(--muted);font-size:12px;margin-top:3px">${procPorEmp[e.id]?.abertos ? procPorEmp[e.id].abertos + ' em andamento' : 'Sem processo em aberto'}</div>
-        </div>
-        <span class="arrow">→</span>
-      </div>`).join('')
-      || '<p style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</p>'}</div>`,
+    <div class="table-scroll"><table class="users-table"><thead><tr><th>Empreendimento</th><th>Em andamento</th><th>Concluídos</th><th></th></tr></thead>
+    <tbody>${(emps||[]).map(e => `
+      <tr class="portal-card" data-id="${e.id}" style="cursor:pointer">
+        <td><b>${esc(e.nome)}</b></td>
+        <td>${procPorEmp[e.id]?.abertos || 0}</td>
+        <td>${procPorEmp[e.id]?.concluidos || 0}</td>
+        <td style="text-align:right;color:var(--muted2)">→</td>
+      </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</td></tr>'}</tbody></table></div>`,
     marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! 👋`,
              subtitulo: 'Aqui está o resumo do andamento dos seus processos.' });
   document.querySelectorAll('.portal-card').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
