@@ -5017,7 +5017,6 @@ async function renderPortalCliente(perfil) {
     sb.from('esteira_processos').select('id,titulo,status,empreendimento_id,etapa_atual_id,esteira_tipo').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
     sb.from('demandas').select('id,status').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
   ]);
-  const { data: etapas } = await sb.from('etapas_esteira').select('id,nome,ordem,esteira_tipo').eq('ativa', true).order('ordem');
   const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
   const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
   const procPorEmp = {};
@@ -5025,15 +5024,15 @@ async function renderPortalCliente(perfil) {
     const r = procPorEmp[p.empreendimento_id] = procPorEmp[p.empreendimento_id] || { abertos: 0, concluidos: 0 };
     if (p.status !== 'CONCLUIDO') r.abertos++; else r.concluidos++;
   });
-  // Funil: agrupa por nome da etapa atual (ordem única entre os tipos de esteira), + concluídos no fim
-  const nomesEtapaOrdenados = [...new Map((etapas||[]).map(e => [e.nome, e])).values()].sort((a,b) => a.ordem - b.ordem).map(e => e.nome);
-  const contagemPorEtapa = {};
-  nomesEtapaOrdenados.forEach(n => contagemPorEtapa[n] = 0);
-  (processos||[]).filter(p => p.status !== 'CONCLUIDO').forEach(p => {
-    const et = (etapas||[]).find(e => e.id === p.etapa_atual_id);
-    if (et) contagemPorEtapa[et.nome] = (contagemPorEtapa[et.nome] || 0) + 1;
-  });
-  const funilPassos = [...nomesEtapaOrdenados.map(n => [n, contagemPorEtapa[n] || 0]), ['Concluído', concluidos]];
+  // Funil resumido por tipo de esteira (análise de crédito / emissão de contrato) + concluídos
+  const emAndamentoCredito = (processos||[]).filter(p => p.status!=='CONCLUIDO' && p.esteira_tipo==='analise_credito').length;
+  const emAndamentoContrato = (processos||[]).filter(p => p.status!=='CONCLUIDO' && p.esteira_tipo==='emissao_contrato').length;
+  const funilPassos = [
+    ['Recebidos', (processos||[]).length],
+    ['Análise de Crédito', emAndamentoCredito],
+    ['Emissão de Contrato', emAndamentoContrato],
+    ['Concluído', concluidos],
+  ];
   const maxFunil = Math.max(1, ...funilPassos.map(([,n]) => n));
   portalShell(perfil, `
     <div class="pkpis">
