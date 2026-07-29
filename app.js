@@ -3322,6 +3322,7 @@ const MOTIVOS_REGRESSAO = [
 const ESTEIRA_TIPOS = [
   ['analise_credito', 'Análise de Crédito'],
   ['emissao_contrato', 'Emissão de Contrato'],
+  ['repasse', 'Repasse Imobiliário'],
 ];
 async function renderEsteira() {
   if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
@@ -3527,8 +3528,10 @@ async function openHistoricoEsteira() {
   render();
 }
 
+const CHECKLIST_REPASSE_PADRAO = ['RG','CPF','Certidão de nascimento','Certidão de casamento','Holerites',
+  'Extrato bancário','Declaração de IR','Comprovante de residência','Carteira de Trabalho','CNIS','FGTS','Procuração'];
 async function openProcessoEsteira(id, etapas) {
-  let p = null, historico = [], anexos = [], transicoes = [];
+  let p = null, historico = [], anexos = [], transicoes = [], checklist = [];
   if (id) {
     const [pp, hh, aa] = await Promise.all([
       sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('id', id).single(),
@@ -3538,6 +3541,14 @@ async function openProcessoEsteira(id, etapas) {
     p = pp.data; historico = hh.data || []; anexos = aa.data || [];
     const { data: tt } = await sb.from('esteira_transicoes').select('*').eq('etapa_origem_id', p.etapa_atual_id).order('ordem_botao');
     transicoes = tt || [];
+    if (p?.esteira_tipo === 'repasse') {
+      const { data: cl } = await sb.from('repasse_checklist').select('*').eq('processo_id', id).order('criado_em');
+      if (!cl || !cl.length) {
+        const seed = CHECKLIST_REPASSE_PADRAO.map(item => ({ processo_id: id, item }));
+        const { data: inserido } = await sb.from('repasse_checklist').insert(seed).select();
+        checklist = inserido || [];
+      } else checklist = cl;
+    }
   }
   const L = state.lookups;
   const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
@@ -3584,6 +3595,14 @@ async function openProcessoEsteira(id, etapas) {
       <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">PDF, Word, Excel, imagens e ZIP · até 50 MB · armazenado de forma privada no sistema</p>
       <div id="upMsg" class="msg" style="margin-top:4px"></div>
     </div>` : ''}
+    ${p?.esteira_tipo === 'repasse' ? `
+    <h2 style="margin-top:18px">📋 Checklist documental</h2>
+    <div id="repChecklist">${checklist.map(it => `
+      <div class="chk">
+        <input type="checkbox" class="chk-item" data-id="${it.id}" ${it.ok?'checked':''} ${ro?'disabled':''}>
+        <span style="flex:1">${esc(it.item)}${it.responsavel?` <span style="color:var(--muted2);font-size:11px">· ${esc(it.responsavel)}</span>`:''}${it.validade?` <span style="color:var(--muted2);font-size:11px">· validade ${fmtDt(it.validade)}</span>`:''}</span>
+      </div>`).join('')}</div>
+    ` : ''}
     <h2 style="margin-top:18px">🕓 Histórico do processo</h2>
     <div class="timeline">${historico.map(h => `
       <div class="tl-item"><div class="tl-dot"></div>
@@ -3611,6 +3630,9 @@ async function openProcessoEsteira(id, etapas) {
   document.body.appendChild(div);
   const $ = (i) => div.querySelector('#' + i);
   $('epCancel').onclick = () => div.remove();
+  div.querySelectorAll('.chk-item').forEach(c => c.onchange = async () => {
+    await sb.from('repasse_checklist').update({ ok: c.checked, responsavel: c.checked ? state.session?.user?.email : null }).eq('id', c.dataset.id);
+  });
 
   const coletar = () => ({
     titulo: $('epTitulo').value.trim(),
@@ -3824,14 +3846,45 @@ async function openGerenciarEtapas(etapas) {
 // ---------- REPASSE ----------
 async function renderRepasse() {
   if (state.repasseBusca === undefined) state.repasseBusca = '';
-  const { data: rowsAll } = await sb.from('clientes').select('*, empreendimentos(nome), analistas(nome)').order('criado_em', { ascending: false }).limit(500);
+  const [{ data: rowsAll }, { data: procsRepasse }] = await Promise.all([
+    sb.from('clientes').select('*, empreendimentos(nome), analistas(nome)').order('criado_em', { ascending: false }).limit(500),
+    sb.from('esteira_processos').select('id,cliente_id,status').eq('esteira_tipo', 'repasse'),
+  ]);
   const termo = state.repasseBusca.trim().toLowerCase();
   const rows = !termo ? (rowsAll||[]).slice(0,100) : (rowsAll||[]).filter(c =>
     (c.nome||'').toLowerCase().includes(termo) || (c.cpf||'').includes(termo) ||
     (c.unidade||'').toLowerCase().includes(termo) || (c.empreendimentos?.nome||'').toLowerCase().includes(termo));
   const STATUS_REP = ['PROPOSTA','CREDITO','PENDENCIA','CONTRATO','ASSINATURA','REPASSE_CONCLUIDO'];
   const tagCor = (s) => s === 'REPASSE_CONCLUIDO' ? 'CONCLUIDO' : s === 'PENDENCIA' ? 'PENDENTE' : 'RECEBIDO';
+
+  const emAndamento = (procsRepasse||[]).filter(p=>!['CONCLUIDO','CANCELADO'].includes(p.status)).length;
+  const concluidas = (procsRepasse||[]).filter(p=>p.status==='CONCLUIDO').length;
+  const canceladas = (procsRepasse||[]).filter(p=>p.status==='CANCELADO').length;
+  const soma = (campo) => (rowsAll||[]).reduce((s,c)=>s+(Number(c[campo])||0), 0);
+  const vgv = soma('valor_compra_venda');
+  const totalFinanciado = soma('valor_financiado');
+  const comissaoPrevista = soma('valor_comissao_previsto');
+  const comissaoRecebida = soma('valor_comissao_recebido');
+  const ticketMedio = (rowsAll||[]).length ? vgv / (rowsAll||[]).filter(c=>c.valor_compra_venda).length || 0 : 0;
+  const porBanco = {}; (rowsAll||[]).forEach(c => { if (c.banco) porBanco[c.banco] = (porBanco[c.banco]||0)+1; });
+  const moeda = (v) => (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
   shell(`
+    <div class="kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="v">${(rowsAll||[]).length}</div><div class="l">👤 Clientes em repasse</div></div>
+      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">⏳ Operações em andamento</div></div>
+      <div class="kpi"><div class="v">${concluidas}</div><div class="l">✅ Operações concluídas</div></div>
+      <div class="kpi"><div class="v" style="color:${canceladas?'var(--err)':'var(--text)'}">${canceladas}</div><div class="l">✕ Operações canceladas</div></div>
+      <div class="kpi"><div class="v" style="font-size:22px">${moeda(vgv)}</div><div class="l">💰 VGV (valor geral de venda)</div></div>
+      <div class="kpi"><div class="v" style="font-size:22px">${moeda(totalFinanciado)}</div><div class="l">🏦 Total financiado</div></div>
+      <div class="kpi"><div class="v" style="font-size:22px">${moeda(ticketMedio)}</div><div class="l">📊 Ticket médio</div></div>
+      <div class="kpi"><div class="v" style="font-size:20px">${moeda(comissaoPrevista)}</div><div class="l">Comissão prevista</div></div>
+      <div class="kpi"><div class="v" style="font-size:20px;color:var(--ok)">${moeda(comissaoRecebida)}</div><div class="l">Comissão recebida</div></div>
+    </div>
+    ${Object.keys(porBanco).length ? `<div class="card" style="margin-bottom:16px">
+      <h2 style="font-size:14px">Operações por banco</h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">${Object.entries(porBanco).sort((a,b)=>b[1]-a[1]).map(([b,q])=>`<span class="tag RECEBIDO">${esc(b)}: <b>${q}</b></span>`).join('')}</div>
+    </div>` : ''}
     <div class="card filters">
       <div style="flex:1"><label>Buscar (nome, CPF, unidade ou empreendimento)</label><input id="repBusca" value="${esc(state.repasseBusca)}" placeholder="Digite para buscar..."></div>
       <button id="btnRepBuscar">Buscar</button>
@@ -3858,53 +3911,111 @@ async function renderRepasse() {
   const bRL = document.getElementById('btnRepLimpar');
   if (bRL) bRL.onclick = () => { state.repasseBusca = ''; renderRepasse(); };
 
+  const TIPO_COOBRIGADO = { conjuge: 'Cônjuge', composicao_renda: 'Composição de renda', fiador: 'Fiador', procurador: 'Procurador' };
   async function openCliente(id) {
-    let c = { status: 'PROPOSTA' }, eventos = [];
+    let c = { status: 'PROPOSTA' }, eventos = [], coobrigados = [];
     if (id) {
-      const [cc, ev] = await Promise.all([
+      const [cc, ev, co] = await Promise.all([
         sb.from('clientes').select('*').eq('id', id).single(),
         sb.from('eventos_repasse').select('*').eq('cliente_id', id).order('data'),
+        sb.from('clientes_coobrigados').select('*').eq('cliente_id', id).order('criado_em'),
       ]);
-      c = cc.data; eventos = ev.data || [];
+      c = cc.data; eventos = ev.data || []; coobrigados = co.data || [];
     }
     const L = state.lookups;
     const ro = state.role === 'leitura' ? 'disabled' : '';
+    const dt = (v) => v ? String(v).slice(0,10) : '';
     const div = document.createElement('div');
     div.className = 'modal-bg';
-    div.innerHTML = `<div class="modal">
+    div.innerHTML = `<div class="modal" style="width:820px">
       <h2>${id ? '🏦 ' + esc(c.nome) : '🏦 Novo cliente'}</h2>
+      <h2 style="font-size:13px;color:var(--muted);margin-top:0">Dados pessoais</h2>
       <div class="grid2">
-        <div><label>Nome</label><input id="cNome" value="${esc(c.nome)}" ${ro}></div>
+        <div><label>Nome completo</label><input id="cNome" value="${esc(c.nome)}" ${ro}></div>
         <div><label>CPF</label><input id="cCpf" value="${esc(c.cpf)}" ${ro}></div>
         <div><label>RG</label><input id="cRg" value="${esc(c.rg)}" ${ro}></div>
+        <div><label>Órgão emissor</label><input id="cRgOrgao" value="${esc(c.rg_orgao_emissor)}" ${ro}></div>
+        <div><label>Data de nascimento</label><input id="cNasc" type="date" value="${dt(c.data_nascimento)}" ${ro}></div>
         <div><label>Estado civil</label><input id="cEc" value="${esc(c.estado_civil)}" ${ro}></div>
+        <div><label>Nacionalidade</label><input id="cNac" value="${esc(c.nacionalidade)}" placeholder="Brasileira" ${ro}></div>
+        <div><label>Profissão</label><input id="cProf" value="${esc(c.profissao)}" ${ro}></div>
         <div><label>Renda (R$)</label><input id="cRenda" type="number" value="${c.renda ?? ''}" ${ro}></div>
-        <div><label>Telefone 1</label><input id="cTel1" value="${esc(c.telefone1)}" ${ro}></div>
-        <div><label>Telefone 2</label><input id="cTel2" value="${esc(c.telefone2)}" ${ro}></div>
         <div><label>E-mail</label><input id="cEmail" value="${esc(c.email)}" ${ro}></div>
+        <div><label>Celular</label><input id="cCelular" value="${esc(c.celular)}" ${ro}></div>
+        <div><label>Telefone</label><input id="cTel1" value="${esc(c.telefone1)}" ${ro}></div>
+        <div style="display:flex;align-items:end"><label class="chk-inline" style="text-transform:none;font-weight:500;color:var(--text)">
+          <input type="checkbox" id="cPep" ${c.pep?'checked':''} ${ro}> Pessoa Politicamente Exposta (PEP)</label></div>
+      </div>
+      <div class="grid2" style="margin-top:6px">
         <div style="grid-column:1/-1"><label>Endereço</label><input id="cEnd" value="${esc(c.endereco)}" style="width:100%" ${ro}></div>
-        <div><label>Banco</label><input id="cBanco" value="${esc(c.banco)}" ${ro}></div>
-        <div><label>Correspondente</label><input id="cCorr" value="${esc(c.correspondente)}" ${ro}></div>
+        <div><label>CEP</label><input id="cCep" value="${esc(c.cep)}" ${ro}></div>
+        <div><label>Cidade</label><input id="cCidade" value="${esc(c.cidade)}" ${ro}></div>
+        <div><label>Estado</label><input id="cEstado" value="${esc(c.estado)}" placeholder="SP" ${ro}></div>
+      </div>
+
+      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">Dados da operação</h2>
+      <div class="grid2">
         <div><label>Empreendimento</label><select id="cEmp" ${ro}><option value=""></option>
           ${L.empreendimentos.map(e=>`<option value="${e.id}" ${c.empreendimento_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
         <div><label>Unidade</label><input id="cUnid" value="${esc(c.unidade)}" ${ro}></div>
+        <div><label>Incorporadora</label><select id="cIncorp" ${ro}><option value=""></option>
+          ${L.empreendedoras.map(e=>`<option value="${e.id}" ${c.incorporadora_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
         <div><label>Imobiliária</label><input id="cImob" value="${esc(c.imobiliaria)}" ${ro}></div>
         <div><label>Corretor</label><input id="cCorretor" value="${esc(c.corretor)}" ${ro}></div>
-        <div><label>Responsável</label><select id="cResp" ${ro}><option value=""></option>
+        <div><label>Analista responsável</label><select id="cResp" ${ro}><option value=""></option>
           ${L.analistas.map(a=>`<option value="${a.id}" ${c.responsavel_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select></div>
+        <div><label>Banco</label><select id="cBanco" ${ro}><option value=""></option>
+          ${BANCOS_REPASSE.map(b=>`<option ${c.banco===b?'selected':''}>${b}</option>`).join('')}</select></div>
+        <div><label>Correspondente</label><input id="cCorr" value="${esc(c.correspondente)}" ${ro}></div>
         <div><label>Status</label><select id="cStatus" ${ro}>
           ${STATUS_REP.map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div style="grid-column:1/-1"><label>Observações</label><input id="cObs" value="${esc(c.obs)}" style="width:100%" ${ro}></div>
+        <div><label>Nº da proposta bancária</label><input id="cNumProp" value="${esc(c.numero_proposta)}" ${ro}></div>
+        <div><label>Nº do contrato bancário</label><input id="cNumContr" value="${esc(c.numero_contrato_bancario)}" ${ro}></div>
+        <div><label>Nº da operação</label><input id="cNumOp" value="${esc(c.numero_operacao)}" ${ro}></div>
+        <div><label>Data de entrada</label><input id="cDataEntrada" type="date" value="${dt(c.data_entrada)}" ${ro}></div>
+        <div><label>Previsão de conclusão</label><input id="cPrevConcl" type="date" value="${dt(c.previsao_conclusao)}" ${ro}></div>
+        <div><label>Data da conclusão</label><input id="cDataConcl" type="date" value="${dt(c.data_conclusao)}" ${ro}></div>
       </div>
+
+      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">Valores</h2>
+      <div class="grid2">
+        <div><label>Valor da compra e venda</label><input id="cVgv" type="number" step="0.01" value="${c.valor_compra_venda ?? ''}" ${ro}></div>
+        <div><label>Valor de entrada</label><input id="cVEntrada" type="number" step="0.01" value="${c.valor_entrada ?? ''}" ${ro}></div>
+        <div><label>Valor FGTS</label><input id="cVFgts" type="number" step="0.01" value="${c.valor_fgts ?? ''}" ${ro}></div>
+        <div><label>Valor financiado</label><input id="cVFinanciado" type="number" step="0.01" value="${c.valor_financiado ?? ''}" ${ro}></div>
+        <div><label>Valor do subsídio</label><input id="cVSubsidio" type="number" step="0.01" value="${c.valor_subsidio ?? ''}" ${ro}></div>
+        <div><label>Recursos próprios</label><input id="cVRecProprios" type="number" step="0.01" value="${c.valor_recursos_proprios ?? ''}" ${ro}></div>
+        <div><label>% de comissão</label><input id="cPctComissao" type="number" step="0.01" value="${c.percentual_comissao ?? ''}" ${ro}></div>
+        <div><label>Comissão prevista (R$)</label><input id="cComissaoPrev" type="number" step="0.01" value="${c.valor_comissao_previsto ?? ''}" ${ro}></div>
+        <div><label>Comissão recebida (R$)</label><input id="cComissaoReceb" type="number" step="0.01" value="${c.valor_comissao_recebido ?? ''}" ${ro}></div>
+      </div>
+      <div class="grid2" style="margin-top:6px"><div style="grid-column:1/-1"><label>Observações</label><input id="cObs" value="${esc(c.obs)}" style="width:100%" ${ro}></div></div>
+
       ${id ? `
-      <h2 style="margin-top:16px">🕓 Timeline</h2>
+      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">👥 Coobrigados (cônjuge, composição de renda, fiador, procurador)</h2>
+      <div id="coobList" class="anexo-list">${coobrigados.map(co => `
+        <div class="anexo-item"><span style="flex:1"><b>${esc(TIPO_COOBRIGADO[co.tipo]||co.tipo)}</b> — ${esc(co.nome)}${co.cpf?' · '+esc(co.cpf):''}${co.renda?' · R$ '+Number(co.renda).toLocaleString('pt-BR'):''}</span>
+          ${state.role!=='leitura' ? `<button class="ghost coobDel" data-id="${co.id}">✕</button>` : ''}</div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum coobrigado cadastrado.</p>'}</div>
+      ${state.role !== 'leitura' ? `<div class="grid2" style="margin-top:8px">
+        <div><label>Tipo</label><select id="coobTipo">${Object.entries(TIPO_COOBRIGADO).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
+        <div><label>Nome</label><input id="coobNome"></div>
+        <div><label>CPF</label><input id="coobCpf"></div>
+        <div><label>Renda (opcional)</label><input id="coobRenda" type="number"></div>
+        <div style="grid-column:1/-1"><button id="btnAddCoob" class="ghost">+ Adicionar coobrigado</button></div>
+      </div>` : ''}
+
+      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">⛓️ Workflow do repasse</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Esteira com as 28 etapas, checklist documental e histórico completo ficam dentro do processo.</p>
+      <button id="btnAbrirWorkflow" class="ghost">Abrir workflow e checklist →</button>
+
+      <h2 style="margin-top:16px;font-size:13px;color:var(--muted)">🕓 Anotações rápidas</h2>
       <div class="timeline">${eventos.map(e => `
         <div class="tl-item"><div class="tl-dot"></div>
           <div><b>${new Date(e.data).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</b> — ${esc(e.evento)}
-          ${e.autor ? `<span style="color:var(--muted);font-size:11px"> · ${esc(e.autor)}</span>` : ''}</div></div>`).join('')}
+          ${e.autor ? `<span style="color:var(--muted);font-size:11px"> · ${esc(e.autor)}</span>` : ''}</div></div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhuma anotação ainda.</p>'}
       </div>
       ${state.role !== 'leitura' ? `<div style="display:flex;gap:8px;margin-top:8px">
-        <input id="cNovoEv" placeholder="Registrar evento manual (ex.: Documentação recebida)" style="flex:1">
+        <input id="cNovoEv" placeholder="Registrar anotação rápida" style="flex:1">
         <button id="cAddEv" class="ghost">Registrar</button>
       </div>` : ''}` : ''}
       <div style="display:flex;gap:8px;margin-top:14px;justify-content:end">
@@ -3922,17 +4033,67 @@ async function renderRepasse() {
       await sb.from('eventos_repasse').insert({ cliente_id: id, evento: $('cNovoEv').value.trim(), autor: state.session?.user?.email });
       div.remove(); openCliente(id);
     };
+    const btnAddCoob = $('btnAddCoob');
+    if (btnAddCoob) btnAddCoob.onclick = async () => {
+      const nome = $('coobNome').value.trim();
+      if (!nome) { $('cMsg').textContent = 'Informe o nome do coobrigado.'; return; }
+      const { error } = await sb.from('clientes_coobrigados').insert({
+        cliente_id: id, tipo: $('coobTipo').value, nome,
+        cpf: $('coobCpf').value || null, renda: $('coobRenda').value ? Number($('coobRenda').value) : null,
+      });
+      if (error) { $('cMsg').textContent = error.message; return; }
+      div.remove(); openCliente(id);
+    };
+    div.querySelectorAll('.coobDel').forEach(b => b.onclick = async () => {
+      await sb.from('clientes_coobrigados').delete().eq('id', b.dataset.id);
+      div.remove(); openCliente(id);
+    });
+    const btnWf = $('btnAbrirWorkflow');
+    if (btnWf) btnWf.onclick = async () => {
+      btnWf.disabled = true; btnWf.textContent = 'Abrindo...';
+      const { data: etapasRepasse } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo','repasse').eq('ativa',true).order('ordem');
+      let { data: processo } = await sb.from('esteira_processos').select('id').eq('cliente_id', id).eq('esteira_tipo','repasse').maybeSingle();
+      if (!processo) {
+        const primeira = etapasRepasse[0];
+        const { data: novo, error } = await sb.from('esteira_processos').insert({
+          titulo: c.nome, cliente_id: id, empreendimento_id: c.empreendimento_id || null, unidade: c.unidade || null,
+          esteira_tipo: 'repasse', etapa_atual_id: primeira.id, status: 'AGUARDANDO', analista_atual_id: c.responsavel_id || null,
+        }).select('id').single();
+        if (error) { $('cMsg').textContent = error.message; btnWf.disabled = false; btnWf.textContent = 'Abrir workflow e checklist →'; return; }
+        processo = novo;
+      }
+      div.remove();
+      openProcessoEsteira(processo.id, etapasRepasse);
+    };
     const save = $('cSave');
     if (save) save.onclick = async () => {
       const rec = {
         nome: $('cNome').value.trim(), cpf: $('cCpf').value || null, rg: $('cRg').value || null,
-        estado_civil: $('cEc').value || null, renda: $('cRenda').value ? Number($('cRenda').value) : null,
-        telefone1: $('cTel1').value || null, telefone2: $('cTel2').value || null,
+        rg_orgao_emissor: $('cRgOrgao').value || null, data_nascimento: $('cNasc').value || null,
+        estado_civil: $('cEc').value || null, nacionalidade: $('cNac').value || null, profissao: $('cProf').value || null,
+        renda: $('cRenda').value ? Number($('cRenda').value) : null,
+        telefone1: $('cTel1').value || null, celular: $('cCelular').value || null,
         email: $('cEmail').value || null, endereco: $('cEnd').value || null,
+        cep: $('cCep').value || null, cidade: $('cCidade').value || null, estado: $('cEstado').value || null,
+        pep: $('cPep').checked,
         banco: $('cBanco').value || null, correspondente: $('cCorr').value || null,
         empreendimento_id: $('cEmp').value || null, unidade: $('cUnid').value || null,
+        incorporadora_id: $('cIncorp').value || null,
         imobiliaria: $('cImob').value || null, corretor: $('cCorretor').value || null,
         responsavel_id: $('cResp').value || null, status: $('cStatus').value,
+        numero_proposta: $('cNumProp').value || null, numero_contrato_bancario: $('cNumContr').value || null,
+        numero_operacao: $('cNumOp').value || null,
+        data_entrada: $('cDataEntrada').value || null, previsao_conclusao: $('cPrevConcl').value || null,
+        data_conclusao: $('cDataConcl').value || null,
+        valor_compra_venda: $('cVgv').value ? Number($('cVgv').value) : null,
+        valor_entrada: $('cVEntrada').value ? Number($('cVEntrada').value) : null,
+        valor_fgts: $('cVFgts').value ? Number($('cVFgts').value) : null,
+        valor_financiado: $('cVFinanciado').value ? Number($('cVFinanciado').value) : null,
+        valor_subsidio: $('cVSubsidio').value ? Number($('cVSubsidio').value) : null,
+        valor_recursos_proprios: $('cVRecProprios').value ? Number($('cVRecProprios').value) : null,
+        percentual_comissao: $('cPctComissao').value ? Number($('cPctComissao').value) : null,
+        valor_comissao_previsto: $('cComissaoPrev').value ? Number($('cComissaoPrev').value) : null,
+        valor_comissao_recebido: $('cComissaoReceb').value ? Number($('cComissaoReceb').value) : null,
         obs: $('cObs').value || null,
       };
       if (!rec.nome) { $('cMsg').textContent = 'Informe o nome.'; return; }
