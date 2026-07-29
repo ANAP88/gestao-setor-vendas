@@ -34,6 +34,10 @@ vivia separada das outras, sem histórico central e sem controle de acesso.
   (admin/analista/leitura) aplicados no banco via RLS, não apenas escondidos na interface.
 - **Ambiente de teste isolado** — mudanças são validadas em um ambiente espelho antes de ir para
   produção, sem custo adicional de infraestrutura.
+- **Portal do Incorporador** — incorporadoras e loteadoras acompanham em tempo real os próprios
+  empreendimentos e processos (sem acesso ao restante do sistema interno), com identidade visual
+  própria (logo e cor) e conversa direta com a equipe por processo. Antes esse acompanhamento era
+  feito por e-mail e WhatsApp avulsos.
 
 ## Por que isso importa
 

@@ -149,7 +149,63 @@ Considerar na revisão de LGPD da empresa: retenção, anonimização em ambient
 registro de acesso. Há um "Modo Apresentação" na interface que anonimiza nomes de analistas
 para exibições em tela compartilhada.
 
+## Portal do Incorporador (acesso externo do cliente)
+
+Desde 2026-07, o sistema tem uma segunda porta de entrada, totalmente separada do sistema
+interno da equipe: o **Portal do Incorporador**, para as incorporadoras/loteadoras
+acompanharem os próprios processos.
+
+- **Acesso:** `/portal` na mesma URL do sistema (redirect configurado em `_redirects` para o
+  Netlify servir o SPA nessa rota). O parâmetro antigo `?portal` continua funcionando por
+  compatibilidade com links já enviados a clientes.
+- **Login e dados isolados:** perfil com `role = 'cliente'` em `perfis`, vinculado a uma
+  `empreendedora_id`. RLS garante que cada incorporadora só vê os próprios empreendimentos e
+  processos.
+- **Identidade visual por incorporadora:** logo, capa e cor secundária ficam em
+  `empreendedoras.logo_path/capa_path/cor_secundaria`, arquivos no bucket de Storage
+  `empreendimentos-identidade`. Uma incorporadora com vários empreendimentos sobe a marca uma
+  vez só (nível empreendedora, não empreendimento).
+- **Controle de quais empreendimentos aparecem no portal:** campo `empreendimentos.portal_ativo`
+  (boolean), gerenciado em Administração → Portal do Cliente → Empreendimentos.
+- **Conversa com o cliente:** tabela `processo_mensagens` — troca de mensagens por processo,
+  visível dos dois lados (equipe e cliente). Mensagem não lida do cliente dispara um aviso
+  visual piscante no sistema interno (não fica só no card discreto da Esteira).
+- Menu interno separado em duas administrações distintas: **Administração** (usuários e
+  cadastro da própria equipe) e **Portal do Cliente** (usuários do portal, empreendimentos com
+  acesso, fluxo do portal) — propositalmente não misturados.
+
+## Aprovação de exclusão de apontamentos de qualidade
+
+Analistas não excluem um apontamento de retrabalho diretamente — abrem uma solicitação com
+motivo (`apontamento_exclusao_solicitacoes`), e um admin aprova ou rejeita em
+Qualidade/Retrabalho. Fica registrado quem decidiu e quando.
+
+## Situação do ambiente de staging (achados de uma varredura em 2026-07-29)
+
+O **ambiente de produção foi testado e está saudável**. O ambiente de **staging** (schema
+`staging`, mesmo projeto Supabase) tem lacunas de configuração — provavelmente porque o
+espelhamento diário (`pg_cron`) copia dados mas não recria certas constraints/views/grants.
+Isso não afeta produção, mas limita o que dá pra validar em staging antes de publicar:
+
+| Gap encontrado | Efeito | Onde aparece |
+|---|---|---|
+| Faltam foreign keys `demandas → analistas/empreendedoras/empreendimentos/atividades` no schema staging | Tela de Produção (Pipeline) mostra sempre "0 registros", mesmo com dados na tabela — a consulta com joins falha (`PGRST200`) e o erro é engolido silenciosamente pelo código (`rows||[]`) | Menu ⚙️ Operação → Produção |
+| Falta FK `esteira_processos → analistas` no staging | Nenhum efeito visível — o código já busca o nome do analista separadamente (lookup manual), não via join | Esteira (não quebra, só é bom saber) |
+| Faltam várias views analíticas no staging: `ranking_analistas`, `producao_diaria`, `producao_analista_dia`, `fds_solo`, `implantacao_painel`, `alerta_hoje`, `insights_sla`, `evolucao_analista_mes`, `tempo_por_atividade`, `mix_atividade_analista`, `empreendedora_mes`, `top_empreendedoras`, `volume_atividades`, `cartorios`, `prefeituras`, `metas_fds` (404 em todas) | Dashboard (ranking e alguns gráficos), Insights, Analytics, Produtos em Implantação e parte de Operações aparecem "zerados" em staging sem mensagem de erro — não é falta de dado, é view/tabela inexistente | Dashboard, Insights, Analytics, Implantação, Operações |
+| Falta `GRANT SELECT` para o papel `authenticated` em `staging.apontamento_exclusao_solicitacoes` | Erro 403 ao carregar Qualidade/Retrabalho para quem tenta ver solicitações de exclusão pendentes | Qualidade / Retrabalho |
+
+**Recomendação:** ao recriar/atualizar o ambiente de staging, ou (2) espelhar a estrutura completa (`pg_dump --schema-only` do `public` para dentro de `staging`) em vez de só os dados, ou (1) rodar um script que recrie as FKs, views e grants faltantes a partir do schema `public`. Nenhuma ação é necessária em produção.
+
+Páginas testadas e sem erro de JavaScript no console, tanto com dado quanto vazias: Início,
+Dashboard, Produção(*), Esteira, Qualidade(*), Chamados, Operações(*), Repasse, Biblioteca do
+Repasse, Fluxograma, Follow-up, Integrações, Automações, Documentos, Metas, Analytics(*),
+Insights(*), Implantação(*), Fechamento, Escala, Arquivos, Usuários, Cadastro operacional,
+Usuários do portal, Empreendimentos (portal), Fluxo do portal. (*) = afetadas pelas lacunas de
+staging acima, mas sem crash — só dado zerado/ausente.
+
 ## Contato / histórico
 
 Todo o histórico de decisões técnicas está nas mensagens de commit (`git log`).
 As migrações do banco estão em ordem cronológica e descrevem cada mudança de estrutura.
+Migrações aplicadas manualmente (fora do fluxo automático) ficam documentadas em `migrations/`
+na raiz do repositório, com o SQL exato usado.
