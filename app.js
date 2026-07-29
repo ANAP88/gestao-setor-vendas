@@ -4711,7 +4711,7 @@ async function init() {
   state.session = session;
   // garante perfil e carrega nível de acesso
   await sb.from('perfis').upsert({ user_id: session.user.id, email: session.user.email }, { onConflict: 'user_id', ignoreDuplicates: true });
-  const { data: perfil } = await sb.from('perfis').select('role,nome,ativo,analista_id,nome_completo,funcao,cadastro_completo,empreendedora_id').eq('user_id', session.user.id).single();
+  const { data: perfil } = await sb.from('perfis').select('role,nome,email,ativo,analista_id,nome_completo,funcao,cadastro_completo,empreendedora_id').eq('user_id', session.user.id).single();
   if (perfil?.ativo === false) {
     await sb.auth.signOut();
     renderLogin('Sua conta foi desativada. Fale com o administrador do sistema.');
@@ -4769,22 +4769,31 @@ function renderCompletarCadastro(session, perfil) {
 // Incorporadoras/loteadoras acompanham seus empreendimentos e processos em tempo real,
 // sem acesso ao sistema interno da equipe. Escopo de dados garantido por RLS (perfis.empreendedora_id).
 let portalCanal = null;
-function portalShell(perfil, inner, marca) {
+function portalShell(perfil, inner, marca, topo) {
   if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
   const logoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
-  const tituloHtml = marca
-    ? `<h1>${logoUrl ? `<img src="${logoUrl}" style="height:26px;max-width:110px;object-fit:contain;margin-right:8px;vertical-align:middle">` : `<span class="logo">${ICONE_PREDIO}</span>`}NEO SERVICE <span style="color:var(--muted);font-weight:400">| ${esc(marca.nome)}</span></h1>`
-    : `<h1><span class="logo">${ICONE_PREDIO}</span>Portal do Cliente</h1>`;
+  const nome = perfil.nome_completo || perfil.nome || perfil.email || '';
+  const iniciais = nome ? nome.trim().charAt(0).toUpperCase() : '?';
   app.innerHTML = `
-  <div style="min-height:100vh;background:var(--bg)${marca?.cor_secundaria ? `;--accent2:${esc(marca.cor_secundaria)}` : ''}">
-    <header style="position:sticky;top:0;z-index:10">
-      ${tituloHtml}
-      <span class="spacer"></span>
-      <span style="color:var(--muted);font-size:13px;margin-right:14px">${esc(perfil.nome_completo || perfil.nome || '')}</span>
-      <button id="pcSair" class="ghost">Sair</button>
-    </header>
-    ${marca ? `<p style="color:var(--muted);font-size:12.5px;padding:10px 20px 0">Acompanhamento exclusivo da sua operação.</p>` : ''}
-    <main>${inner}</main>
+  <div class="portal-shell"${marca?.cor_secundaria ? ` style="--accent2:${esc(marca.cor_secundaria)}"` : ''}>
+    <aside class="portal-sidebar">
+      <div class="portal-sidebar-brand">
+        ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<span class="logo" style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">${ICONE_PREDIO}</span>`}
+        <div class="txt"><b>NEO SERVICE</b><small>${marca ? esc(marca.nome) : 'Portal do Cliente'}</small></div>
+      </div>
+      <button class="portal-nav-item active">🏠 Meus empreendimentos</button>
+      <div class="portal-sidebar-foot">
+        <div class="who">👤 ${esc(nome)}</div>
+        <button id="pcSair">Sair</button>
+      </div>
+    </aside>
+    <div class="portal-main">
+      <div class="portal-topbar">
+        <h1>${esc(topo?.titulo || 'Olá, ' + (nome.split(' ')[0] || '') + '!')}</h1>
+        <p>${esc(topo?.subtitulo || 'Acompanhamento exclusivo da sua operação.')}</p>
+      </div>
+      <div class="portal-content">${inner}</div>
+    </div>
   </div>`;
   document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); renderLogin(); };
 }
@@ -4796,8 +4805,18 @@ function portalRealtime(tabelas, aoMudar) {
   portalCanal.subscribe();
 }
 
+// marca (logo/cor) da incorporadora do cliente logado — usada no cabeçalho de todas as telas do Portal
+async function marcaDoCliente(perfil) {
+  if (!perfil?.empreendedora_id) return null;
+  const { data } = await sb.from('empreendedoras').select('nome,logo_path,cor_secundaria').eq('id', perfil.empreendedora_id).single();
+  return data || null;
+}
+
 async function renderPortalCliente(perfil) {
-  const { data: emps } = await sb.from('empreendimentos').select('id,nome').order('nome');
+  const [{ data: emps }, marca] = await Promise.all([
+    sb.from('empreendimentos').select('id,nome').order('nome'),
+    marcaDoCliente(perfil),
+  ]);
   const empIds = (emps||[]).map(e=>e.id);
   const [{ data: processos }, { data: demandasAtivas }] = await Promise.all([
     sb.from('esteira_processos').select('id,titulo,status,empreendimento_id').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
@@ -4805,30 +4824,42 @@ async function renderPortalCliente(perfil) {
   ]);
   const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
   const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
+  const procPorEmp = {};
+  (processos||[]).forEach(p => {
+    const r = procPorEmp[p.empreendimento_id] = procPorEmp[p.empreendimento_id] || { abertos: 0 };
+    if (p.status !== 'CONCLUIDO') r.abertos++;
+  });
   portalShell(perfil, `
-    <div class="kpis" style="margin-bottom:20px">
-      <div class="kpi"><div class="v">${(emps||[]).length}</div><div class="l">🏗️ Empreendimentos ativos</div></div>
-      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">⏳ Processos em andamento</div></div>
-      <div class="kpi"><div class="v">${concluidos}</div><div class="l">✅ Processos concluídos</div></div>
-      <div class="kpi"><div class="v">${(demandasAtivas||[]).length}</div><div class="l">📋 Total de processos na produção</div></div>
+    <div class="kpis" style="margin-bottom:22px">
+      <div class="kpi"><div class="v">${(emps||[]).length}</div><div class="l">Empreendimentos ativos</div></div>
+      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">Processos em andamento</div></div>
+      <div class="kpi"><div class="v">${concluidos}</div><div class="l">Processos concluídos</div></div>
+      <div class="kpi"><div class="v">${(demandasAtivas||[]).length}</div><div class="l">Total na produção</div></div>
     </div>
-    <h2 style="font-size:15px;margin-bottom:12px">🏗️ Seus empreendimentos</h2>
+    <h2 style="font-size:15px;margin-bottom:12px">Seus empreendimentos</h2>
     <div class="portal-grid">${(emps||[]).map(e => `
-      <div class="portal-card" data-id="${e.id}"><b>${esc(e.nome)}</b><span class="arrow">→</span></div>`).join('')
-      || '<p style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</p>'}</div>`);
+      <div class="portal-card" data-id="${e.id}">
+        <div style="min-width:0">
+          <b>${esc(e.nome)}</b>
+          <div style="color:var(--muted);font-size:12px;margin-top:3px">${procPorEmp[e.id]?.abertos ? procPorEmp[e.id].abertos + ' em andamento' : 'Sem processo em aberto'}</div>
+        </div>
+        <span class="arrow">→</span>
+      </div>`).join('')
+      || '<p style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</p>'}</div>`,
+    marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! 👋`,
+             subtitulo: 'Aqui está o resumo do andamento dos seus processos.' });
   document.querySelectorAll('.portal-card').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalCliente(perfil));
 }
 
 async function renderPortalEmpreendimento(perfil, empId) {
   const [{ data: emp }, { data: processos }] = await Promise.all([
-    sb.from('empreendimentos').select('id,nome,empreendedora_id,empreendedoras(nome,logo_path,cor_secundaria)').eq('id', empId).single(),
+    sb.from('empreendimentos').select('id,nome,empreendedora_id').eq('id', empId).single(),
     sb.from('esteira_processos').select('*').eq('empreendimento_id', empId).order('criado_em', { ascending: false }),
   ]);
-  const marca = emp?.empreendedoras || null;
+  const marca = await marcaDoCliente(perfil);
   portalShell(perfil, `
     <button id="pcVoltar" class="ghost" style="margin-bottom:16px">← Todos os empreendimentos</button>
-    <h2 style="font-size:16px;margin-bottom:14px">🏗️ ${esc(emp?.nome)}</h2>
     ${(processos||[]).map(p => `
       <div class="portal-proc-card">
         <div><b>${esc(p.titulo)}</b><div class="portal-proc-meta">${p.unidade?`Unidade ${esc(p.unidade)}`:'Sem unidade informada'}</div></div>
@@ -4836,20 +4867,20 @@ async function renderPortalEmpreendimento(perfil, empId) {
           <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${esc(p.status)}</span>
           <button class="pcAbrir" data-id="${p.id}">Acompanhar →</button>
         </div>
-      </div>`).join('') || '<p style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</p>'}`, marca);
+      </div>`).join('') || '<p style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</p>'}`,
+    marca, { titulo: emp?.nome || 'Empreendimento', subtitulo: 'Acompanhe abaixo cada processo deste empreendimento.' });
   document.getElementById('pcVoltar').onclick = () => renderPortalCliente(perfil);
   document.querySelectorAll('.pcAbrir').forEach(b => b.onclick = () => renderPortalProcesso(perfil, b.dataset.id, empId));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalEmpreendimento(perfil, empId));
 }
 
 async function renderPortalProcesso(perfil, processoId, empId) {
-  const [{ data: p }, { data: historico }, { data: validacoes }, { data: emp }] = await Promise.all([
-    sb.from('esteira_processos').select('*, analistas(nome)').eq('id', processoId).single(),
+  const [{ data: p }, { data: historico }, { data: validacoes }, marca] = await Promise.all([
+    sb.from('esteira_processos').select('*').eq('id', processoId).single(),
     sb.from('esteira_historico').select('*').eq('processo_id', processoId).order('criado_em', { ascending: false }),
     sb.from('esteira_validacoes').select('*').eq('processo_id', processoId).order('criado_em'),
-    sb.from('empreendimentos').select('empreendedoras(nome,logo_path,cor_secundaria)').eq('id', empId).single(),
+    marcaDoCliente(perfil),
   ]);
-  const marca = emp?.empreendedoras || null;
   if (!p) { renderPortalEmpreendimento(perfil, empId); return; }
   const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', p.esteira_tipo).eq('ativa', true).order('ordem');
   const etapaAtualIdx = (etapas||[]).findIndex(e => e.id === p.etapa_atual_id);
@@ -4875,9 +4906,8 @@ async function renderPortalProcesso(perfil, processoId, empId) {
   portalShell(perfil, `
     <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← ${esc(empNome)}</button>
     <div class="card" style="margin-bottom:14px">
-      <h2>${esc(p.titulo)}</h2>
-      <p style="color:var(--muted);font-size:13px">Unidade ${esc(p.unidade)||'—'} · Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}">${esc(p.status)}</span>
-        ${p.analistas?.nome ? ` · Responsável atual: ${esc(p.analistas.nome)}` : ''}</p>
+      <p style="color:var(--muted);font-size:13px">Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}">${esc(p.status)}</span>
+        </p>
     </div>
     <div class="card" style="margin-bottom:14px">
       <h2 style="font-size:14px;margin-bottom:16px">Andamento</h2>
@@ -4918,7 +4948,7 @@ async function renderPortalProcesso(perfil, processoId, empId) {
         <div class="tl-item"><div class="tl-dot"></div>
           <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}</div></div>`).join('') || '<p style="color:var(--muted);font-size:13px">Nenhuma movimentação registrada ainda.</p>'}
       </div>
-    </div>`, marca);
+    </div>`, marca, { titulo: p.titulo, subtitulo: `${empNome}${p.unidade ? ' · Unidade ' + p.unidade : ''}` });
   document.getElementById('pcVoltar').onclick = () => renderPortalEmpreendimento(perfil, empId);
   const chatMsgsEl = document.getElementById('pcChatMsgs');
   if (chatMsgsEl) chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
