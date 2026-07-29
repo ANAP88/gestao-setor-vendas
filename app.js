@@ -3391,10 +3391,12 @@ const ESTEIRA_TIPOS = [
 ];
 async function renderEsteira() {
   if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
-  const [{ data: etapas }, { data: processos }] = await Promise.all([
+  const [{ data: etapas }, { data: processos }, { data: naoLidas }] = await Promise.all([
     sb.from('etapas_esteira').select('*').eq('ativa', true).eq('esteira_tipo', state.esteiraTipo).order('ordem'),
     sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
+    sb.from('processo_mensagens').select('processo_id').eq('autor_tipo', 'cliente').eq('lida', false),
   ]);
+  const processosComAviso = new Set((naoLidas||[]).map(m => m.processo_id));
   if (!state.esteiraFiltro) state.esteiraFiltro = { busca:'', analista:'', prioridade:'' };
   const ef = state.esteiraFiltro;
   const processosFiltrados = (processos || []).filter(p => {
@@ -3457,7 +3459,7 @@ async function renderEsteira() {
           <div class="esteira-cards">
             ${(porEtapa[et.id] || []).map(p => `
               <div class="esteira-card ${p.prioridade==='URGENTE'?'urgente':p.prioridade==='ALTA'?'alta':''}" data-id="${p.id}">
-                <div class="ec-title">${esc(p.titulo)}</div>
+                <div class="ec-title">${processosComAviso.has(p.id) ? '<span class="tag ERRO" title="Cliente aguardando retorno">💬 cliente</span> ' : ''}${esc(p.titulo)}</div>
                 ${p.clientes?.nome ? `<div class="ec-sub">👤 ${esc(p.clientes.nome)}</div>` : ''}
                 ${p.unidade ? `<div class="ec-sub">🏠 ${esc(p.unidade)}</div>` : ''}
                 <div class="ec-foot">
@@ -3596,14 +3598,17 @@ async function openHistoricoEsteira() {
 const CHECKLIST_REPASSE_PADRAO = ['RG','CPF','Certidão de nascimento','Certidão de casamento','Holerites',
   'Extrato bancário','Declaração de IR','Comprovante de residência','Carteira de Trabalho','CNIS','FGTS','Procuração'];
 async function openProcessoEsteira(id, etapas) {
-  let p = null, historico = [], anexos = [], transicoes = [], checklist = [];
+  let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [];
   if (id) {
-    const [pp, hh, aa] = await Promise.all([
+    const [pp, hh, aa, mm] = await Promise.all([
       sb.from('esteira_processos').select('*, analistas(nome), clientes(nome)').eq('id', id).single(),
       sb.from('esteira_historico').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
       sb.from('esteira_anexos').select('*').eq('processo_id', id).order('criado_em', { ascending: false }),
+      sb.from('processo_mensagens').select('*').eq('processo_id', id).order('criado_em'),
     ]);
-    p = pp.data; historico = hh.data || []; anexos = aa.data || [];
+    p = pp.data; historico = hh.data || []; anexos = aa.data || []; mensagensProc = mm.data || [];
+    const naoLidas = mensagensProc.filter(m => m.autor_tipo === 'cliente' && !m.lida);
+    if (naoLidas.length) await sb.from('processo_mensagens').update({ lida: true }).eq('processo_id', id).eq('autor_tipo', 'cliente').eq('lida', false);
     const { data: tt } = await sb.from('esteira_transicoes').select('*').eq('etapa_origem_id', p.etapa_atual_id).order('ordem_botao');
     transicoes = tt || [];
     if (p?.esteira_tipo === 'repasse') {
@@ -3668,6 +3673,18 @@ async function openProcessoEsteira(id, etapas) {
         <span style="flex:1">${esc(it.item)}${it.responsavel?` <span style="color:var(--muted2);font-size:11px">· ${esc(it.responsavel)}</span>`:''}${it.validade?` <span style="color:var(--muted2);font-size:11px">· validade ${fmtDt(it.validade)}</span>`:''}</span>
       </div>`).join('')}</div>
     ` : ''}
+    <h2 style="margin-top:18px">💬 Conversa com o cliente (Portal)</h2>
+    <div id="epChatMsgs" style="max-height:220px;overflow-y:auto;margin-bottom:10px">${mensagensProc.map(m => `
+      <div style="display:flex;justify-content:${m.autor_tipo==='equipe'?'flex-end':'flex-start'};margin-bottom:8px">
+        <div style="max-width:80%;background:${m.autor_tipo==='equipe'?'var(--accent2)':'var(--panel2)'};color:${m.autor_tipo==='equipe'?'#fff':'var(--text)'};border-radius:12px;padding:8px 12px;font-size:13px">
+          <div>${esc(m.mensagem)}</div>
+          <div style="font-size:10.5px;opacity:.75;margin-top:3px">${m.autor_tipo==='equipe'?'Equipe':'Cliente'}${m.autor_email?' · '+esc(m.autor_email):''} · ${fmtDt(m.criado_em)}</div>
+        </div>
+      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhuma mensagem do cliente ainda.</p>'}</div>
+    ${!ro ? `<div style="display:flex;gap:8px;margin-bottom:10px">
+      <input id="epChatInput" placeholder="Responder ao cliente..." style="flex:1">
+      <button id="epChatEnviar" class="ghost">Enviar</button>
+    </div>` : ''}
     <h2 style="margin-top:18px">🕓 Histórico do processo</h2>
     <div class="timeline">${historico.map(h => `
       <div class="tl-item"><div class="tl-dot"></div>
@@ -3698,6 +3715,17 @@ async function openProcessoEsteira(id, etapas) {
   div.querySelectorAll('.chk-item').forEach(c => c.onchange = async () => {
     await sb.from('repasse_checklist').update({ ok: c.checked, responsavel: c.checked ? state.session?.user?.email : null }).eq('id', c.dataset.id);
   });
+  const chatMsgsEl2 = $('epChatMsgs');
+  if (chatMsgsEl2) chatMsgsEl2.scrollTop = chatMsgsEl2.scrollHeight;
+  const btnChatEnviar = $('epChatEnviar');
+  if (btnChatEnviar) btnChatEnviar.onclick = async () => {
+    const texto = $('epChatInput').value.trim();
+    if (!texto) return;
+    const { error } = await sb.from('processo_mensagens').insert({
+      processo_id: id, autor_tipo: 'equipe', autor_email: state.session?.user?.email, mensagem: texto,
+    });
+    if (!error) { div.remove(); openProcessoEsteira(id, etapas); }
+  };
 
   const coletar = () => ({
     titulo: $('epTitulo').value.trim(),
@@ -4621,6 +4649,7 @@ async function renderPortalProcesso(perfil, processoId, empId) {
     return { e, i, concluida, atual, v, tempoTxt };
   });
   const empNome = (await sb.from('empreendimentos').select('nome').eq('id', empId).single()).data?.nome || 'Empreendimento';
+  const { data: mensagens } = await sb.from('processo_mensagens').select('*').eq('processo_id', processoId).order('criado_em');
   portalShell(perfil, `
     <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← ${esc(empNome)}</button>
     <div class="card" style="margin-bottom:14px">
@@ -4646,6 +4675,21 @@ async function renderPortalProcesso(perfil, processoId, empId) {
       </div>
       <p style="color:var(--muted2);font-size:11px;margin-top:14px">SLA por etapa ainda não configurado — assim que houver um prazo padrão definido para cada etapa, aparece aqui também.</p>
     </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2 style="font-size:14px">💬 Falar com a equipe</h2>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px">Precisa cobrar um retorno? Manda aqui — quem está com o processo na esteira recebe o aviso.</p>
+      <div id="pcChatMsgs" style="max-height:280px;overflow-y:auto;margin-bottom:10px">${(mensagens||[]).map(m => `
+        <div style="display:flex;justify-content:${m.autor_tipo==='cliente'?'flex-end':'flex-start'};margin-bottom:8px">
+          <div style="max-width:80%;background:${m.autor_tipo==='cliente'?'var(--accent)':'var(--panel2)'};color:${m.autor_tipo==='cliente'?'#fff':'var(--text)'};border-radius:12px;padding:8px 12px;font-size:13px">
+            <div>${esc(m.mensagem)}</div>
+            <div style="font-size:10.5px;opacity:.75;margin-top:3px">${m.autor_tipo==='cliente'?'Você':'Equipe'} · ${fmtDt(m.criado_em)}</div>
+          </div>
+        </div>`).join('') || '<p style="color:var(--muted);font-size:13px">Nenhuma mensagem ainda.</p>'}</div>
+      <div style="display:flex;gap:8px">
+        <input id="pcChatInput" placeholder="Escreva sua mensagem..." style="flex:1">
+        <button id="pcChatEnviar">Enviar</button>
+      </div>
+    </div>
     <div class="card">
       <h2 style="font-size:14px">🕓 Histórico completo</h2>
       <div class="timeline">${(historico||[]).map(h => `
@@ -4654,7 +4698,19 @@ async function renderPortalProcesso(perfil, processoId, empId) {
       </div>
     </div>`);
   document.getElementById('pcVoltar').onclick = () => renderPortalEmpreendimento(perfil, empId);
-  portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalProcesso(perfil, processoId, empId));
+  const chatMsgsEl = document.getElementById('pcChatMsgs');
+  if (chatMsgsEl) chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
+  document.getElementById('pcChatEnviar').onclick = async () => {
+    const inp = document.getElementById('pcChatInput');
+    const texto = inp.value.trim();
+    if (!texto) return;
+    const { error } = await sb.from('processo_mensagens').insert({
+      processo_id: processoId, autor_tipo: 'cliente', autor_email: state.session?.user?.email, mensagem: texto,
+    });
+    if (!error) renderPortalProcesso(perfil, processoId, empId);
+  };
+  document.getElementById('pcChatInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('pcChatEnviar').click(); });
+  portalRealtime(['esteira_processos','esteira_historico','processo_mensagens'], () => renderPortalProcesso(perfil, processoId, empId));
 }
 
 init();
