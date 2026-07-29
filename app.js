@@ -5,8 +5,8 @@ import { CONFIG } from './config.js';
 // Ambiente de TESTE: qualquer site que não seja o domínio de produção usa o schema "staging"
 // (mesmo banco, dados copiados, isolado do que a equipe usa de verdade).
 const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
-// Porta de entrada exclusiva para incorporadoras: ?portal na URL
-const EH_PORTAL_LOGIN = new URLSearchParams(location.search).has('portal');
+// Porta de entrada exclusiva para incorporadoras: /portal na URL (ou ?portal, por compatibilidade com links já enviados)
+const EH_PORTAL_LOGIN = location.pathname.replace(/\/$/, '') === '/portal' || new URLSearchParams(location.search).has('portal');
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey,
   EH_STAGING ? { db: { schema: 'staging' } } : {});
 
@@ -53,6 +53,13 @@ let state = {
 
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDt(d){ return d ? new Date(d).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''; }
+function tempoAberto(desde){
+  if (!desde) return '—';
+  const dias = Math.floor((Date.now() - new Date(desde)) / 86400000);
+  if (dias < 1) return 'hoje';
+  if (dias === 1) return '1 dia';
+  return dias + ' dias';
+}
 function mesLabel(m){ const [y,mo]=m.split('-'); return ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][mo-1]+'/'+y.slice(2); }
 
 // ---------- LOGIN ----------
@@ -632,11 +639,18 @@ async function renderDashboard() {
   const pctDia = metaDia ? Math.round(100 * prodHoje / metaDia) : null;
   const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
 
+  // Chamados em aberto agrupados por quem abriu — visão rápida de quem está com pendência de solicitação
+  const { data: chamadosAbertos } = await sb.from('chamados').select('solicitante').neq('status', 'RESOLVIDO');
+  const chamadosPorSolicitante = {};
+  (chamadosAbertos||[]).forEach(c => { const n = c.solicitante || '—'; chamadosPorSolicitante[n] = (chamadosPorSolicitante[n]||0) + 1; });
+  const chamadosRanking = Object.entries(chamadosPorSolicitante).sort((a,b) => b[1]-a[1]);
+  const maxChamados = Math.max(1, ...chamadosRanking.map(([,n]) => n));
+
   shell(`
     <div class="kpis">
-      <div class="kpi"><div class="v">${totAll}</div><div class="l">📋 Total de processos</div></div>
-      <div class="kpi"><div class="v" style="color:var(--ok)">${concAll}</div><div class="l">✅ Concluídos</div></div>
-      <div class="kpi"><div class="v" style="color:var(--warn)">${totAll-concAll}</div><div class="l">⚠️ Pendentes</div></div>
+      <div class="kpi kpi-clicavel" data-ir="__todos__"><div class="v">${totAll}</div><div class="l">📋 Total de processos</div></div>
+      <div class="kpi kpi-clicavel" data-ir="CONCLUIDO"><div class="v" style="color:var(--ok)">${concAll}</div><div class="l">✅ Concluídos</div></div>
+      <div class="kpi kpi-clicavel" data-ir="__pendente__"><div class="v" style="color:var(--warn)">${totAll-concAll}</div><div class="l">⚠️ Pendentes</div></div>
       <div class="kpi"><div class="v" style="color:var(--accent)">${pctFmt(concAll, totAll)}</div><div class="l">📊 % conclusão</div></div>
     </div>
     <div class="card filters" style="align-items:end">
@@ -773,7 +787,21 @@ async function renderDashboard() {
         <tbody>${(tops||[]).map(t => `<tr><td>${esc(t.nome)}</td><td>${t.total}</td><td>${t.pendentes}</td></tr>`).join('')}</tbody></table>
         </div>
       </div>
+      <div class="card kpi-clicavel" id="cardChamadosAnalista">
+        <h2>📨 Chamados em aberto por quem abriu</h2>
+        <div style="max-height:420px;overflow-y:auto">
+        ${chamadosRanking.length ? chamadosRanking.map(([nome,n]) => `<div class="hbar-row"><span class="hbar-lbl">${esc(nome)}</span>
+          <div class="hbar"><div style="width:${Math.round(100*n/maxChamados)}%"></div></div>
+          <b>${n}</b></div>`).join('') : '<p style="color:var(--muted);font-size:12.5px">Nenhum chamado em aberto no momento.</p>'}
+        </div>
+      </div>
     </div>`);
+  document.querySelectorAll('.kpi-clicavel[data-ir]').forEach(el => el.onclick = () => {
+    state.filtros = { busca:'', analista:'', mes:'', status: el.dataset.ir === '__todos__' ? '' : el.dataset.ir };
+    state.page = 0; state.view = 'pipeline'; render();
+  });
+  const cardChamados = document.getElementById('cardChamadosAnalista');
+  if (cardChamados) cardChamados.onclick = () => { state.view = 'chamados'; render(); };
   document.getElementById('dashAnalista').onchange = (e) => { state.dashAnalista = e.target.value; renderDashboard(); };
   document.getElementById('perPreset').onchange = (e) => {
     state.periodoPresetAnterior = state.periodoPreset;
@@ -814,7 +842,8 @@ async function renderDashboard() {
 function buildQuery(sel, count) {
   let q = sb.from('demandas').select(sel, count ? { count: 'exact' } : {});
   const f = state.filtros;
-  if (f.status) q = q.eq('status', f.status);
+  if (f.status === '__pendente__') q = q.neq('status', 'CONCLUIDO');
+  else if (f.status) q = q.eq('status', f.status);
   if (f.analista) q = q.eq('analista_id', f.analista);
   if (f.busca) q = q.or(`proponente1_nome.ilike.%${f.busca}%,unidade.ilike.%${f.busca}%,numero_processo.ilike.%${f.busca}%`);
   if (f.mes) {
@@ -834,6 +863,7 @@ async function renderDemandas() {
     <div class="card filters">
       <div><label>Busca (nome / unidade / processo)</label><input id="fBusca" value="${esc(f.busca)}"></div>
       <div><label>Status</label><select id="fStatus"><option value="">Todos</option>
+        <option value="__pendente__" ${f.status==='__pendente__'?'selected':''}>Pendentes (não concluídos)</option>
         ${['RECEBIDO','EM_ANALISE','CONCLUIDO','PENDENTE'].map(s=>`<option ${f.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div><label>Analista</label><select id="fAnalista"><option value="">Todos</option>
         ${L.analistas.map(a=>`<option value="${a.id}" ${f.analista===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select></div>
@@ -845,10 +875,11 @@ async function renderDemandas() {
     </div>
     <div class="card">
       <div class="table-scroll">
-      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>1º Proponente</th><th>CPF 1º</th><th>2º Proponente</th><th>CPF 2º</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Concluído em</th><th>Fat.</th><th>Valor proposta</th><th>Obs</th><th></th></tr></thead>
+      <table><thead><tr><th>Nº</th><th>Nº Processo</th><th>Recebido</th><th>Tempo aberto</th><th>1º Proponente</th><th>CPF 1º</th><th>2º Proponente</th><th>CPF 2º</th><th>Empreendedora</th><th>Empreendimento</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th>Concluído em</th><th>Fat.</th><th>Valor proposta</th><th>Obs</th><th></th></tr></thead>
       <tbody>${(rows||[]).map(r => `<tr>
         <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${esc(r.numero_processo)}</td>
         <td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td>
+        <td style="white-space:nowrap;${r.status!=='CONCLUIDO'?'color:var(--warn);font-weight:600':''}">${r.status!=='CONCLUIDO' ? tempoAberto(r.recebido_em) : '—'}</td>
         <td style="min-width:150px">${esc(r.proponente1_nome)}</td><td style="white-space:nowrap">${esc(r.proponente1_cpf)}</td>
         <td style="min-width:150px">${esc(r.proponente2_nome) || '<span style="color:var(--muted2)">—</span>'}</td>
         <td style="white-space:nowrap">${esc(r.proponente2_cpf) || '<span style="color:var(--muted2)">—</span>'}</td>
@@ -1170,7 +1201,14 @@ async function renderEscala() {
   const elegiveis = state.lookups.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
   const ans = state.lookups.analistas.filter(a => comPlantao.has(a.id) || extrasMes.includes(a.id));
   const disponiveis = elegiveis.filter(a => !comPlantao.has(a.id) && !extrasMes.includes(a.id));
+  // Validação trabalhista básica: ninguém deveria ficar 7 dias seguidos sem folga
+  const excessos7dias = ans.map(a => {
+    let seq = 0, maxSeq = 0;
+    for (let i=0;i<ndays;i++) { const dt = `${state.escalaMes}-${String(i+1).padStart(2,'0')}`; if (byKey[a.id+'|'+dt]) { seq++; maxSeq=Math.max(maxSeq,seq); } else seq=0; }
+    return { nome: a.nome, maxSeq };
+  }).filter(x => x.maxSeq >= 7);
   shell(`
+    ${excessos7dias.length ? `<div class="alert-box" style="margin-bottom:14px">⚠️ <b>Atenção:</b> ${excessos7dias.map(x=>`${esc(x.nome)} (${x.maxSeq} dias seguidos)`).join(', ')} — verifique a escala, ninguém deveria trabalhar 7 dias seguidos sem folga.</div>` : ''}
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
         <h2 style="margin:0">📅 Escala de plantão</h2>
@@ -1186,14 +1224,15 @@ async function renderEscala() {
         ${Array.from({length:ndays},(_,i)=>{const dw=new Date(y,m-1,i+1).getDay();return `<th class="${dw===0||dw===6?'wend':''}">${i+1}<br><span style="font-weight:400">${dows[dw]}</span></th>`}).join('')}
         <th>Total</th></tr></thead>
       <tbody>${ans.map(a => {
-        let tot = 0;
+        let tot = 0, seq = 0, maxSeq = 0;
         const cells = Array.from({length:ndays},(_,i)=>{
           const dt = `${state.escalaMes}-${String(i+1).padStart(2,'0')}`;
-          const on = byKey[a.id+'|'+dt]; if (on) tot++;
+          const on = byKey[a.id+'|'+dt]; if (on) { tot++; seq++; maxSeq = Math.max(maxSeq, seq); } else seq = 0;
           const dw = new Date(y,m-1,i+1).getDay();
           return `<td class="esc-cell ${on?'on':''} ${dw===0||dw===6?'wend':''}" data-a="${a.id}" data-d="${dt}">${on?'✕':''}</td>`;
         }).join('');
         return `<tr><td>${esc(a.nome)}${a.status==='Em licença' ? ' <span class="tag PENDENTE" style="font-size:10px">licença</span>' : ''}
+          ${maxSeq>=7 ? ` <span class="tag PENDENTE" style="font-size:10px" title="Sem folga">⚠️ ${maxSeq}d seguidos</span>` : ''}
           ${tot===0 ? `<button class="ghost esc-remover" data-a="${a.id}" title="Tirar da escala deste mês" style="font-size:11px;padding:1px 5px;margin-left:4px">✕</button>` : ''}</td>${cells}<td><b>${tot}</b></td></tr>`;
       }).join('') || '<tr><td colspan="99" style="color:var(--muted)">Ninguém escalado neste mês. Use "+ Incluir colaborador" para montar a escala.</td></tr>'}
       <tr><td style="color:var(--muted)">Cobertura</td>${Array.from({length:ndays},(_,i)=>{
@@ -2208,12 +2247,14 @@ async function openImplantacao(id) {
           </label>`).join('')}
       </div>`).join('')}
     <h2 style="margin-top:14px">⚠️ Pendências / alertas</h2>
-    <table><thead><tr><th>Pendência</th><th>Área</th><th>Status</th><th></th></tr></thead>
+    <table><thead><tr><th>Pendência</th><th>Área</th><th>Status</th></tr></thead>
     <tbody>${pendencias.map(p=>`<tr>
       <td>${esc(p.pendencia)}</td><td>${esc(p.area||'—')}</td>
-      <td><span class="tag ${p.resolvida?'CONCLUIDO':'PENDENTE'}">${p.resolvida?'Resolvida':'Aberta'}</span></td>
-      <td>${!ro && !p.resolvida ? `<button class="ghost pd-resolver" data-id="${p.id}">Resolver</button>` : ''}</td>
-    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Sem pendências registradas.</td></tr>'}</tbody></table>
+      <td>${ro ? `<span class="tag ${p.status_validacao==='Recebido'?'CONCLUIDO':p.status_validacao==='Em validação'?'RECEBIDO':'PENDENTE'}">${esc(p.status_validacao||'Pendente')}</span>`
+        : `<select class="pd-status" data-id="${p.id}">
+          ${['Pendente','Em validação','Recebido'].map(s=>`<option ${(p.status_validacao||'Pendente')===s?'selected':''}>${s}</option>`).join('')}
+        </select>`}</td>
+    </tr>`).join('') || '<tr><td colspan="3" style="color:var(--muted)">Sem pendências registradas.</td></tr>'}</tbody></table>
     ${!ro ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
       <input id="pdNova" placeholder="Nova pendência" style="flex:2;min-width:180px">
       <input id="pdArea" placeholder="Área (ex.: Contratos)" style="flex:1;min-width:120px">
@@ -2261,8 +2302,8 @@ async function openImplantacao(id) {
   div.querySelectorAll('.ck-item').forEach(c => c.onchange = async () => {
     await sb.from('implantacao_checklist').update({ concluido: c.checked }).eq('id', c.dataset.id);
   });
-  div.querySelectorAll('.pd-resolver').forEach(b => b.onclick = async () => {
-    await sb.from('implantacao_pendencias').update({ resolvida: true }).eq('id', b.dataset.id);
+  div.querySelectorAll('.pd-status').forEach(s => s.onchange = async () => {
+    await sb.from('implantacao_pendencias').update({ status_validacao: s.value, resolvida: s.value === 'Recebido' }).eq('id', s.dataset.id);
     div.remove(); openImplantacao(id);
   });
   const bP = $('btnAddPend');
@@ -4105,6 +4146,7 @@ async function openProcessoEsteira(id, etapas) {
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
       <button id="epCancel" class="ghost">Fechar</button>
+      ${id ? '<button id="btnEmailProcesso" class="ghost">✉️ Gerar e-mail</button>' : ''}
       ${id && state.role === 'admin' ? '<button id="btnExcluirProc" class="ghost" style="color:var(--err)">🗑️ Excluir processo</button>' : ''}
       ${id && !ro ? '<button id="btnFinalizar" class="ghost">✅ Concluir processo</button>' : ''}
       ${!ro ? `<button id="epSalvar">${id ? 'Salvar alterações' : 'Criar processo'}</button>` : ''}
@@ -4116,6 +4158,35 @@ async function openProcessoEsteira(id, etapas) {
   div.querySelectorAll('.chk-item').forEach(c => c.onchange = async () => {
     await sb.from('repasse_checklist').update({ ok: c.checked, responsavel: c.checked ? state.session?.user?.email : null }).eq('id', c.dataset.id);
   });
+  const btnEmailProc = $('btnEmailProcesso');
+  if (btnEmailProc) btnEmailProc.onclick = () => {
+    // Assunto padronizado: PROCESSO / CLIENTE / UNIDADE / EMPREENDIMENTO — sempre no mesmo formato, sem digitar na mão
+    const clienteTxt = $('epCliente').options[$('epCliente').selectedIndex]?.text || '—';
+    const empTxt = $('epEmp').options[$('epEmp').selectedIndex]?.text || '—';
+    const unidadeTxt = $('epUnidade').value.trim() || '—';
+    const assunto = `${$('epTitulo').value.trim() || p.titulo} / ${clienteTxt} / ${unidadeTxt} / ${empTxt}`;
+    const enc = (s) => encodeURIComponent(s);
+    const mailtoUrl = `mailto:?subject=${enc(assunto)}`;
+    const div2 = document.createElement('div');
+    div2.className = 'modal-bg';
+    div2.innerHTML = `<div class="modal" style="width:520px">
+      <h2>✉️ Assunto do e-mail gerado</h2>
+      <div><label>Assunto</label><input id="geAssunto" value="${esc(assunto)}" readonly></div>
+      <div class="msg" id="geMsg" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+        <button id="geFechar" class="ghost">Fechar</button>
+        <button id="geCopiar" class="ghost">📋 Copiar assunto</button>
+        <button id="geAbrir">Abrir no e-mail</button>
+      </div>
+    </div>`;
+    document.body.appendChild(div2);
+    div2.querySelector('#geFechar').onclick = () => div2.remove();
+    div2.querySelector('#geAbrir').onclick = () => { window.location.href = mailtoUrl; };
+    div2.querySelector('#geCopiar').onclick = async () => {
+      try { await navigator.clipboard.writeText(assunto); div2.querySelector('#geMsg').textContent = '✅ Assunto copiado!'; }
+      catch { div2.querySelector('#geAssunto').select(); }
+    };
+  };
   const chatMsgsEl2 = $('epChatMsgs');
   if (chatMsgsEl2) chatMsgsEl2.scrollTop = chatMsgsEl2.scrollHeight;
   const btnChatEnviar = $('epChatEnviar');
@@ -4215,6 +4286,21 @@ async function openProcessoEsteira(id, etapas) {
         if (novo) await sb.from('esteira_historico').insert({ processo_id: novo.id,
           evento: `Criado a partir da Análise de Crédito aprovada (processo ${id.slice(0,8)})`, autor: state.session?.user?.email });
         state.esteiraTipo = 'emissao_contrato';
+      }
+      // Link Esteira → Repasse: ao concluir a Emissão de Contrato (sem ser devolução), já nasce o processo de Repasse
+      if (p?.esteira_tipo === 'emissao_contrato' && !devolver) {
+        const { data: primeiraEtapaRep } = await sb.from('etapas_esteira').select('id').eq('esteira_tipo','repasse').eq('ativa',true).order('ordem').limit(1).maybeSingle();
+        if (primeiraEtapaRep) {
+          const { data: novoRep } = await sb.from('esteira_processos').insert({
+            titulo: p.titulo, cliente_id: p.cliente_id, empreendimento_id: p.empreendimento_id, unidade: p.unidade,
+            prioridade: p.prioridade, esteira_tipo: 'repasse', etapa_atual_id: primeiraEtapaRep.id,
+            status: 'AGUARDANDO', processo_origem_id: id,
+            obs: `Veio da Emissão de Contrato (concluído)`,
+            observacoes: obsAtual || p.observacoes || null,
+          }).select('id').single();
+          if (novoRep) await sb.from('esteira_historico').insert({ processo_id: novoRep.id,
+            evento: `Criado a partir da Emissão de Contrato concluída (processo ${id.slice(0,8)})`, autor: state.session?.user?.email, criado_em: dataHoraMov });
+        }
       }
       div.remove(); renderEsteira(); return;
     }
