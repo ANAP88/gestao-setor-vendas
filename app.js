@@ -5,6 +5,8 @@ import { CONFIG } from './config.js';
 // Ambiente de TESTE: qualquer site que não seja o domínio de produção usa o schema "staging"
 // (mesmo banco, dados copiados, isolado do que a equipe usa de verdade).
 const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
+// Porta de entrada exclusiva para incorporadoras: ?portal na URL
+const EH_PORTAL_LOGIN = new URLSearchParams(location.search).has('portal');
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey,
   EH_STAGING ? { db: { schema: 'staging' } } : {});
 
@@ -118,6 +120,109 @@ function renderLogin(msg = '', tipo = 'erro') {
     renderLogin(error ? error.message : 'Enviamos um link de redefinição de senha para ' + em + '.', error ? 'erro' : 'ok');
   };
   [email, senha].forEach(el => el && el.addEventListener('keydown', e => { if (e.key === 'Enter') btnLogin.click(); }));
+}
+
+// ---------- LOGIN EXCLUSIVO DO PORTAL DO CLIENTE (?portal na URL) ----------
+const PL_FEATURES = [
+  [svgIcon('<path d="M4 20V10M12 20V4M20 20v-7"/>'), 'Painel Executivo', 'Indicadores operacionais atualizados em tempo real.'],
+  [svgIcon('<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 3v3M16 3v3"/>'), 'Gestão de Processos', 'Acompanhe cada venda em todas as etapas.'],
+  [svgIcon('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'), 'Assinaturas Digitais', 'Visualize quem assinou e quem ainda está pendente.'],
+  [svgIcon('<path d="M21 12a8.5 8.5 0 0 1-11.8 7.8L4 21l1.3-4.9A8.5 8.5 0 1 1 21 12Z"/>'), 'Central de Interações', 'Solicite ações à Secretaria de Vendas sem e-mail ou WhatsApp.'],
+];
+const PL_ESTEIRA = [
+  ['Venda Recebida', 'Concluído', 'done'],
+  ['Análise de Crédito', 'Concluído', 'done'],
+  ['Contrato', 'Concluído', 'done'],
+  ['Assinatura', 'Em andamento', 'now'],
+  ['Registro', 'Aguardando', ''],
+  ['Concluído', 'Aguardando', ''],
+];
+const ICONE_CHECK_MINI = svgIcon('<path d="M20 6 9 17l-5-5"/>');
+const PL_SKYLINE_BG = `<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice">
+  <g fill="none" stroke="#0d3d3d" stroke-width="1.2" opacity=".18">
+    <rect x="70" y="260" width="90" height="300"/><rect x="180" y="180" width="70" height="380"/>
+    <rect x="270" y="320" width="60" height="240"/><rect x="600" y="220" width="80" height="340"/>
+    <rect x="700" y="300" width="60" height="260"/>
+    <path d="M85 260 100 235 115 260"/><path d="M195 180 210 150 225 180"/>
+    <path d="M615 220 630 195 645 220"/>
+    <path d="M0 560 800 560"/>
+  </g>
+</svg>`;
+function renderLoginPortal(msg = '', tipo = 'erro') {
+  app.innerHTML = `
+  <div id="pl-page">
+    <div class="pl-left">
+      <div class="pl-left-bg">${PL_SKYLINE_BG}</div>
+      <div class="pl-left-content">
+        <span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO CLIENTE</span>
+        <h1>Acompanhe seus processos<br><span>em tempo real.</span></h1>
+        <p class="pl-left-sub">Tenha acesso a todas as etapas da Secretaria de Vendas em um único lugar, desde o recebimento da venda até a conclusão da operação.</p>
+        <div class="pl-features">
+          ${PL_FEATURES.map(([ic,t,d]) => `<div class="pl-feat"><div class="pl-feat-ic">${ic}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+        </div>
+        <div class="pl-stepper">
+          ${PL_ESTEIRA.map(([l,st,cls]) => `
+            <div class="pl-step ${cls}">
+              <div class="pl-step-line ${cls==='done'?'on':''}"></div>
+              <div class="pl-step-dot">${cls==='done'?ICONE_CHECK_MINI:cls==='now'?'⏳':'○'}</div>
+              <div class="pl-step-lbl">${l}</div>
+              <div class="pl-step-st">${st}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="pl-right">
+      <div class="pl-card">
+        <div class="pl-card-icon">${ICONE_CADEADO}</div>
+        <h2>Portal do Cliente</h2>
+        <div class="pl-sub">Acompanhamento Operacional</div>
+        <label>E-mail</label>
+        <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="plEmail" type="email" autocomplete="username" placeholder="seu.email@incorporadora.com.br"></div>
+        <label>Senha</label>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="plSenha" type="password" autocomplete="current-password" placeholder="Sua senha"></div>
+        <div class="pl-row">
+          <label class="chk-inline"><input type="checkbox" id="plManter" checked> Manter conectado</label>
+          <a href="#" id="plEsqueci">Esqueci minha senha</a>
+        </div>
+        <button id="plBtnLogin">Entrar →</button>
+        <div class="msg ${tipo}" style="text-align:center">${esc(msg)}</div>
+        <div class="pl-info-box">
+          <div class="pl-info-title">Transparência em tempo real</div>
+          <div class="pl-info-grid">
+            ${['Processos','Assinaturas','Boletos','Pendências','SLA','Comunicação'].map(x=>`<div class="pl-info-item">${ICONE_CHECK_MINI}${x}</div>`).join('')}
+          </div>
+        </div>
+        <div class="pl-card-footer">
+          <span>${ICONE_ESCUDO} Ambiente seguro</span>
+          <span>Versão 1.0.0</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  const valida = () => {
+    if (!plEmail.value.trim() || !plSenha.value) { renderLoginPortal('Preencha e-mail e senha.'); return false; }
+    return true;
+  };
+  plBtnLogin.onclick = async () => {
+    if (!valida()) return;
+    const { data, error } = await sb.auth.signInWithPassword({ email: plEmail.value.trim(), password: plSenha.value });
+    if (error) { renderLoginPortal(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message); return; }
+    const { data: perfil } = await sb.from('perfis').select('role').eq('user_id', data.user.id).single();
+    if (perfil?.role !== 'cliente') {
+      await sb.auth.signOut();
+      renderLoginPortal('Este acesso é exclusivo para clientes do Portal. Se você é da equipe interna, use o link do sistema interno.');
+      return;
+    }
+    init();
+  };
+  plEsqueci.onclick = async (e) => {
+    e.preventDefault();
+    const em = plEmail.value.trim();
+    if (!em) { renderLoginPortal('Digite seu e-mail acima e clique em "Esqueci minha senha" de novo.'); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(em);
+    renderLoginPortal(error ? error.message : 'Enviamos um link de redefinição de senha para ' + em + '.', error ? 'erro' : 'ok');
+  };
+  [plEmail, plSenha].forEach(el => el && el.addEventListener('keydown', e => { if (e.key === 'Enter') plBtnLogin.click(); }));
 }
 
 // ---------- SHELL (4 pilares) ----------
@@ -236,7 +341,7 @@ function render() {
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      usuariosEquipe: renderUsuariosEquipe, cadastroOperacional: renderCadastroOperacional,
-     portalUsuarios: renderPortalUsuarios, portalEmpreendimentos: renderCadastroOperacional, portalFluxo: () => renderFluxosAdmin(''),
+     portalUsuarios: renderPortalUsuarios, portalEmpreendimentos: renderPortalEmpreendimentos, portalFluxo: () => renderFluxosAdmin(''),
      arquivos: () => renderArquivos(''),
      bibliotecaRepasse: renderBibliotecaRepasse })[state.view]();
 }
@@ -3292,6 +3397,51 @@ async function renderPortalUsuarios() {
   };
 }
 
+async function renderPortalEmpreendimentos() {
+  const L = state.lookups;
+  const { data: emprsAcesso } = await sb.from('empreendimentos').select('*, empreendedora:empreendedoras(*), portal_ativo').order('nome');
+  const filtra = (busca) => !busca ? emprsAcesso : emprsAcesso?.filter(e =>
+    (e.nome||'').toLowerCase().includes(busca.toLowerCase()) ||
+    (e.empreendedora?.nome||'').toLowerCase().includes(busca.toLowerCase())
+  );
+  if (!state.portalEmpBusca) state.portalEmpBusca = '';
+  const empsFiltrados = filtra(state.portalEmpBusca);
+  shell(`
+    <div class="card">
+      <div class="admin-head">
+        <div>
+          <h2 style="margin-bottom:2px">Empreendimentos com Acesso ao Portal</h2>
+          <p style="color:var(--muted);font-size:12.5px">Controle quais empreendimentos aparecem no Portal do Cliente para usuários com acesso.</p>
+        </div>
+      </div>
+      <input class="portal-emp-busca" placeholder="🔎 Buscar empreendimento ou empreendedora..." value="${esc(state.portalEmpBusca)}" style="width:100%;margin:10px 0">
+      <div class="table-scroll"><table class="users-table"><thead><tr><th>Empreendimento</th><th>Empreendedora</th><th>Portal</th><th>Ações</th></tr></thead>
+      <tbody>${(empsFiltrados||[]).map(e => `<tr>
+        <td><b>${esc(e.nome)}</b></td>
+        <td><span style="color:var(--muted)">${esc(e.empreendedora?.nome || '—')}</span></td>
+        <td><div class="toggle-status" data-id="${e.id}" data-status="${e.portal_ativo===true?'ativo':'inativo'}" style="cursor:pointer;padding:4px 8px;border-radius:4px;background:${e.portal_ativo===true?'var(--ok)':'var(--muted)'}22;color:${e.portal_ativo===true?'var(--ok)':'var(--muted)'}"><strong>${e.portal_ativo===true?'🟢 Ativo':'⚫ Inativo'}</strong></div></td>
+        <td style="min-width:200px"><div class="row-actions">
+          <button class="ghost btn-config-portal" data-id="${e.id}" data-n="${esc(e.nome)}" title="Configurar acesso">⚙️ Configurar</button>
+        </div></td></tr>`).join('') || '<tr><td colspan="4"><p style="color:var(--muted);padding:10px 0">Nenhum empreendimento encontrado.</p></td></tr>'}</tbody></table></div>
+    </div>`);
+
+  document.querySelector('.portal-emp-busca').oninput = (e) => {
+    state.portalEmpBusca = e.target.value;
+    renderPortalEmpreendimentos();
+  };
+
+  document.querySelectorAll('.toggle-status').forEach(div => div.onclick = async () => {
+    const novoStatus = div.dataset.status === 'inativo';
+    const { error } = await sb.from('empreendimentos').update({ portal_ativo: novoStatus }).eq('id', div.dataset.id);
+    if (error) { alert('Erro ao atualizar: ' + error.message); return; }
+    renderPortalEmpreendimentos();
+  });
+
+  document.querySelectorAll('.btn-config-portal').forEach(b => b.onclick = () => {
+    alert(`Configuração de acesso para "${b.dataset.n}" — em breve você poderá definir quais usuários do portal têm acesso a este empreendimento.`);
+  });
+}
+
 async function renderCadastroOperacional() {
   const L = state.lookups;
   {
@@ -4747,14 +4897,19 @@ async function init() {
     if (session) { renderDefinirSenha(session.user.email); return; }
   }
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { renderLogin(); return; }
+  if (!session) { (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); return; }
   state.session = session;
   // garante perfil e carrega nível de acesso
   await sb.from('perfis').upsert({ user_id: session.user.id, email: session.user.email }, { onConflict: 'user_id', ignoreDuplicates: true });
   const { data: perfil } = await sb.from('perfis').select('role,nome,email,ativo,analista_id,nome_completo,funcao,cadastro_completo,empreendedora_id').eq('user_id', session.user.id).single();
   if (perfil?.ativo === false) {
     await sb.auth.signOut();
-    renderLogin('Sua conta foi desativada. Fale com o administrador do sistema.');
+    (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)('Sua conta foi desativada. Fale com o administrador do sistema.');
+    return;
+  }
+  if (EH_PORTAL_LOGIN && perfil?.role !== 'cliente') {
+    await sb.auth.signOut();
+    renderLoginPortal('Este acesso é exclusivo para clientes do Portal. Se você é da equipe interna, use o link do sistema interno.');
     return;
   }
   state.role = perfil?.role || 'analista';
@@ -4835,7 +4990,7 @@ function portalShell(perfil, inner, marca, topo) {
       <div class="portal-content">${inner}</div>
     </div>
   </div>`;
-  document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); renderLogin(); };
+  document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); };
 }
 // Assina mudanças em tempo real e re-renderiza a tela atual quando algo muda
 function portalRealtime(tabelas, aoMudar) {
