@@ -472,6 +472,15 @@ button.side-item.active{background:rgba(255,255,255,.92);color:#0d3d3d}
 .anexo-list{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
 .anexo-item{display:flex;align-items:center;gap:8px;background:var(--panel2);border-radius:8px;padding:8px 10px;font-size:13px}
 .anexo-item a{color:var(--accent);text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Aviso bem visível de mensagem nova do cliente (Portal) — não só o badge discreto do card na esteira */
+.alerta-msg-cliente{
+  position:fixed;bottom:20px;right:20px;z-index:10000;
+  background:var(--err);color:#fff;font-weight:700;font-size:13px;
+  padding:12px 18px;border-radius:99px;box-shadow:0 6px 20px rgba(0,0,0,.25);
+  cursor:pointer;animation:alertaPulse 1.4s ease-in-out infinite;
+}
+@keyframes alertaPulse{0%,100%{box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 0 rgba(220,38,38,.5)}50%{box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 10px rgba(220,38,38,0)}}
 .anexo-item button{padding:2px 8px}
 .esteira-card.urgente{border-left:3px solid var(--err)}
 .esteira-card.alta{border-left:3px solid var(--warn)}

@@ -300,6 +300,18 @@ function shell(inner) {
   btnExportAll.onclick = exportarPlanilhaCompleta;
   btnApresentacao.onclick = () => { state.modoApresentacao = !state.modoApresentacao; render(); };
   btnTrocarSenha.onclick = () => abrirTrocarSenha();
+  atualizarAlertaMensagensCliente();
+}
+// Aviso bem visível (não só o badge discreto no card da esteira) quando o cliente manda mensagem no Portal.
+async function atualizarAlertaMensagensCliente() {
+  const { count } = await sb.from('processo_mensagens').select('id', { count: 'exact', head: true }).eq('autor_tipo', 'cliente').eq('lida', false);
+  document.querySelectorAll('.alerta-msg-cliente').forEach(el => el.remove());
+  if (!count) return;
+  const div = document.createElement('div');
+  div.className = 'alerta-msg-cliente';
+  div.innerHTML = `💬 ${count} ${count===1?'nova mensagem':'novas mensagens'} de cliente${count===1?'':'s'} no Portal — clique para ver`;
+  document.body.appendChild(div);
+  div.onclick = () => { state.view = 'esteira'; render(); };
 }
 
 function abrirTrocarSenha() {
@@ -4085,6 +4097,7 @@ async function openProcessoEsteira(id, etapas) {
       <div style="margin-top:8px"><label>Enviar para (responsável pela próxima etapa)</label><select id="epProxAnalista">
         <option value="">Deixar na fila (qualquer um pega)</option>
         ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div style="margin-top:8px"><label>Data/hora dessa movimentação</label><input id="epDataHoraMov" type="datetime-local" value="${new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16)}"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         ${transicoes.map(t => `<button class="btn-transicao" data-destino="${t.etapa_destino_id||''}" data-rotulo="${esc(t.rotulo)}">${esc(t.rotulo)}</button>`).join('')
           || '<span style="color:var(--muted);font-size:12.5px">Nenhuma transição configurada para esta etapa.</span>'}
@@ -4168,6 +4181,10 @@ async function openProcessoEsteira(id, etapas) {
     const destino = btn.dataset.destino || null;
     const rotulo = btn.dataset.rotulo;
     const proxAnalista = $('epProxAnalista').value || null;
+    // Data/hora da movimentação: puxa o momento atual automaticamente, mas dá pra editar
+    // (ex.: lançar algo que aconteceu mais cedo, sem perder a ordem real no histórico).
+    const dataHoraMovInput = $('epDataHoraMov');
+    const dataHoraMov = dataHoraMovInput?.value ? new Date(dataHoraMovInput.value).toISOString() : new Date().toISOString();
     if (!destino) {
       const obsAtual = $('epObservacoes') ? $('epObservacoes').value.trim() : '';
       const enviarContrato = rotulo.includes('enviar para Emissão de Contrato');
@@ -4178,14 +4195,14 @@ async function openProcessoEsteira(id, etapas) {
         motivo = prompt('Motivo da reprovação (fica registrado no histórico):') || null;
       }
       const { error } = await sb.from('esteira_processos').update({
-        status: 'CONCLUIDO', concluido_em: new Date().toISOString(),
+        status: 'CONCLUIDO', concluido_em: dataHoraMov,
         observacoes: obsAtual || p.observacoes || null,
         devolvido_para: paraQuem, motivo_devolucao: motivo,
       }).eq('id', id);
       if (error) { $('epMsg').textContent = error.message; return; }
       await sb.from('esteira_historico').insert({ processo_id: id,
         evento: rotulo + (paraQuem ? ` → ${paraQuem}` : '') + (motivo ? ` · Motivo: ${motivo}` : ''),
-        autor: state.session?.user?.email });
+        autor: state.session?.user?.email, criado_em: dataHoraMov });
       if (enviarContrato) {
         const { data: primeiraEtapa } = await sb.from('etapas_esteira').select('id').eq('esteira_tipo','emissao_contrato').eq('ativa',true).order('ordem').limit(1).single();
         const { data: novo } = await sb.from('esteira_processos').insert({
@@ -4221,7 +4238,7 @@ async function openProcessoEsteira(id, etapas) {
     if (error) { $('epMsg').textContent = error.message; return; }
     await sb.from('esteira_historico').insert({
       processo_id: id, evento: rotulo + (ehRegressao ? ` · Motivo: ${motivoTexto}` : ''),
-      autor: state.session?.user?.email, motivo_categoria: motivoCategoria,
+      autor: state.session?.user?.email, motivo_categoria: motivoCategoria, criado_em: dataHoraMov,
     });
 
     if (ehRegressao) {
@@ -4251,6 +4268,7 @@ async function openProcessoEsteira(id, etapas) {
       await sb.from('esteira_validacoes').insert({
         processo_id: id, etapa_id: p.etapa_atual_id,
         validado_por_analista_id: state.meuAnalistaId, validado_por_email: state.session?.user?.email,
+        criado_em: dataHoraMov,
       });
     }
     div.remove(); renderEsteira();
