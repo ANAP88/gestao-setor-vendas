@@ -2174,6 +2174,15 @@ async function renderQualidade() {
   const souGestao = state.role === 'admin';
   const meuId = state.meuAnalistaId || (state.lookups.analistas.find(a => a.nome === state.perfilNome) || {}).id;
   const visiveis = souGestao ? lista : lista.filter(a => a.analista_id === meuId);
+  const { data: solicitacoesPendentes } = souGestao
+    ? await sb.from('apontamento_exclusao_solicitacoes').select('*, apontamentos_erro(categoria, subcategoria, descricao, analistas(nome))').eq('status', 'pendente').order('criado_em', { ascending: false })
+    : { data: null };
+  const meusIdsApontamentos = visiveis.map(a => a.id);
+  const { data: minhasSolicitacoes } = meusIdsApontamentos.length
+    ? await sb.from('apontamento_exclusao_solicitacoes').select('apontamento_id, status').in('apontamento_id', meusIdsApontamentos)
+    : { data: [] };
+  const statusSolicitacaoPorApontamento = {};
+  (minhasSolicitacoes || []).forEach(s => { if (s.status === 'pendente') statusSolicitacaoPorApontamento[s.apontamento_id] = 'pendente'; });
   const porCat = {}; visiveis.forEach(a => porCat[a.categoria] = (porCat[a.categoria]||0)+1);
   const porAnalista = {};
   visiveis.forEach(a => {
@@ -2202,7 +2211,21 @@ async function renderQualidade() {
       <div class="kpi"><div class="v" style="color:${abertos?'var(--warn)':'var(--ok)'}">${abertos}</div><div class="l">⏳ Em aberto</div></div>
       <div class="kpi"><div class="v" style="color:var(--err)">${porOrigem.cliente}</div><div class="l">👤 Apontados pelo cliente</div></div>
       <div class="kpi"><div class="v">${porOrigem.validacao_interna}</div><div class="l">✅ Pegos na validação interna</div></div>
+      ${souGestao ? `<div class="kpi"><div class="v" style="color:${(solicitacoesPendentes||[]).length?'var(--err)':'var(--ok)'}">${(solicitacoesPendentes||[]).length}</div><div class="l">🗑️ Exclusões aguardando aprovação</div></div>` : ''}
     </div>
+    ${souGestao && (solicitacoesPendentes||[]).length ? `<div class="card" style="margin-bottom:14px;border:1px solid var(--err)">
+      <h2>🗑️ Solicitações de exclusão pendentes</h2>
+      ${solicitacoesPendentes.map(s => `
+        <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="font-size:13px"><b>${esc(s.apontamentos_erro?.analistas?.nome || '—')}</b> pediu exclusão de: ${esc(s.apontamentos_erro?.categoria||'—')} ${s.apontamentos_erro?.subcategoria?'· '+esc(s.apontamentos_erro.subcategoria):''}</div>
+          <div style="color:var(--muted);font-size:12px;margin:4px 0">${esc(s.apontamentos_erro?.descricao||'—')}</div>
+          <div style="color:var(--text);font-size:12.5px;background:var(--panel2);padding:8px 10px;border-radius:6px;margin-bottom:8px"><b>Motivo alegado:</b> ${esc(s.motivo)}</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-aprovar-excl" data-id="${s.id}" data-apt="${s.apontamento_id}">✔ Aprovar exclusão</button>
+            <button class="ghost btn-rejeitar-excl" data-id="${s.id}">✕ Rejeitar</button>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
     <div class="grid-cad">
       <div class="card">
         <h2>📊 Por categoria (o "porquê")</h2>
@@ -2240,7 +2263,9 @@ async function renderQualidade() {
         <td><span class="tag ${a.resolvido?'CONCLUIDO':'PENDENTE'}">${a.resolvido?'Resolvido':'Em aberto'}</span></td>
         <td>
           ${state.role!=='leitura' && !a.resolvido ? `<button class="ghost btn-resolver" data-id="${a.id}">Resolver</button>` : ''}
-          ${state.role!=='leitura' ? `<button class="ghost btn-excluir-apont" data-id="${a.id}" title="Excluir (apontamento indevido)">✕</button>` : ''}
+          ${state.role!=='leitura' ? (statusSolicitacaoPorApontamento[a.id] === 'pendente'
+            ? `<span class="tag PENDENTE" title="Aguardando aprovação do administrador">Exclusão pendente</span>`
+            : `<button class="ghost btn-excluir-apont" data-id="${a.id}" title="Solicitar exclusão (apontamento indevido)">✕</button>`) : ''}
         </td>
       </tr>`).join('') || '<tr><td colspan="9">Nenhum apontamento registrado neste mês.</td></tr>'}</tbody></table>
     </div>`);
@@ -2251,11 +2276,45 @@ async function renderQualidade() {
     await sb.from('apontamentos_erro').update({ resolvido: true }).eq('id', b.dataset.id);
     renderQualidade();
   });
-  document.querySelectorAll('.btn-excluir-apont').forEach(b => b.onclick = async () => {
-    if (!confirm('Excluir este apontamento? Use quando foi registrado por engano (ex.: informação divergente, não era erro real).')) return;
-    await sb.from('apontamentos_erro').delete().eq('id', b.dataset.id);
+  document.querySelectorAll('.btn-excluir-apont').forEach(b => b.onclick = () => openSolicitarExclusaoApontamento(b.dataset.id));
+  document.querySelectorAll('.btn-aprovar-excl').forEach(b => b.onclick = async () => {
+    if (!confirm('Aprovar a exclusão? O apontamento será removido definitivamente.')) return;
+    await sb.from('apontamento_exclusao_solicitacoes').update({ status: 'aprovado', decidido_por_email: state.session?.user?.email, decidido_em: new Date().toISOString() }).eq('id', b.dataset.id);
+    await sb.from('apontamentos_erro').delete().eq('id', b.dataset.apt);
     renderQualidade();
   });
+  document.querySelectorAll('.btn-rejeitar-excl').forEach(b => b.onclick = async () => {
+    await sb.from('apontamento_exclusao_solicitacoes').update({ status: 'rejeitado', decidido_por_email: state.session?.user?.email, decidido_em: new Date().toISOString() }).eq('id', b.dataset.id);
+    renderQualidade();
+  });
+}
+
+function openSolicitarExclusaoApontamento(apontamentoId) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:460px">
+    <h2>🗑️ Solicitar exclusão do apontamento</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Use quando o apontamento foi registrado por engano, de forma indevida, ou o processo não deveria ter sido devolvido. Um administrador vai analisar e aprovar (ou não) essa exclusão.</p>
+    <div><label>Por que esse apontamento deve ser excluído?</label><textarea id="seMotivo" rows="4" placeholder="Explique o motivo..."></textarea></div>
+    <div class="msg" id="seMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="seCancel" class="ghost">Cancelar</button><button id="seEnviar">Enviar para aprovação</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('seCancel').onclick = () => div.remove();
+  $('seEnviar').onclick = async () => {
+    const motivo = $('seMotivo').value.trim();
+    if (!motivo) { $('seMsg').textContent = 'Explique o motivo antes de enviar.'; return; }
+    $('seEnviar').disabled = true; $('seMsg').textContent = 'Enviando...';
+    const { error } = await sb.from('apontamento_exclusao_solicitacoes').insert({
+      apontamento_id: apontamentoId, solicitado_por_email: state.session?.user?.email, motivo,
+    });
+    if (error) { $('seMsg').textContent = error.message; $('seEnviar').disabled = false; return; }
+    div.remove();
+    renderQualidade();
+  };
 }
 
 async function openApontamento() {
@@ -2898,6 +2957,63 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
   };
 }
 
+async function openIdentidadeEmpreendedora(id, nome) {
+  const { data: e } = await sb.from('empreendedoras').select('logo_path,capa_path,cor_secundaria').eq('id', id).single();
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  const urlDe = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
+  div.innerHTML = `<div class="modal" style="width:480px">
+    <h2>🎨 Identidade visual — ${esc(nome)}</h2>
+    <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Essa marca aparece no Portal do Cliente para todos os empreendimentos de <b>${esc(nome)}</b>.</p>
+    <div><label>Logo (PNG/SVG, fundo transparente)</label>
+      ${e?.logo_path ? `<div style="margin:6px 0"><img src="${urlDe(e.logo_path)}" style="max-height:60px;max-width:100%;background:#f2f2f2;border-radius:6px;padding:6px"></div>` : ''}
+      <input type="file" id="idLogo" accept="image/png,image/svg+xml">
+    </div>
+    <div style="margin-top:10px"><label>Imagem de capa (banner)</label>
+      ${e?.capa_path ? `<div style="margin:6px 0"><img src="${urlDe(e.capa_path)}" style="max-height:80px;max-width:100%;object-fit:cover;border-radius:6px"></div>` : ''}
+      <input type="file" id="idCapa" accept="image/png,image/jpeg,image/webp">
+    </div>
+    <div style="margin-top:10px"><label>Cor secundária (opcional)</label>
+      <input type="color" id="idCor" value="${e?.cor_secundaria || '#0D3D3D'}" style="width:60px;height:34px;padding:2px">
+    </div>
+    <div class="msg" id="idMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="idCancel" class="ghost">Cancelar</button><button id="idSalvar">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('idCancel').onclick = () => div.remove();
+  $('idSalvar').onclick = async () => {
+    $('idSalvar').disabled = true; $('idMsg').textContent = 'Salvando...';
+    const rec = { cor_secundaria: $('idCor').value };
+    try {
+      const logoFile = $('idLogo').files[0];
+      if (logoFile) {
+        const ext = logoFile.name.split('.').pop();
+        const path = `${id}/logo-${Date.now()}.${ext}`;
+        const { error: upErr } = await sb.storage.from('empreendimentos-identidade').upload(path, logoFile, { upsert: true });
+        if (upErr) throw upErr;
+        rec.logo_path = path;
+      }
+      const capaFile = $('idCapa').files[0];
+      if (capaFile) {
+        const ext = capaFile.name.split('.').pop();
+        const path = `${id}/capa-${Date.now()}.${ext}`;
+        const { error: upErr } = await sb.storage.from('empreendimentos-identidade').upload(path, capaFile, { upsert: true });
+        if (upErr) throw upErr;
+        rec.capa_path = path;
+      }
+      const { error } = await sb.from('empreendedoras').update(rec).eq('id', id);
+      if (error) throw error;
+      div.remove();
+    } catch (err) {
+      $('idMsg').textContent = err.message || 'Erro ao salvar.';
+      $('idSalvar').disabled = false;
+    }
+  };
+}
+
 async function openExcluirCadastro(tipo, id, nome) {
   // conta o que está vinculado, para não apagar algo que quebraria processos existentes
   const contar = async (tabela, coluna) => {
@@ -3115,6 +3231,7 @@ async function renderCadastros() {
         <div class="cad-list">${vis.map(i => `
           <div class="cad-item">
             <span style="flex:1">${esc(i.nome)}${extra ? extra(i) : ''}</span>
+            ${tipo==='empreendedoras' ? `<button class="ghost cad-identidade" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Identidade visual (Portal do Cliente)">🎨</button>` : ''}
             <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Editar">✎</button>
             <button class="ghost cad-del" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
           </div>`).join('') || `<p style="color:var(--muted);font-size:12.5px;padding:8px 0">${state.cadBusca[tipo] ? 'Nada encontrado nessa busca.' : 'Nenhum registro.'}</p>`}</div>
@@ -3195,6 +3312,7 @@ async function renderCadastros() {
     });
     document.querySelectorAll('.cad-edit').forEach(b => b.onclick = () => openEditarCadastro(b.dataset.t, b.dataset.id, b.dataset.n, L));
     document.querySelectorAll('.cad-del').forEach(b => b.onclick = () => openExcluirCadastro(b.dataset.t, b.dataset.id, b.dataset.n));
+    document.querySelectorAll('.cad-identidade').forEach(b => b.onclick = () => openIdentidadeEmpreendedora(b.dataset.id, b.dataset.n));
   }
   document.querySelectorAll('.admin-tab').forEach(b => b.onclick = () => { state.adminTab = b.dataset.tab; renderCadastros(); });
 }
@@ -4555,16 +4673,21 @@ function renderCompletarCadastro(session, perfil) {
 // Incorporadoras/loteadoras acompanham seus empreendimentos e processos em tempo real,
 // sem acesso ao sistema interno da equipe. Escopo de dados garantido por RLS (perfis.empreendedora_id).
 let portalCanal = null;
-function portalShell(perfil, inner) {
+function portalShell(perfil, inner, marca) {
   if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
+  const logoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
+  const tituloHtml = marca
+    ? `<h1>${logoUrl ? `<img src="${logoUrl}" style="height:26px;max-width:110px;object-fit:contain;margin-right:8px;vertical-align:middle">` : `<span class="logo">${ICONE_PREDIO}</span>`}NEO SERVICE <span style="color:var(--muted);font-weight:400">| ${esc(marca.nome)}</span></h1>`
+    : `<h1><span class="logo">${ICONE_PREDIO}</span>Portal do Cliente</h1>`;
   app.innerHTML = `
-  <div style="min-height:100vh;background:var(--bg)">
+  <div style="min-height:100vh;background:var(--bg)${marca?.cor_secundaria ? `;--accent2:${esc(marca.cor_secundaria)}` : ''}">
     <header style="position:sticky;top:0;z-index:10">
-      <h1><span class="logo">${ICONE_PREDIO}</span>Portal do Cliente</h1>
+      ${tituloHtml}
       <span class="spacer"></span>
       <span style="color:var(--muted);font-size:13px;margin-right:14px">${esc(perfil.nome_completo || perfil.nome || '')}</span>
       <button id="pcSair" class="ghost">Sair</button>
     </header>
+    ${marca ? `<p style="color:var(--muted);font-size:12.5px;padding:10px 20px 0">Acompanhamento exclusivo da sua operação.</p>` : ''}
     <main>${inner}</main>
   </div>`;
   document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); renderLogin(); };
@@ -4603,9 +4726,10 @@ async function renderPortalCliente(perfil) {
 
 async function renderPortalEmpreendimento(perfil, empId) {
   const [{ data: emp }, { data: processos }] = await Promise.all([
-    sb.from('empreendimentos').select('id,nome').eq('id', empId).single(),
+    sb.from('empreendimentos').select('id,nome,empreendedora_id,empreendedoras(nome,logo_path,cor_secundaria)').eq('id', empId).single(),
     sb.from('esteira_processos').select('*').eq('empreendimento_id', empId).order('criado_em', { ascending: false }),
   ]);
+  const marca = emp?.empreendedoras || null;
   portalShell(perfil, `
     <button id="pcVoltar" class="ghost" style="margin-bottom:16px">← Todos os empreendimentos</button>
     <h2 style="font-size:16px;margin-bottom:14px">🏗️ ${esc(emp?.nome)}</h2>
@@ -4616,18 +4740,20 @@ async function renderPortalEmpreendimento(perfil, empId) {
           <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${esc(p.status)}</span>
           <button class="pcAbrir" data-id="${p.id}">Acompanhar →</button>
         </div>
-      </div>`).join('') || '<p style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</p>'}`);
+      </div>`).join('') || '<p style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</p>'}`, marca);
   document.getElementById('pcVoltar').onclick = () => renderPortalCliente(perfil);
   document.querySelectorAll('.pcAbrir').forEach(b => b.onclick = () => renderPortalProcesso(perfil, b.dataset.id, empId));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalEmpreendimento(perfil, empId));
 }
 
 async function renderPortalProcesso(perfil, processoId, empId) {
-  const [{ data: p }, { data: historico }, { data: validacoes }] = await Promise.all([
+  const [{ data: p }, { data: historico }, { data: validacoes }, { data: emp }] = await Promise.all([
     sb.from('esteira_processos').select('*, analistas(nome)').eq('id', processoId).single(),
     sb.from('esteira_historico').select('*').eq('processo_id', processoId).order('criado_em', { ascending: false }),
     sb.from('esteira_validacoes').select('*').eq('processo_id', processoId).order('criado_em'),
+    sb.from('empreendimentos').select('empreendedoras(nome,logo_path,cor_secundaria)').eq('id', empId).single(),
   ]);
+  const marca = emp?.empreendedoras || null;
   if (!p) { renderPortalEmpreendimento(perfil, empId); return; }
   const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', p.esteira_tipo).eq('ativa', true).order('ordem');
   const etapaAtualIdx = (etapas||[]).findIndex(e => e.id === p.etapa_atual_id);
@@ -4696,7 +4822,7 @@ async function renderPortalProcesso(perfil, processoId, empId) {
         <div class="tl-item"><div class="tl-dot"></div>
           <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}</div></div>`).join('') || '<p style="color:var(--muted);font-size:13px">Nenhuma movimentação registrada ainda.</p>'}
       </div>
-    </div>`);
+    </div>`, marca);
   document.getElementById('pcVoltar').onclick = () => renderPortalEmpreendimento(perfil, empId);
   const chatMsgsEl = document.getElementById('pcChatMsgs');
   if (chatMsgsEl) chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
