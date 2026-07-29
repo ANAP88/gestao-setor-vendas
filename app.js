@@ -2903,6 +2903,7 @@ const ROLE_INFO = {
   admin: { cor: 'CONCLUIDO', label: 'Admin' },
   analista: { cor: 'RECEBIDO', label: 'Analista' },
   leitura: { cor: 'PENDENTE', label: 'Leitura' },
+  cliente: { cor: 'PENDENTE', label: 'Cliente (portal)' },
 };
 async function renderCadastros() {
   if (!state.adminTab) state.adminTab = 'usuarios';
@@ -2932,8 +2933,12 @@ async function renderCadastros() {
           <div><label>E-mail para convidar</label><input id="nuEmail" type="email" placeholder="pessoa@neoservice.com.br"></div>
           <div><label>Nível de acesso</label><select id="nuNivel">
             <option value="analista">Analista</option><option value="admin">Admin</option><option value="leitura">Leitura</option>
+            <option value="cliente">Cliente (portal externo)</option>
           </select></div>
-          <button id="btnCriarUser">Enviar convite</button>
+          <div id="nuEmpdoraWrap" class="hidden"><label>Empreendedora (incorporadora/loteadora)</label>
+            <select id="nuEmpdora"><option value="">— escolher —</option>
+              ${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select></div>
+          <button id="btnCriarUser">Criar acesso</button>
           <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
         </div>` : ''}
         <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">💡 O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum.</p>
@@ -2951,10 +2956,15 @@ async function renderCadastros() {
             ? `<select class="selRole" data-uid="${u.user_id}">
                 ${Object.keys(ROLE_INFO).map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${ROLE_INFO[r].label}</option>`).join('')}</select>`
             : `<span class="tag ${info.cor}">${info.label}</span>`}</td>
-          <td>${state.role === 'admin'
-            ? `<select class="selAnalistaVinc" data-uid="${u.user_id}"><option value="">— sem vínculo —</option>
-                ${L.analistas.map(a=>`<option value="${a.id}" ${u.analista_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select>`
-            : `<span style="color:var(--muted)">${esc((L.analistas.find(a=>a.id===u.analista_id)||{}).nome || '—')}</span>`}</td>
+          <td>${u.role === 'cliente'
+            ? (state.role === 'admin'
+                ? `<select class="selEmpdoraVinc" data-uid="${u.user_id}"><option value="">— escolher empreendedora —</option>
+                    ${L.empreendedoras.map(e=>`<option value="${e.id}" ${u.empreendedora_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select>`
+                : `<span style="color:var(--muted)">${esc((L.empreendedoras.find(e=>e.id===u.empreendedora_id)||{}).nome || '—')}</span>`)
+            : (state.role === 'admin'
+                ? `<select class="selAnalistaVinc" data-uid="${u.user_id}"><option value="">— sem vínculo —</option>
+                    ${L.analistas.map(a=>`<option value="${a.id}" ${u.analista_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select>`
+                : `<span style="color:var(--muted)">${esc((L.analistas.find(a=>a.id===u.analista_id)||{}).nome || '—')}</span>`)}</td>
           <td style="color:var(--muted)">${fmtDt(u.criado_em)}</td>
           <td>${state.role === 'admin' && !isSelf ? `
             <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" style="font-size:12px;padding:4px 9px">🔑 Resetar senha</button>
@@ -2965,12 +2975,21 @@ async function renderCadastros() {
       </div>`);
     const btnAbrir = document.getElementById('btnAbrirConvite');
     if (btnAbrir) btnAbrir.onclick = () => conviteBox.classList.toggle('hidden');
+    const nuNivelEl = document.getElementById('nuNivel');
+    if (nuNivelEl) nuNivelEl.onchange = () => {
+      document.getElementById('nuEmpdoraWrap').classList.toggle('hidden', nuNivelEl.value !== 'cliente');
+    };
     document.querySelectorAll('.selRole').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('perfis').update({ role: s.value }).eq('user_id', s.dataset.uid);
       if (error) alert(error.message);
+      else renderCadastros();
     });
     document.querySelectorAll('.selAnalistaVinc').forEach(s => s.onchange = async () => {
       const { error } = await sb.from('perfis').update({ analista_id: s.value || null }).eq('user_id', s.dataset.uid);
+      if (error) alert(error.message);
+    });
+    document.querySelectorAll('.selEmpdoraVinc').forEach(s => s.onchange = async () => {
+      const { error } = await sb.from('perfis').update({ empreendedora_id: s.value || null }).eq('user_id', s.dataset.uid);
       if (error) alert(error.message);
     });
     document.querySelectorAll('.btn-toggle-ativo').forEach(b => b.onclick = async () => {
@@ -2996,15 +3015,18 @@ async function renderCadastros() {
     const btnCU = document.getElementById('btnCriarUser');
     if (btnCU) btnCU.onclick = async () => {
       const email = nuEmail.value.trim(), nivel = nuNivel.value;
+      const empreendedoraId = nivel === 'cliente' ? document.getElementById('nuEmpdora').value : null;
       const msg = document.getElementById('nuMsg');
       if (!email) { msg.textContent = 'Informe o e-mail.'; return; }
-      if (!email.toLowerCase().endsWith(DOMINIO_CORPORATIVO)) {
+      if (nivel === 'cliente') {
+        if (!empreendedoraId) { msg.textContent = 'Escolha a empreendedora vinculada a esse acesso.'; return; }
+      } else if (!email.toLowerCase().endsWith(DOMINIO_CORPORATIVO)) {
         msg.textContent = `Use o e-mail corporativo (${DOMINIO_CORPORATIVO}). E-mails pessoais não têm acesso ao sistema.`;
         return;
       }
       btnCU.disabled = true; msg.textContent = 'Criando acesso...';
       const { data, error } = await sb.functions.invoke('convidar-usuario', {
-        body: { email, nivel },
+        body: { email, nivel, empreendedoraId },
       });
       btnCU.disabled = false;
       if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
@@ -4008,7 +4030,7 @@ async function init() {
   state.session = session;
   // garante perfil e carrega nível de acesso
   await sb.from('perfis').upsert({ user_id: session.user.id, email: session.user.email }, { onConflict: 'user_id', ignoreDuplicates: true });
-  const { data: perfil } = await sb.from('perfis').select('role,nome,ativo,analista_id,nome_completo,funcao,cadastro_completo').eq('user_id', session.user.id).single();
+  const { data: perfil } = await sb.from('perfis').select('role,nome,ativo,analista_id,nome_completo,funcao,cadastro_completo,empreendedora_id').eq('user_id', session.user.id).single();
   if (perfil?.ativo === false) {
     await sb.auth.signOut();
     renderLogin('Sua conta foi desativada. Fale com o administrador do sistema.');
@@ -4017,6 +4039,8 @@ async function init() {
   state.role = perfil?.role || 'analista';
   state.perfilNome = perfil?.nome_completo || perfil?.nome || '';
   state.meuAnalistaId = perfil?.analista_id || null;
+  // Portal do Cliente: acesso externo (incorporadora/loteadora), tela totalmente separada do sistema interno
+  if (state.role === 'cliente') { renderPortalCliente(perfil); return; }
   await loadLookups();
   // primeiro acesso: exige nome completo e função antes de liberar o sistema
   if (!perfil?.cadastro_completo) { renderCompletarCadastro(session, perfil); return; }
@@ -4059,4 +4083,113 @@ function renderCompletarCadastro(session, perfil) {
     init();
   };
 }
+
+// ================= PORTAL DO CLIENTE (Fase 1 — somente leitura) =================
+// Incorporadoras/loteadoras acompanham seus empreendimentos e processos em tempo real,
+// sem acesso ao sistema interno da equipe. Escopo de dados garantido por RLS (perfis.empreendedora_id).
+let portalCanal = null;
+function portalShell(perfil, inner) {
+  if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
+  app.innerHTML = `
+  <div style="min-height:100vh;background:var(--bg)">
+    <header style="position:sticky;top:0;z-index:10">
+      <h1><span class="logo">${ICONE_PREDIO}</span>Portal do Cliente</h1>
+      <span class="spacer"></span>
+      <span style="color:var(--muted);font-size:13px;margin-right:14px">${esc(perfil.nome_completo || perfil.nome || '')}</span>
+      <button id="pcSair" class="ghost">Sair</button>
+    </header>
+    <main>${inner}</main>
+  </div>`;
+  document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); renderLogin(); };
+}
+// Assina mudanças em tempo real e re-renderiza a tela atual quando algo muda
+function portalRealtime(tabelas, aoMudar) {
+  if (portalCanal) { sb.removeChannel(portalCanal); }
+  portalCanal = sb.channel('portal-cliente-' + Date.now());
+  tabelas.forEach(t => portalCanal.on('postgres_changes', { event: '*', schema: 'public', table: t }, aoMudar));
+  portalCanal.subscribe();
+}
+
+async function renderPortalCliente(perfil) {
+  const { data: emps } = await sb.from('empreendimentos').select('id,nome').order('nome');
+  const empIds = (emps||[]).map(e=>e.id);
+  const [{ data: processos }, { data: demandasAtivas }] = await Promise.all([
+    sb.from('esteira_processos').select('id,titulo,status,empreendimento_id').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
+    sb.from('demandas').select('id,status').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
+  ]);
+  const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
+  const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
+  portalShell(perfil, `
+    <div class="kpis" style="margin-bottom:18px">
+      <div class="kpi"><div class="v">${(emps||[]).length}</div><div class="l">🏗️ Empreendimentos ativos</div></div>
+      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">⏳ Processos em andamento</div></div>
+      <div class="kpi"><div class="v">${concluidos}</div><div class="l">✅ Processos concluídos</div></div>
+      <div class="kpi"><div class="v">${(demandasAtivas||[]).length}</div><div class="l">📋 Total de processos na produção</div></div>
+    </div>
+    <div class="card">
+      <h2>🏗️ Seus empreendimentos</h2>
+      <div class="grid-cad">${(emps||[]).map(e => `
+        <div class="cad-item" style="cursor:pointer" data-id="${e.id}">
+          <span style="flex:1;font-size:14px;font-weight:600">${esc(e.nome)}</span>
+          <span style="color:var(--muted)">→</span>
+        </div>`).join('') || '<p style="color:var(--muted)">Nenhum empreendimento vinculado ainda.</p>'}</div>
+    </div>`);
+  document.querySelectorAll('.cad-item').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
+  portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalCliente(perfil));
+}
+
+async function renderPortalEmpreendimento(perfil, empId) {
+  const [{ data: emp }, { data: processos }] = await Promise.all([
+    sb.from('empreendimentos').select('id,nome').eq('id', empId).single(),
+    sb.from('esteira_processos').select('*').eq('empreendimento_id', empId).order('criado_em', { ascending: false }),
+  ]);
+  portalShell(perfil, `
+    <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← Todos os empreendimentos</button>
+    <div class="card">
+      <h2>🏗️ ${esc(emp?.nome)}</h2>
+      <table><thead><tr><th>Processo</th><th>Status</th><th>Unidade</th><th></th></tr></thead>
+      <tbody>${(processos||[]).map(p => `<tr>
+        <td>${esc(p.titulo)}</td>
+        <td><span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${esc(p.status)}</span></td>
+        <td>${esc(p.unidade)||'—'}</td>
+        <td><button class="ghost pcAbrir" data-id="${p.id}">Acompanhar</button></td>
+      </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</td></tr>'}</tbody></table>
+    </div>`);
+  document.getElementById('pcVoltar').onclick = () => renderPortalCliente(perfil);
+  document.querySelectorAll('.pcAbrir').forEach(b => b.onclick = () => renderPortalProcesso(perfil, b.dataset.id, empId));
+  portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalEmpreendimento(perfil, empId));
+}
+
+async function renderPortalProcesso(perfil, processoId, empId) {
+  const [{ data: p }, { data: historico }] = await Promise.all([
+    sb.from('esteira_processos').select('*').eq('id', processoId).single(),
+    sb.from('esteira_historico').select('*').eq('processo_id', processoId).order('criado_em', { ascending: false }),
+  ]);
+  if (!p) { renderPortalEmpreendimento(perfil, empId); return; }
+  const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', p.esteira_tipo).eq('ativa', true).order('ordem');
+  const etapaAtualIdx = (etapas||[]).findIndex(e => e.id === p.etapa_atual_id);
+  portalShell(perfil, `
+    <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← ${esc((await sb.from('empreendimentos').select('nome').eq('id', empId).single()).data?.nome || 'Empreendimento')}</button>
+    <div class="card" style="margin-bottom:14px">
+      <h2>${esc(p.titulo)}</h2>
+      <p style="color:var(--muted);font-size:13px">Unidade ${esc(p.unidade)||'—'} · Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}">${esc(p.status)}</span></p>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2 style="font-size:14px">Andamento</h2>
+      <div class="timeline">${(etapas||[]).map((e,i) => `
+        <div class="tl-item"><div class="tl-dot" style="background:${i<etapaAtualIdx?'var(--ok)':i===etapaAtualIdx?'var(--accent)':'var(--border)'}"></div>
+          <div><b style="color:${i<=etapaAtualIdx?'var(--text)':'var(--muted)'}">${i<etapaAtualIdx?'✅':i===etapaAtualIdx?'🟡':'⚪'} ${esc(e.nome)}</b></div></div>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <h2 style="font-size:14px">🕓 Histórico</h2>
+      <div class="timeline">${(historico||[]).map(h => `
+        <div class="tl-item"><div class="tl-dot"></div>
+          <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}</div></div>`).join('') || '<p style="color:var(--muted);font-size:13px">Nenhuma movimentação registrada ainda.</p>'}
+      </div>
+    </div>`);
+  document.getElementById('pcVoltar').onclick = () => renderPortalEmpreendimento(perfil, empId);
+  portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalProcesso(perfil, processoId, empId));
+}
+
 init();
