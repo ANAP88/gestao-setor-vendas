@@ -4263,21 +4263,27 @@ async function openProcessoEsteira(id, etapas) {
     const assunto = `${$('epTitulo').value.trim() || p.titulo} / ${clienteTxt} / ${unidadeTxt} / ${empTxt}`;
     const enc = (s) => encodeURIComponent(s);
     const mailtoUrl = `mailto:?subject=${enc(assunto)}`;
+    const outlookUrl = `https://outlook.office.com/mail/deeplink/compose?subject=${enc(assunto)}`;
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&su=${enc(assunto)}`;
     const div2 = document.createElement('div');
     div2.className = 'modal-bg';
     div2.innerHTML = `<div class="modal" style="width:520px">
       <h2>✉️ Assunto do e-mail gerado</h2>
       <div><label>Assunto</label><input id="geAssunto" value="${esc(assunto)}" readonly></div>
       <div class="msg" id="geMsg" style="margin-top:8px"></div>
-      <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:end;margin-top:14px">
         <button id="geFechar" class="ghost">Fechar</button>
         <button id="geCopiar" class="ghost">📋 Copiar assunto</button>
-        <button id="geAbrir">Abrir no e-mail</button>
+        <button id="geGmail" class="ghost">Abrir no Gmail</button>
+        <button id="geOutlook" class="ghost">📧 Abrir no Outlook Web</button>
+        <button id="geAbrir">💻 Abrir no app de e-mail</button>
       </div>
     </div>`;
     document.body.appendChild(div2);
     div2.querySelector('#geFechar').onclick = () => div2.remove();
     div2.querySelector('#geAbrir').onclick = () => { window.location.href = mailtoUrl; };
+    div2.querySelector('#geOutlook').onclick = () => { window.open(outlookUrl, '_blank'); };
+    div2.querySelector('#geGmail').onclick = () => { window.open(gmailUrl, '_blank'); };
     div2.querySelector('#geCopiar').onclick = async () => {
       try { await navigator.clipboard.writeText(assunto); div2.querySelector('#geMsg').textContent = '✅ Assunto copiado!'; }
       catch { div2.querySelector('#geAssunto').select(); }
