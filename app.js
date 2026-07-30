@@ -256,8 +256,6 @@ const PILARES = [
   ['🏢 Gestão', [
     ['dashboard', '📈', 'Dashboard'],
     ['metas', '🎯', 'Metas & Indicadores'],
-    ['analytics', '📉', 'Analytics'],
-    ['insights', '💡', 'Insights'],
     ['implantacao', '🚀', 'Produtos em Implantação'],
     ['fechamento', '💰', 'Fechamento'],
     ['escala', '📅', 'Escala'],
@@ -470,6 +468,13 @@ async function loadLookups() {
   state.clientesLookup = cli.data || [];
 }
 
+function dashSubTabs(ativo) {
+  return `<div class="admin-tabs" style="margin-bottom:16px">
+    <button class="admin-tab dash-subtab ${ativo==='dashboard'?'active':''}" data-v="dashboard">📈 Visão Geral</button>
+    <button class="admin-tab dash-subtab ${ativo==='analytics'?'active':''}" data-v="analytics">📉 Analytics</button>
+    <button class="admin-tab dash-subtab ${ativo==='insights'?'active':''}" data-v="insights">💡 Insights</button>
+  </div>`;
+}
 // ---------- DASHBOARD (executivo: KPIs + produção + ranking, tudo numa tela) ----------
 function pctFmt(num, den) {
   if (!den) return '0%';
@@ -639,14 +644,26 @@ async function renderDashboard() {
   const pctDia = metaDia ? Math.round(100 * prodHoje / metaDia) : null;
   const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
 
-  // Chamados em aberto agrupados por quem abriu — visão rápida de quem está com pendência de solicitação
-  const { data: chamadosAbertos } = await sb.from('chamados').select('solicitante').neq('status', 'RESOLVIDO');
+  // Chamados entre áreas: agrupados por quem abriu e por área destino, com indicador de tempo
+  const { data: chamadosTodos } = await sb.from('chamados').select('solicitante,area,status,criado_em,resolvido_em');
+  const chamadosAbertos = (chamadosTodos||[]).filter(c => c.status !== 'RESOLVIDO');
   const chamadosPorSolicitante = {};
-  (chamadosAbertos||[]).forEach(c => { const n = c.solicitante || '—'; chamadosPorSolicitante[n] = (chamadosPorSolicitante[n]||0) + 1; });
+  chamadosAbertos.forEach(c => { const n = c.solicitante || '—'; chamadosPorSolicitante[n] = (chamadosPorSolicitante[n]||0) + 1; });
   const chamadosRanking = Object.entries(chamadosPorSolicitante).sort((a,b) => b[1]-a[1]);
   const maxChamados = Math.max(1, ...chamadosRanking.map(([,n]) => n));
+  const chamadosPorArea = {};
+  chamadosAbertos.forEach(c => { const a = c.area || '—'; chamadosPorArea[a] = (chamadosPorArea[a]||0) + 1; });
+  const areaRanking = Object.entries(chamadosPorArea).sort((a,b) => b[1]-a[1]);
+  const maxArea = Math.max(1, ...areaRanking.map(([,n]) => n));
+  const agoraMs = Date.now();
+  const horasAbertoArr = chamadosAbertos.map(c => (agoraMs - new Date(c.criado_em)) / 3600000);
+  const mediaHorasAberto = horasAbertoArr.length ? Math.round(horasAbertoArr.reduce((a,b)=>a+b,0) / horasAbertoArr.length) : 0;
+  const resolvidosArr = (chamadosTodos||[]).filter(c => c.status === 'RESOLVIDO' && c.resolvido_em);
+  const horasResolucaoArr = resolvidosArr.map(c => (new Date(c.resolvido_em) - new Date(c.criado_em)) / 3600000);
+  const mediaHorasResolucao = horasResolucaoArr.length ? Math.round(horasResolucaoArr.reduce((a,b)=>a+b,0) / horasResolucaoArr.length) : 0;
 
   shell(`
+    ${dashSubTabs('dashboard')}
     <div class="kpis">
       <div class="kpi kpi-clicavel" data-ir="__todos__"><div class="v">${totAll}</div><div class="l">📋 Total de processos</div></div>
       <div class="kpi kpi-clicavel" data-ir="CONCLUIDO"><div class="v" style="color:var(--ok)">${concAll}</div><div class="l">✅ Concluídos</div></div>
@@ -789,9 +806,21 @@ async function renderDashboard() {
       </div>
       <div class="card kpi-clicavel" id="cardChamadosAnalista">
         <h2>📨 Chamados em aberto por quem abriu</h2>
-        <div style="max-height:420px;overflow-y:auto">
+        <div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px;color:var(--muted)">
+          <span>⏳ Tempo médio aberto: <b style="color:var(--text)">${mediaHorasAberto}h</b></span>
+          <span>✅ Tempo médio de resolução: <b style="color:var(--text)">${mediaHorasResolucao}h</b></span>
+        </div>
+        <div style="max-height:340px;overflow-y:auto">
         ${chamadosRanking.length ? chamadosRanking.map(([nome,n]) => `<div class="hbar-row"><span class="hbar-lbl">${esc(nome)}</span>
           <div class="hbar"><div style="width:${Math.round(100*n/maxChamados)}%"></div></div>
+          <b>${n}</b></div>`).join('') : '<p style="color:var(--muted);font-size:12.5px">Nenhum chamado em aberto no momento.</p>'}
+        </div>
+      </div>
+      <div class="card kpi-clicavel" id="cardChamadosArea">
+        <h2>🏢 Chamados em aberto por área</h2>
+        <div style="max-height:420px;overflow-y:auto">
+        ${areaRanking.length ? areaRanking.map(([area,n]) => `<div class="hbar-row"><span class="hbar-lbl">${esc(area)}</span>
+          <div class="hbar"><div style="width:${Math.round(100*n/maxArea)}%"></div></div>
           <b>${n}</b></div>`).join('') : '<p style="color:var(--muted);font-size:12.5px">Nenhum chamado em aberto no momento.</p>'}
         </div>
       </div>
@@ -802,6 +831,9 @@ async function renderDashboard() {
   });
   const cardChamados = document.getElementById('cardChamadosAnalista');
   if (cardChamados) cardChamados.onclick = () => { state.view = 'chamados'; render(); };
+  const cardChamadosA = document.getElementById('cardChamadosArea');
+  if (cardChamadosA) cardChamadosA.onclick = () => { state.view = 'chamados'; render(); };
+  document.querySelectorAll('.dash-subtab').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
   document.getElementById('dashAnalista').onchange = (e) => { state.dashAnalista = e.target.value; renderDashboard(); };
   document.getElementById('perPreset').onchange = (e) => {
     state.periodoPresetAnterior = state.periodoPreset;
@@ -1284,6 +1316,7 @@ async function renderInsights() {
   const disparar = (al||[]).filter(a => a.disparar_alerta);
   const estourados = (sla||[]).filter(s => s.horas_aberto > 24);
   shell(`
+    ${dashSubTabs('insights')}
     <div class="kpis">
       <div class="kpi"><div class="v" style="color:${disparar.length?'var(--err)':'var(--ok)'}">${disparar.length}</div><div class="l">🚨 Plantão sem atividade</div></div>
       <div class="kpi"><div class="v" style="color:${(sla||[]).length?'var(--warn)':'var(--ok)'}">${(sla||[]).length}</div><div class="l">📥 Processos em aberto</div></div>
@@ -1304,6 +1337,7 @@ async function renderInsights() {
         <td>${fmtDt(s.recebido_em)}</td>
         <td style="color:${s.horas_aberto>24?'var(--err)':'var(--warn)'};font-weight:700">${s.horas_aberto}h</td></tr>`).join('')}</tbody></table>` : '<div class="ok-box">✅ Nenhum processo em aberto. Backlog zerado!</div>'}
     </div>`);
+  document.querySelectorAll('.dash-subtab').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
 }
 
 // ---------- ANALYTICS ----------
@@ -1335,6 +1369,7 @@ async function renderAnalytics() {
   const maxMix = Math.max(...mixSel.map(m=>m.total), 1);
 
   shell(`
+    ${dashSubTabs('analytics')}
     <div class="card">
       <h2>📈 Evolução por analista (últimos 6 meses)</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Mostra quem está crescendo ou caindo mês a mês — útil para conversas de performance.</p>
@@ -1382,6 +1417,7 @@ async function renderAnalytics() {
       : '<p style="color:var(--muted);font-size:12.5px">Selecione um analista acima para ver o perfil de atividades dele.</p>'}
     </div>`);
   document.getElementById('anaAnalista').onchange = (e) => { state.anaAnalista = e.target.value; renderAnalytics(); };
+  document.querySelectorAll('.dash-subtab').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
 }
 
 // ---------- OPERAÇÕES (fila do dia) ----------
@@ -1619,6 +1655,12 @@ async function renderFollowup() {
   const { data: fupsAll } = await sb.from('fups')
     .select('id,criado_em,autor,texto,demanda_id,demandas(numero,proponente1_nome,status)')
     .order('criado_em', { ascending: false }).limit(300);
+  // Mensagens do incorporador (Portal do Cliente) ainda não lidas, no(s) processo(s) do analista logado
+  const { data: msgsCliAll } = await sb.from('processo_mensagens')
+    .select('id,processo_id,mensagem,criado_em,esteira_processos(id,titulo,esteira_tipo,analista_atual_id,analistas(nome))')
+    .eq('autor_tipo', 'cliente').eq('lida', false).order('criado_em', { ascending: false });
+  const msgsCliente = (msgsCliAll||[]).filter(m => m.esteira_processos &&
+    (state.role === 'admin' || m.esteira_processos.analista_atual_id === state.meuAnalistaId));
   const termo = state.followupBusca.trim().toLowerCase();
   const fups = !termo ? (fupsAll||[]).slice(0,60) : (fupsAll||[]).filter(f =>
     (f.texto||'').toLowerCase().includes(termo) ||
@@ -1626,6 +1668,20 @@ async function renderFollowup() {
     (f.demandas?.proponente1_nome||'').toLowerCase().includes(termo) ||
     String(f.demandas?.numero||'').includes(termo));
   shell(`
+    ${msgsCliente.length ? `
+    <div class="card" style="border-color:var(--accent)">
+      <h2>💬 Mensagens do incorporador sem resposta (${msgsCliente.length})</h2>
+      ${msgsCliente.map(m => `
+        <div class="fup">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+            <b>${esc(m.esteira_processos.titulo)}</b>
+            <span style="color:var(--muted);font-size:12px">${esc(m.esteira_processos.analistas?.nome || 'sem analista')}</span>
+            <span style="margin-left:auto;color:var(--muted);font-size:12px">${fmtDt(m.criado_em)}</span>
+            <button class="ghost btnAbrirMsgCliente" data-id="${m.esteira_processos.id}" data-tipo="${esc(m.esteira_processos.esteira_tipo)}" style="padding:2px 8px">Abrir</button>
+          </div>
+          ${esc(m.mensagem)}
+        </div>`).join('')}
+    </div>` : ''}
     <div class="card filters" style="align-items:end">
       <div style="flex:1"><label>🔎 Perfil do cliente (nome completo, unidade, esteira e linha do tempo)</label>
         <input id="cliBusca" value="${esc(state.clienteBusca)}" placeholder="Digite o nome do cliente..."></div>
@@ -1659,6 +1715,10 @@ async function renderFollowup() {
         </div>`).join('') : `<div class="ok-box">${termo ? 'Nenhum follow-up encontrado para essa busca.' : 'Nenhum follow-up registrado ainda.'}</div>`}
     </div>`);
   document.querySelectorAll('.btnEdit').forEach(b => b.onclick = () => openForm(b.dataset.id));
+  document.querySelectorAll('.btnAbrirMsgCliente').forEach(b => b.onclick = async () => {
+    const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', b.dataset.tipo).eq('ativa', true).order('ordem');
+    openProcessoEsteira(b.dataset.id, etapas || []);
+  });
   btnFupBuscar.onclick = () => { state.followupBusca = fupBusca.value; renderFollowup(); };
   fupBusca.addEventListener('keydown', e => { if (e.key === 'Enter') btnFupBuscar.click(); });
   const bL = document.getElementById('btnFupLimpar');
@@ -4132,6 +4192,13 @@ async function openProcessoEsteira(id, etapas) {
         <option value="">— escolher o parecer —</option>
         ${PARECERES_CREDITO.map(([k,l]) => `<option value="${k}" ${p.parecer_credito===k?'selected':''}>${l}</option>`).join('')}
       </select>
+      <div id="epContratoBox" style="margin-top:8px;display:none">
+        <label>Enviar processo de emissão de contrato para</label>
+        <select id="epAnalistaContrato">
+          <option value="">Deixar na fila (qualquer um pega)</option>
+          ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}
+        </select>
+      </div>
       <div style="margin-top:10px"><button id="epRegistrarParecer">Registrar parecer</button></div>
     </div>` : ''}
     ${id && !ro && p?.esteira_tipo !== 'analise_credito' ? `
@@ -4214,6 +4281,12 @@ async function openProcessoEsteira(id, etapas) {
     ...( $('epFaturado') ? { sera_faturado: $('epFaturado').value === '' ? null : $('epFaturado').value === 'sim' } : {} ),
   });
 
+  const parecerSelect = $('epParecer');
+  const contratoBox = $('epContratoBox');
+  const atualizaContratoBox = () => { contratoBox.style.display = ['aprovado_contrato','aprovado_pendencia_contrato'].includes(parecerSelect.value) ? '' : 'none'; };
+  atualizaContratoBox();
+  if (parecerSelect) parecerSelect.onchange = atualizaContratoBox;
+
   const btnParecer = $('epRegistrarParecer');
   if (btnParecer) btnParecer.onclick = async () => {
     const parecer = $('epParecer').value;
@@ -4221,9 +4294,16 @@ async function openProcessoEsteira(id, etapas) {
     const rotulo = (PARECERES_CREDITO.find(x => x[0] === parecer) || [])[1] || parecer;
     if (!confirm(`Registrar o parecer "${rotulo}"?`)) return;
     btnParecer.disabled = true; $('epMsg').textContent = 'Registrando...';
-    // o restante (mover de bloco, encerrar, criar o card de contrato) é feito automaticamente pelo banco
+    // o restante (mover de bloco, encerrar, criar o card de contrato) é feito automaticamente pelo banco (trigger)
     const { error } = await sb.from('esteira_processos').update({ parecer_credito: parecer }).eq('id', id);
     if (error) { $('epMsg').textContent = error.message; btnParecer.disabled = false; return; }
+    // Se foi para emissão de contrato e um analista de destino foi escolhido, atribui o processo recém-criado a ele
+    const analistaContrato = $('epAnalistaContrato') ? $('epAnalistaContrato').value : '';
+    if (['aprovado_contrato','aprovado_pendencia_contrato'].includes(parecer) && analistaContrato) {
+      const { data: filho } = await sb.from('esteira_processos').select('id').eq('processo_origem_id', id)
+        .eq('esteira_tipo', 'emissao_contrato').order('criado_em', { ascending: false }).limit(1).maybeSingle();
+      if (filho) await sb.from('esteira_processos').update({ analista_atual_id: analistaContrato, status: 'EM_ANDAMENTO' }).eq('id', filho.id);
+    }
     div.remove();
     renderEsteira();
   };
