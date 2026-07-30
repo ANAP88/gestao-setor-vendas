@@ -5188,7 +5188,7 @@ async function renderPortalCliente(perfil) {
         <h2 style="font-size:15px;margin-bottom:12px">Seus empreendimentos</h2>
         <div class="table-scroll"><table class="users-table"><thead><tr><th>Empreendimento</th><th>Em andamento</th><th>Concluídos</th><th></th></tr></thead>
         <tbody>${(emps||[]).map(e => `
-          <tr class="portal-card" data-id="${e.id}" style="cursor:pointer">
+          <tr class="portal-emp-row" data-id="${e.id}" style="cursor:pointer">
             <td><b>${esc(e.nome)}</b></td>
             <td>${procPorEmp[e.id]?.abertos || 0}</td>
             <td>${procPorEmp[e.id]?.concluidos || 0}</td>
