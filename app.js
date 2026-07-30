@@ -853,13 +853,15 @@ function buildQuery(sel, count) {
   return q;
 }
 async function renderDemandas() {
-  const { data: rows, count } = await buildQuery(
+  const { data: rows, count, error: erroConsulta } = await buildQuery(
     'id,numero,numero_processo,recebido_em,proponente1_nome,proponente1_cpf,proponente2_nome,proponente2_cpf,unidade,status,concluido_em,fat_mensal,valor_proposta,obs,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)', true
   ).order('recebido_em', { ascending: false }).range(state.page*PAGE, state.page*PAGE+PAGE-1);
   state.total = count || 0;
   const L = state.lookups, f = state.filtros;
   const pages = Math.max(1, Math.ceil(state.total / PAGE));
   shell(`
+    ${erroConsulta ? `<div class="alert-box" style="margin-bottom:14px">⚠️ <b>Não foi possível carregar a lista.</b> ${esc(erroConsulta.message)}<br>
+      <span style="font-size:12px">Se isso está acontecendo no ambiente de teste, provavelmente faltam chaves estrangeiras no schema <code>staging</code> — ver <code>migrations/corrigir_ambiente_staging.sql</code>.</span></div>` : ''}
     <div class="card filters">
       <div><label>Busca (nome / unidade / processo)</label><input id="fBusca" value="${esc(f.busca)}"></div>
       <div><label>Status</label><select id="fStatus"><option value="">Todos</option>
