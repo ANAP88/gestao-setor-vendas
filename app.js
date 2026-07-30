@@ -579,9 +579,10 @@ async function renderDashboard() {
 
   // KPIs de topo (Total/Concluídos/Pendentes/%) escopados ao período selecionado
   const ateExclusivo = dAdd(ateEfetivo, 1);
-  const [{ count: totAll }, { count: concAll }] = await Promise.all([
+  const [{ count: totAll }, { count: concAll }, { data: chamadosTodos }] = await Promise.all([
     sb.from('demandas').select('id', { count: 'exact', head: true }).gte('recebido_em', deEfetivo).lt('recebido_em', ateExclusivo),
     sb.from('demandas').select('id', { count: 'exact', head: true }).gte('recebido_em', deEfetivo).lt('recebido_em', ateExclusivo).eq('status', 'CONCLUIDO'),
+    sb.from('chamados').select('solicitante,area,status,criado_em,resolvido_em').gte('criado_em', deEfetivo).lt('criado_em', ateExclusivo),
   ]);
 
   // Volume: agrupamento automático (dia/semana/mês/ano) pra nunca virar parede de barras
@@ -645,8 +646,6 @@ async function renderDashboard() {
   const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
 
   // Chamados entre áreas: agrupados por quem abriu e por área destino, com indicador de tempo — segue o mesmo período do topo
-  const { data: chamadosTodos } = await sb.from('chamados').select('solicitante,area,status,criado_em,resolvido_em')
-    .gte('criado_em', deEfetivo).lt('criado_em', ateExclusivo);
   const chamadosAbertos = (chamadosTodos||[]).filter(c => c.status !== 'RESOLVIDO');
   const chamadosPorSolicitante = {};
   chamadosAbertos.forEach(c => { const n = c.solicitante || '—'; chamadosPorSolicitante[n] = (chamadosPorSolicitante[n]||0) + 1; });
