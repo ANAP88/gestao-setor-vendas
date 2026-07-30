@@ -194,7 +194,16 @@ Isso não afeta produção, mas limita o que dá pra validar em staging antes de
 | Faltam várias views analíticas no staging: `ranking_analistas`, `producao_diaria`, `producao_analista_dia`, `fds_solo`, `implantacao_painel`, `alerta_hoje`, `insights_sla`, `evolucao_analista_mes`, `tempo_por_atividade`, `mix_atividade_analista`, `empreendedora_mes`, `top_empreendedoras`, `volume_atividades`, `cartorios`, `prefeituras`, `metas_fds` (404 em todas) | Dashboard (ranking e alguns gráficos), Insights, Analytics, Produtos em Implantação e parte de Operações aparecem "zerados" em staging sem mensagem de erro — não é falta de dado, é view/tabela inexistente | Dashboard, Insights, Analytics, Implantação, Operações |
 | Falta `GRANT SELECT` para o papel `authenticated` em `staging.apontamento_exclusao_solicitacoes` | Erro 403 ao carregar Qualidade/Retrabalho para quem tenta ver solicitações de exclusão pendentes | Qualidade / Retrabalho |
 
-**Recomendação:** ao recriar/atualizar o ambiente de staging, ou (2) espelhar a estrutura completa (`pg_dump --schema-only` do `public` para dentro de `staging`) em vez de só os dados, ou (1) rodar um script que recrie as FKs, views e grants faltantes a partir do schema `public`. Nenhuma ação é necessária em produção.
+**Correção pronta:** o script [`migrations/corrigir_ambiente_staging.sql`](migrations/corrigir_ambiente_staging.sql)
+resolve os três problemas de uma vez — recria as chaves estrangeiras, recria automaticamente
+todas as views que existem em `public` (apontando para as tabelas de `staging`) e reaplica as
+permissões do papel `authenticated`, mantendo `anon` sem acesso. É idempotente (pode rodar
+várias vezes) e **não toca em produção**. Rodar no SQL Editor do Supabase; ao final ele mesmo
+lista o que ficou faltando, se algo faltar.
+
+**Para não voltar a acontecer:** o ideal é que a rotina de espelhamento passe a copiar também a
+estrutura (`pg_dump --schema-only` de `public` aplicado em `staging`), não só os dados — ou que
+esse script seja executado ao final de cada espelhamento.
 
 Páginas testadas e sem erro de JavaScript no console, tanto com dado quanto vazias: Início,
 Dashboard, Produção(*), Esteira, Qualidade(*), Chamados, Operações(*), Repasse, Biblioteca do
