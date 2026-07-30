@@ -2175,6 +2175,17 @@ async function openMarcarLancamento(eventos) {
 // ---------- PRODUTOS EM IMPLANTAÇÃO — LANÇAMENTOS ----------
 // Replica o Painel_Implantacao_CRM: KPIs da carteira, criticidade por prazo de lançamento,
 // checklist de implantação e pendências por empreendimento.
+function aplicaFiltroImplantacao(lista) {
+  const f = state.implantacaoFiltro;
+  if (!f) return lista;
+  if (f.tipo === 'status_auto') return lista.filter(i => i.status_auto === f.valor);
+  if (f.tipo === 'criticidade') return lista.filter(i => i.criticidade === f.valor);
+  if (f.tipo === 'criticidade_in') return lista.filter(i => f.valor.includes(i.criticidade));
+  if (f.tipo === 'vencidos') return lista.filter(i => i.dias_para_lancamento !== null && i.dias_para_lancamento < 0 && i.status_auto !== 'Concluído');
+  if (f.tipo === 'ate30') return lista.filter(i => i.dias_para_lancamento !== null && i.dias_para_lancamento >= 0 && i.dias_para_lancamento <= 30);
+  if (f.tipo === 'pendencias') return lista.filter(i => i.pendencias_abertas > 0);
+  return lista;
+}
 async function renderImplantacao() {
   const { data: itens } = await sb.from('implantacao_painel').select('*').order('previsao_lancamento');
   const lista = itens || [];
@@ -2191,6 +2202,7 @@ async function renderImplantacao() {
   const emRisco = total ? Math.round(100*lista.filter(i=>['🔴 Risco crítico','🟠 Risco de atraso'].includes(i.criticidade)).length/total) : 0;
   const foco = lista.filter(i => i.status_auto !== 'Concluído' && i.dias_para_lancamento !== null)
     .sort((a,b)=>a.dias_para_lancamento-b.dias_para_lancamento).slice(0,5);
+  const listaTabela = aplicaFiltroImplantacao(lista);
 
   shell(`
     <div class="card" style="margin-bottom:14px">
@@ -2202,31 +2214,31 @@ async function renderImplantacao() {
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${total}</div><div class="l">🏗️ Total de produtos</div></div>
-      <div class="kpi"><div class="v" style="color:var(--accent)">${emImpl}</div><div class="l">⚙️ Em implantação</div></div>
-      <div class="kpi"><div class="v" style="color:var(--ok)">${concl}</div><div class="l">✅ Concluídos</div></div>
-      <div class="kpi"><div class="v" style="color:var(--muted)">${naoIni}</div><div class="l">⏸️ Não iniciados</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="" data-filtro-valor=""><div class="v">${total}</div><div class="l">🏗️ Total de produtos</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Em andamento"><div class="v" style="color:var(--accent)">${emImpl}</div><div class="l">⚙️ Em implantação</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Concluído"><div class="v" style="color:var(--ok)">${concl}</div><div class="l">✅ Concluídos</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Não iniciado"><div class="v" style="color:var(--muted)">${naoIni}</div><div class="l">⏸️ Não iniciados</div></div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v" style="color:${criticos?'var(--err)':'var(--ok)'}">${criticos}</div><div class="l">🔴 Em risco crítico</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="criticidade" data-filtro-valor="🔴 Risco crítico"><div class="v" style="color:${criticos?'var(--err)':'var(--ok)'}">${criticos}</div><div class="l">🔴 Em risco crítico</div></div>
       <div class="kpi"><div class="v">${avancoMedio}%</div><div class="l">📊 Avanço médio</div></div>
-      <div class="kpi"><div class="v" style="color:var(--warn)">${pendAbertas}</div><div class="l">⚠️ Pendências abertas</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="pendencias" data-filtro-valor=""><div class="v" style="color:var(--warn)">${pendAbertas}</div><div class="l">⚠️ Pendências abertas</div></div>
       <div class="kpi"><div class="v">${unidades.toLocaleString('pt-BR')}</div><div class="l">🏠 Total de unidades</div></div>
     </div>
     <div class="grid-cad">
       <div class="card">
         <h2>📊 Inteligência da carteira</h2>
         <table><tbody>
-          <tr><td>Lançamentos vencidos</td><td style="text-align:right"><b style="color:${vencidos?'var(--err)':'var(--ok)'}">${vencidos}</b></td></tr>
-          <tr><td>Lançamentos em ≤ 30 dias</td><td style="text-align:right"><b style="color:${ate30?'var(--warn)':'var(--muted)'}">${ate30}</b></td></tr>
-          <tr><td>Carteira em risco</td><td style="text-align:right"><b style="color:${emRisco>50?'var(--err)':emRisco>25?'var(--warn)':'var(--ok)'}">${emRisco}%</b></td></tr>
-          <tr><td>Pendências abertas</td><td style="text-align:right"><b>${pendAbertas}</b></td></tr>
+          <tr style="cursor:pointer" data-filtro-tipo="vencidos" data-filtro-valor=""><td>Lançamentos vencidos</td><td style="text-align:right"><b style="color:${vencidos?'var(--err)':'var(--ok)'}">${vencidos}</b></td></tr>
+          <tr style="cursor:pointer" data-filtro-tipo="ate30" data-filtro-valor=""><td>Lançamentos em ≤ 30 dias</td><td style="text-align:right"><b style="color:${ate30?'var(--warn)':'var(--muted)'}">${ate30}</b></td></tr>
+          <tr style="cursor:pointer" data-filtro-tipo="criticidade_in" data-filtro-valor='["🔴 Risco crítico","🟠 Risco de atraso"]'><td>Carteira em risco</td><td style="text-align:right"><b style="color:${emRisco>50?'var(--err)':emRisco>25?'var(--warn)':'var(--ok)'}">${emRisco}%</b></td></tr>
+          <tr style="cursor:pointer" data-filtro-tipo="pendencias" data-filtro-valor=""><td>Pendências abertas</td><td style="text-align:right"><b>${pendAbertas}</b></td></tr>
         </tbody></table>
         <p style="color:var(--muted);font-size:11.5px;margin-top:8px">Criticidade por semanas até o lançamento: 🟢 no prazo &gt;8 · 🟡 atenção 6–8 · 🟠 risco de atraso 4–6 · 🔴 crítico &lt;4</p>
       </div>
       <div class="card">
         <h2>🎯 Foco imediato</h2>
-        ${foco.map(i => `<div class="hbar-row">
+        ${foco.map(i => `<div class="hbar-row btn-foco-impl" data-id="${i.id}" style="cursor:pointer">
           <span class="hbar-lbl" style="min-width:150px">${esc(i.empreendimento)}</span>
           <div class="hbar"><div style="width:${i.avanco_pct}%"></div></div>
           <b>${i.avanco_pct}%</b>
@@ -2235,13 +2247,16 @@ async function renderImplantacao() {
       </div>
     </div>
     <div class="card">
-      <h2>Carteira de implantação</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">Carteira de implantação</h2>
+        ${state.implantacaoFiltro ? `<span class="tag PENDENTE">Filtro ativo — ${listaTabela.length} de ${total}</span><button id="btnLimparFiltroImpl" class="ghost" style="padding:2px 10px">Limpar filtro</button>` : ''}
+      </div>
       <div style="overflow-x:auto">
       <table style="min-width:1000px"><thead><tr>
         <th>Empreendedora</th><th>Empreendimento</th><th>Tipo</th><th>Sistemas</th><th>Fase</th>
         <th>Avanço</th><th>Status</th><th>Pend.</th><th>Unid.</th><th>Lançamento</th><th>Criticidade</th><th></th>
       </tr></thead>
-      <tbody>${lista.map(i => `<tr>
+      <tbody>${listaTabela.map(i => `<tr>
         <td>${esc(i.empreendedora)}</td>
         <td><b>${esc(i.empreendimento)}</b></td>
         <td>${esc(i.tipo||'—')}</td>
@@ -2258,6 +2273,14 @@ async function renderImplantacao() {
       </div>
     </div>`);
   document.querySelectorAll('.btn-impl').forEach(b => b.onclick = () => openImplantacao(b.dataset.id));
+  document.querySelectorAll('.btn-foco-impl').forEach(b => b.onclick = () => openImplantacao(b.dataset.id));
+  document.querySelectorAll('[data-filtro-tipo]').forEach(el => el.onclick = () => {
+    const tipo = el.dataset.filtroTipo;
+    state.implantacaoFiltro = tipo ? { tipo, valor: el.dataset.filtroValor ? JSON.parse(el.dataset.filtroValor.startsWith('[') ? el.dataset.filtroValor : `"${el.dataset.filtroValor}"`) : undefined } : null;
+    renderImplantacao();
+  });
+  const bLF = document.getElementById('btnLimparFiltroImpl');
+  if (bLF) bLF.onclick = () => { state.implantacaoFiltro = null; renderImplantacao(); };
   const bN = document.getElementById('btnNovaImpl');
   if (bN) bN.onclick = () => openImplantacao(null);
 }
@@ -2303,10 +2326,13 @@ async function openImplantacao(id) {
       <div style="margin-bottom:10px">
         <div style="font-size:12px;color:var(--muted);font-weight:600;margin:8px 0 4px">${esc(g)}</div>
         ${checklist.filter(c=>c.grupo===g).map(c => `
-          <label class="cad-item" style="display:flex;align-items:flex-start;gap:8px;cursor:${ro?'default':'pointer'}">
-            <input type="checkbox" class="ck-item" data-id="${c.id}" ${c.concluido?'checked':''} ${ro?'disabled':''} style="margin-top:3px">
+          <div class="cad-item" style="display:flex;align-items:flex-start;gap:8px">
             <span style="flex:1;font-size:12.5px">${esc(c.item)}${c.formato?` <span style="color:var(--muted2);font-size:11px">(${esc(c.formato)})</span>`:''}</span>
-          </label>`).join('')}
+            ${ro ? `<span class="tag ${c.status_validacao==='Aprovado'?'CONCLUIDO':c.status_validacao==='Em validação'?'RECEBIDO':'PENDENTE'}">${esc(c.status_validacao||'Recebido')}</span>`
+              : `<select class="ck-item" data-id="${c.id}" style="min-width:140px">
+                ${['Recebido','Em validação','Aprovado'].map(s=>`<option ${(c.status_validacao||'Recebido')===s?'selected':''}>${s}</option>`).join('')}
+              </select>`}
+          </div>`).join('')}
       </div>`).join('')}
     <h2 style="margin-top:14px">⚠️ Pendências / alertas</h2>
     <table><thead><tr><th>Pendência</th><th>Área</th><th>Status</th></tr></thead>
@@ -2362,7 +2388,8 @@ async function openImplantacao(id) {
     div.remove(); renderImplantacao();
   };
   div.querySelectorAll('.ck-item').forEach(c => c.onchange = async () => {
-    await sb.from('implantacao_checklist').update({ concluido: c.checked }).eq('id', c.dataset.id);
+    await sb.from('implantacao_checklist').update({ status_validacao: c.value, concluido: c.value === 'Aprovado' }).eq('id', c.dataset.id);
+    div.remove(); openImplantacao(id);
   });
   div.querySelectorAll('.pd-status').forEach(s => s.onchange = async () => {
     await sb.from('implantacao_pendencias').update({ status_validacao: s.value, resolvida: s.value === 'Recebido' }).eq('id', s.dataset.id);
