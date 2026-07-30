@@ -5125,6 +5125,11 @@ async function init() {
     renderLoginPortal('Este acesso é exclusivo para clientes do Portal. Se você é da equipe interna, use o link do sistema interno.');
     return;
   }
+  if (!EH_PORTAL_LOGIN && perfil?.role === 'cliente') {
+    await sb.auth.signOut();
+    renderLogin('Este link é exclusivo da equipe interna. Se você é incorporadora/loteadora, use o link do Portal do Incorporador.');
+    return;
+  }
   state.role = perfil?.role || 'analista';
   state.perfilNome = perfil?.nome_completo || perfil?.nome || '';
   state.meuAnalistaId = perfil?.analista_id || null;
