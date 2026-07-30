@@ -644,8 +644,9 @@ async function renderDashboard() {
   const pctDia = metaDia ? Math.round(100 * prodHoje / metaDia) : null;
   const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
 
-  // Chamados entre áreas: agrupados por quem abriu e por área destino, com indicador de tempo
-  const { data: chamadosTodos } = await sb.from('chamados').select('solicitante,area,status,criado_em,resolvido_em');
+  // Chamados entre áreas: agrupados por quem abriu e por área destino, com indicador de tempo — segue o mesmo período do topo
+  const { data: chamadosTodos } = await sb.from('chamados').select('solicitante,area,status,criado_em,resolvido_em')
+    .gte('criado_em', deEfetivo).lt('criado_em', ateExclusivo);
   const chamadosAbertos = (chamadosTodos||[]).filter(c => c.status !== 'RESOLVIDO');
   const chamadosPorSolicitante = {};
   chamadosAbertos.forEach(c => { const n = c.solicitante || '—'; chamadosPorSolicitante[n] = (chamadosPorSolicitante[n]||0) + 1; });
@@ -805,7 +806,7 @@ async function renderDashboard() {
         </div>
       </div>
       <div class="card kpi-clicavel" id="cardChamadosAnalista">
-        <h2>📨 Chamados em aberto por quem abriu</h2>
+        <h2>📨 Chamados em aberto por quem abriu — ${PERIODO_LABELS[state.periodoPreset]}</h2>
         <div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px;color:var(--muted)">
           <span>⏳ Tempo médio aberto: <b style="color:var(--text)">${mediaHorasAberto}h</b></span>
           <span>✅ Tempo médio de resolução: <b style="color:var(--text)">${mediaHorasResolucao}h</b></span>
@@ -817,7 +818,7 @@ async function renderDashboard() {
         </div>
       </div>
       <div class="card kpi-clicavel" id="cardChamadosArea">
-        <h2>🏢 Chamados em aberto por área</h2>
+        <h2>🏢 Chamados em aberto por área — ${PERIODO_LABELS[state.periodoPreset]}</h2>
         <div style="max-height:420px;overflow-y:auto">
         ${areaRanking.length ? areaRanking.map(([area,n]) => `<div class="hbar-row"><span class="hbar-lbl">${esc(area)}</span>
           <div class="hbar"><div style="width:${Math.round(100*n/maxArea)}%"></div></div>
