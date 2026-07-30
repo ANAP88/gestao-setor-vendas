@@ -5022,7 +5022,10 @@ async function init() {
   state.perfilNome = perfil?.nome_completo || perfil?.nome || '';
   state.meuAnalistaId = perfil?.analista_id || null;
   // Portal do Cliente: acesso externo (incorporadora/loteadora), tela totalmente separada do sistema interno
-  if (state.role === 'cliente') { renderPortalCliente(perfil); return; }
+  if (state.role === 'cliente') {
+    if (!perfil?.cadastro_completo) { renderCompletarCadastro(session, perfil); return; }
+    renderPortalCliente(perfil); return;
+  }
   await loadLookups();
   // primeiro acesso: exige nome completo e função antes de liberar o sistema
   if (!perfil?.cadastro_completo) { renderCompletarCadastro(session, perfil); return; }
@@ -5032,33 +5035,37 @@ async function init() {
 
 const DOMINIO_CORPORATIVO = '@neoservice.com.br';
 function renderCompletarCadastro(session, perfil) {
+  const ehCliente = perfil?.role === 'cliente';
   const emailCorp = (session.user.email || '').toLowerCase().endsWith(DOMINIO_CORPORATIVO);
+  const podeEditar = emailCorp || ehCliente;
   app.innerHTML = `
   <div class="login-wrap" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px">
     <div class="card" style="width:100%;max-width:460px">
       <h2 style="margin:0 0 4px">👋 Complete seu cadastro</h2>
-      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Precisamos de alguns dados antes do primeiro acesso.</p>
-      ${!emailCorp ? `<div class="msg" style="background:var(--warn-soft);border-color:var(--warn);margin-bottom:12px">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">${ehCliente ? 'Como devemos te chamar por aqui?' : 'Precisamos de alguns dados antes do primeiro acesso.'}</p>
+      ${!podeEditar ? `<div class="msg" style="background:var(--warn-soft);border-color:var(--warn);margin-bottom:12px">
         ⚠️ O acesso ao sistema exige e-mail corporativo (<b>${DOMINIO_CORPORATIVO}</b>).<br>
         Você entrou com <b>${esc(session.user.email)}</b>. Peça ao administrador um convite para o seu e-mail corporativo.
       </div>` : ''}
-      <div><label>Nome completo</label><input id="ccNome" value="${esc(perfil?.nome_completo)}" placeholder="Ex.: Maria Aparecida de Souza" ${!emailCorp?'disabled':''}></div>
-      <div style="margin-top:10px"><label>Função / cargo</label><input id="ccFuncao" value="${esc(perfil?.funcao)}" placeholder="Ex.: Analista de Contratos" ${!emailCorp?'disabled':''}></div>
+      <div><label>Nome completo</label><input id="ccNome" value="${esc(perfil?.nome_completo)}" placeholder="Ex.: Maria Aparecida de Souza" ${!podeEditar?'disabled':''}></div>
+      ${!ehCliente ? `<div style="margin-top:10px"><label>Função / cargo</label><input id="ccFuncao" value="${esc(perfil?.funcao)}" placeholder="Ex.: Analista de Contratos" ${!podeEditar?'disabled':''}></div>` : ''}
       <div style="margin-top:10px"><label>E-mail</label><input value="${esc(session.user.email)}" disabled></div>
       <div class="msg" id="ccMsg"></div>
       <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
         <button id="ccSair" class="ghost">Sair</button>
-        ${emailCorp ? '<button id="ccSalvar">Concluir cadastro</button>' : ''}
+        ${podeEditar ? '<button id="ccSalvar">Concluir cadastro</button>' : ''}
       </div>
     </div>
   </div>`;
-  document.getElementById('ccSair').onclick = async () => { await sb.auth.signOut(); renderLogin(); };
+  document.getElementById('ccSair').onclick = async () => { await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); };
   const bS = document.getElementById('ccSalvar');
   if (bS) bS.onclick = async () => {
     const nome = document.getElementById('ccNome').value.trim();
-    const funcao = document.getElementById('ccFuncao').value.trim();
-    if (!nome || !funcao) { document.getElementById('ccMsg').textContent = 'Preencha nome completo e função.'; return; }
-    const { data: salvo, error } = await sb.from('perfis').update({ nome_completo: nome, funcao, nome, cadastro_completo: true })
+    const funcao = ehCliente ? '' : document.getElementById('ccFuncao').value.trim();
+    if (!nome || (!ehCliente && !funcao)) { document.getElementById('ccMsg').textContent = ehCliente ? 'Preencha seu nome completo.' : 'Preencha nome completo e função.'; return; }
+    const upd = { nome_completo: nome, nome, cadastro_completo: true };
+    if (!ehCliente) upd.funcao = funcao;
+    const { data: salvo, error } = await sb.from('perfis').update(upd)
       .eq('user_id', session.user.id).select().maybeSingle();
     if (error) { document.getElementById('ccMsg').textContent = error.message; return; }
     if (!salvo) { document.getElementById('ccMsg').textContent = 'Não foi possível salvar (sem permissão). Avise o administrador.'; return; }
@@ -5095,7 +5102,7 @@ function portalShell(perfil, inner, marca, topo, viewAtiva) {
     <aside class="portal-sidebar">
       <div class="portal-sidebar-brand">
         ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<span class="logo" style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">${ICONE_PREDIO}</span>`}
-        <div class="txt"><b>NEO SERVICE</b><small>${marca ? esc(marca.nome) : 'Portal do Cliente'}</small></div>
+        <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b><small>NEO SERVICE</small></div>
       </div>
       ${PORTAL_NAV.map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}">${ic} ${esc(label)}</button>`).join('')}
       <div class="portal-sidebar-foot">
@@ -5144,10 +5151,25 @@ async function renderPortalCliente(perfil) {
     marcaDoCliente(perfil),
   ]);
   const empIds = (emps||[]).map(e=>e.id);
-  const [{ data: processos }, { data: demandasAtivas }] = await Promise.all([
+  const seisAtras = new Date(); seisAtras.setMonth(seisAtras.getMonth()-5); seisAtras.setDate(1); seisAtras.setHours(0,0,0,0);
+  const [{ data: processos }, { data: credito }] = await Promise.all([
     sb.from('esteira_processos').select('id,titulo,status,empreendimento_id,etapa_atual_id,esteira_tipo').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
-    sb.from('demandas').select('id,status').in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']),
+    sb.from('esteira_processos').select('parecer_credito,criado_em').eq('esteira_tipo','analise_credito')
+      .in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']).gte('criado_em', seisAtras.toISOString()),
   ]);
+  // Análise de crédito mês a mês: recebidos, reprovados, com pendência e evoluídos para contrato
+  const porMes = {};
+  (credito||[]).forEach(p => {
+    const d = new Date(p.criado_em);
+    const chave = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+    const r = porMes[chave] = porMes[chave] || { recebidos:0, reprovados:0, pendencia:0, contrato:0, data:new Date(d.getFullYear(),d.getMonth(),1) };
+    r.recebidos++;
+    if (p.parecer_credito === 'reprovado') r.reprovados++;
+    if (p.parecer_credito === 'aprovado_pendencia' || p.parecer_credito === 'aprovado_pendencia_contrato') r.pendencia++;
+    if (p.parecer_credito === 'aprovado_contrato' || p.parecer_credito === 'aprovado_pendencia_contrato') r.contrato++;
+  });
+  const mesesCredito = Object.values(porMes).sort((a,b) => b.data - a.data);
+  const fmtMes = d => d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
   const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
   const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
   const procPorEmp = {};
@@ -5174,7 +5196,6 @@ async function renderPortalCliente(perfil) {
       <div class="pkpi"><div class="pkpi-ic">🏗️</div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
       <div class="pkpi"><div class="pkpi-ic">⛓️</div><div><div class="pkpi-v">${emAndamento}</div><div class="pkpi-l">EM ANDAMENTO</div></div></div>
       <div class="pkpi ok"><div class="pkpi-ic">✅</div><div><div class="pkpi-v">${concluidos}</div><div class="pkpi-l">CONCLUÍDOS</div></div></div>
-      <div class="pkpi warn"><div class="pkpi-ic">📊</div><div><div class="pkpi-v">${(demandasAtivas||[]).length}</div><div class="pkpi-l">TOTAL NA PRODUÇÃO</div></div></div>
     </div>
     <h2 style="font-size:15px;margin-bottom:12px">Evolução dos processos</h2>
     <div class="pfunil">${funilPassos.map(([nome, n]) => `
@@ -5209,10 +5230,15 @@ async function renderPortalCliente(perfil) {
           </div>
         </div>
       </div>
-    </div>`,
+    </div>
+    <h2 style="font-size:15px;margin:22px 0 12px">Análise de Crédito — mês a mês</h2>
+    <div class="table-scroll"><table class="users-table"><thead><tr><th>Mês</th><th>Recebidos</th><th>Reprovados</th><th>Com pendência</th><th>Evoluíram p/ contrato</th></tr></thead>
+    <tbody>${mesesCredito.map(m => `
+      <tr><td><b>${esc(fmtMes(m.data))}</b></td><td>${m.recebidos}</td><td>${m.reprovados}</td><td>${m.pendencia}</td><td>${m.contrato}</td></tr>`).join('')
+      || '<tr><td colspan="5" style="color:var(--muted)">Nenhum processo de análise de crédito nos últimos 6 meses.</td></tr>'}</tbody></table></div>`,
     marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! 👋`,
              subtitulo: 'Aqui está o resumo do andamento dos seus processos.' });
-  document.querySelectorAll('.portal-card').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
+  document.querySelectorAll('.portal-emp-row').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalCliente(perfil));
 }
 
