@@ -1979,7 +1979,7 @@ async function openChamado(c, areas, remetentePadrao) {
 // e oferece os mesmos jeitos de enviar do Chamados (Outlook Web, Gmail, app local, copiar tudo).
 function abrirEnvioAcessoEmail(email, senha, nivel) {
   const NIVEL_LABEL = { admin: 'Admin', analista: 'Analista', leitura: 'Leitura', cliente: 'Cliente (portal externo)' };
-  const url = 'https://secretaria-vendas-gestao.netlify.app';
+  const url = nivel === 'cliente' ? 'https://secretaria-vendas-gestao.netlify.app/portal' : 'https://secretaria-vendas-gestao.netlify.app';
   const corpo = [
     'Olá!',
     '',
