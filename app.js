@@ -4333,9 +4333,11 @@ async function openProcessoEsteira(id, etapas) {
 
   const parecerSelect = $('epParecer');
   const contratoBox = $('epContratoBox');
-  const atualizaContratoBox = () => { contratoBox.style.display = ['aprovado_contrato','aprovado_pendencia_contrato'].includes(parecerSelect.value) ? '' : 'none'; };
-  atualizaContratoBox();
-  if (parecerSelect) parecerSelect.onchange = atualizaContratoBox;
+  if (parecerSelect && contratoBox) {
+    const atualizaContratoBox = () => { contratoBox.style.display = ['aprovado_contrato','aprovado_pendencia_contrato'].includes(parecerSelect.value) ? '' : 'none'; };
+    atualizaContratoBox();
+    parecerSelect.onchange = atualizaContratoBox;
+  }
 
   const btnParecer = $('epRegistrarParecer');
   if (btnParecer) btnParecer.onclick = async () => {
