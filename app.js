@@ -271,7 +271,7 @@ const PILARES = [
     ['portalFluxo', '⛓️', 'Fluxo do portal'],
   ]],
 ];
-// Telas restritas a gestão (admin = supervisor/coordenador). Analistas não veem inteligência nem administração.
+// Telas restritas a gestão
 const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'arquivos', 'integracoes', 'automacoes', 'metas', 'implantacao',
   'usuariosEquipe', 'cadastroOperacional', 'portalUsuarios', 'portalEmpreendimentos', 'portalFluxo'];
 function podeVer(view) {

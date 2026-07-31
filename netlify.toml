@@ -1,0 +1,59 @@
+# Configuração de deploy seguro para Netlify
+
+[build]
+  command = "echo 'Static site - no build needed'"
+  publish = "."
+
+# Proteção contra índice de diretório
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Bloquear acesso a arquivos sensíveis
+[[redirects]]
+  from = "/.env*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/.git*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/*.map"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/.well-known/security.txt"
+  to = "/404.html"
+  status = 404
+  force = true
+
+# Headers de segurança globais
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), usb=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+# Sem caching pra HTML (sempre valida)
+[[headers]]
+  for = "*.html"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+# Cache agressivo pra assets (CSS, JS, imagens com hash no nome)
+[[headers]]
+  for = "*.{js,css,png,jpg,jpeg,gif,svg,webp,woff,woff2}"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
