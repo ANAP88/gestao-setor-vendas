@@ -4129,7 +4129,7 @@ const PARECERES_CREDITO = [
   ['reprovado', 'Reprovado'],
 ];
 async function openProcessoEsteira(id, etapas) {
-  let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [];
+  let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [], demandaOrigem = null;
   if (id) {
     const [pp, hh, aa, mm] = await Promise.all([
       sb.from('esteira_processos').select('*').eq('id', id).single(),
@@ -4138,6 +4138,10 @@ async function openProcessoEsteira(id, etapas) {
       sb.from('processo_mensagens').select('*').eq('processo_id', id).order('criado_em'),
     ]);
     p = pp.data; historico = hh.data || []; anexos = aa.data || []; mensagensProc = mm.data || [];
+    if (p?.origem_demanda_id) {
+      const { data: dd } = await sb.from('demandas').select('proponente1_nome,proponente2_nome').eq('id', p.origem_demanda_id).maybeSingle();
+      demandaOrigem = dd || null;
+    }
     const naoLidas = mensagensProc.filter(m => m.autor_tipo === 'cliente' && !m.lida);
     if (naoLidas.length) await sb.from('processo_mensagens').update({ lida: true }).eq('processo_id', id).eq('autor_tipo', 'cliente').eq('lida', false);
     const { data: tt } = await sb.from('esteira_transicoes').select('*').eq('etapa_origem_id', p.etapa_atual_id).order('ordem_botao');
@@ -4160,7 +4164,9 @@ async function openProcessoEsteira(id, etapas) {
   div.innerHTML = `<div class="modal">
     <h2>${id ? '⛓️ ' + esc(p.titulo) : '⛓️ Novo processo na esteira'}</h2>
     <div class="grid2">
-      <div style="grid-column:1/-1"><label>Título / referência do processo</label><input id="epTitulo" value="${esc(p?.titulo)}" placeholder="Ex.: nome do proponente ou nº do processo" ${ro?'disabled':''}></div>
+      <div style="grid-column:1/-1"><label>Título / referência do processo</label><input id="epTitulo" value="${esc(p?.titulo)}" placeholder="Ex.: nome do proponente ou nº do processo" ${ro?'disabled':''}>
+        ${demandaOrigem ? `<p style="color:var(--muted);font-size:11.5px;margin-top:4px">📋 Proponente cadastrado na Produção: <b>${esc(demandaOrigem.proponente1_nome)}</b>${demandaOrigem.proponente2_nome ? ' e ' + esc(demandaOrigem.proponente2_nome) : ''}</p>` : ''}
+      </div>
       <div><label>Cliente (cadastro de Repasse)</label><select id="epCliente" ${ro?'disabled':''}><option value="">—</option>
         ${(state.clientesLookup||[]).map(c=>`<option value="${c.id}" ${p?.cliente_id===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select></div>
       <div><label>Empreendimento</label><select id="epEmp" ${ro?'disabled':''}><option value="">—</option>
