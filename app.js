@@ -3613,6 +3613,11 @@ async function renderCadastroOperacional() {
         <div class="msg cad-msg" data-t="${tipo}" style="margin-top:6px"></div>
       </div>`;
     };
+    const CARGOS_PADRAO = ['analista','supervisor','coordenador','gerente','diretor','assistente','estagiário','gestor de qualidade'];
+    const cargosUsados = [...new Set((L.analistas||[]).map(a => a.cargo).filter(Boolean))];
+    const cargosDisponiveis = [...new Set([...CARGOS_PADRAO, ...cargosUsados])];
+    const cargoOptions = (selecionado) => cargosDisponiveis.map(c=>`<option value="${esc(c)}" ${selecionado===c?'selected':''}>${esc(c)}</option>`).join('')
+      + `<option value="__outro__">+ Outro (digitar)...</option>`;
     const analistasVis = filtra(L.analistas, 'analistas');
     shell(`
       <div class="grid-cad">
@@ -3622,8 +3627,8 @@ async function renderCadastroOperacional() {
           <div class="cad-list">${analistasVis.map(i => `
             <div class="cad-item" style="flex-wrap:wrap">
               <span style="flex:1;min-width:110px">${esc(i.nome)}</span>
-              <select class="col-cargo" data-id="${i.id}" style="min-width:104px;font-size:12px;margin-left:0">
-                ${['analista','supervisor','coordenador'].map(c=>`<option value="${c}" ${i.cargo===c?'selected':''}>${c}</option>`).join('')}
+              <select class="col-cargo" data-id="${i.id}" data-atual="${esc(i.cargo||'')}" style="min-width:104px;font-size:12px;margin-left:0">
+                ${cargoOptions(i.cargo)}
               </select>
               <select class="col-status" data-id="${i.id}" style="min-width:104px;font-size:12px;margin-left:0">
                 ${['Ativo','Em licença','Desligado','Inativo'].map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${s}</option>`).join('')}
@@ -3634,7 +3639,7 @@ async function renderCadastroOperacional() {
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             <input id="new_analistas" placeholder="Nome do colaborador..." style="flex:1;min-width:140px">
             <select id="new_analista_cargo" style="min-width:110px">
-              ${['analista','supervisor','coordenador'].map(c=>`<option value="${c}">${c}</option>`).join('')}
+              ${cargoOptions('analista')}
             </select>
             <button class="cad-add" data-t="analistas">+ Cadastrar</button>
           </div>
@@ -3661,7 +3666,14 @@ async function renderCadastroOperacional() {
       if (!inp.value.trim()) { msgDe(t, 'Digite o nome antes de adicionar.', true); return; }
       const rec = { nome: inp.value.trim() };
       if (t === 'empreendimentos') rec.empreendedora_id = document.getElementById('new_emp_ed').value || null;
-      if (t === 'analistas') { rec.cargo = document.getElementById('new_analista_cargo').value; rec.status = 'Ativo'; }
+      if (t === 'analistas') {
+        let cargoNovo = document.getElementById('new_analista_cargo').value;
+        if (cargoNovo === '__outro__') {
+          cargoNovo = (prompt('Digite o novo cargo:') || '').trim().toLowerCase();
+          if (!cargoNovo) { msgDe(t, 'Cadastro cancelado: informe o cargo.', true); return; }
+        }
+        rec.cargo = cargoNovo; rec.status = 'Ativo';
+      }
       b.disabled = true; msgDe(t, 'Salvando...');
       const { error } = await sb.from(t).insert(rec);
       b.disabled = false;
@@ -3670,7 +3682,12 @@ async function renderCadastroOperacional() {
       await loadLookups(); renderCadastroOperacional();
     });
     document.querySelectorAll('.col-cargo').forEach(s => s.onchange = async () => {
-      const { error } = await sb.from('analistas').update({ cargo: s.value }).eq('id', s.dataset.id);
+      let novoCargo = s.value;
+      if (novoCargo === '__outro__') {
+        novoCargo = (prompt('Digite o novo cargo:') || '').trim().toLowerCase();
+        if (!novoCargo) { s.value = s.dataset.atual; return; }
+      }
+      const { error } = await sb.from('analistas').update({ cargo: novoCargo }).eq('id', s.dataset.id);
       if (error) { msgDe('analistas', error.message, true); return; }
       await loadLookups(); renderCadastroOperacional();
     });
