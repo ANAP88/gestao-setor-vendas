@@ -3899,7 +3899,7 @@ async function renderEsteira() {
   if (!state.esteiraBloco) state.esteiraBloco = '';
   const [{ data: etapas }, { data: processos }, { data: naoLidas }] = await Promise.all([
     sb.from('etapas_esteira').select('*').eq('ativa', true).eq('esteira_tipo', state.esteiraTipo).order('ordem'),
-    sb.from('esteira_processos').select('*').eq('esteira_tipo', state.esteiraTipo).neq('status', 'CONCLUIDO').order('criado_em'),
+    sb.from('esteira_processos').select('*').eq('esteira_tipo', state.esteiraTipo).not('status', 'in', '("CONCLUIDO","DESISTENCIA")').order('criado_em'),
     sb.from('processo_mensagens').select('processo_id').eq('autor_tipo', 'cliente').eq('lida', false),
   ]);
   // nome do analista/cliente vem das listas já carregadas (não via join, que não funciona no ambiente de teste)
@@ -4267,6 +4267,7 @@ async function openProcessoEsteira(id, etapas) {
       <button id="epCancel" class="ghost">Fechar</button>
       ${id ? '<button id="btnEmailProcesso" class="ghost">✉️ Gerar e-mail</button>' : ''}
       ${id && state.role === 'admin' ? '<button id="btnExcluirProc" class="ghost" style="color:var(--err)">🗑️ Excluir processo</button>' : ''}
+      ${id && !ro && !['CONCLUIDO','DESISTENCIA'].includes(p?.status) ? '<button id="btnDesistencia" class="ghost" style="color:var(--err)">❌ Desistência do cliente</button>' : ''}
       ${id && !ro ? '<button id="btnFinalizar" class="ghost">✅ Concluir processo</button>' : ''}
       ${!ro ? `<button id="epSalvar">${id ? 'Salvar alterações' : 'Criar processo'}</button>` : ''}
     </div>
@@ -4505,6 +4506,18 @@ async function openProcessoEsteira(id, etapas) {
     if (error) { $('epMsg').textContent = error.message; return; }
     div.remove(); renderEsteira();
   };
+  const btnDesistencia = $('btnDesistencia');
+  if (btnDesistencia) btnDesistencia.onclick = async () => {
+    if (!confirm(`Marcar "${p.titulo}" como desistência do cliente? O processo sai da fila ativa.`)) return;
+    const motivo = prompt('Motivo da desistência (fica registrado no histórico, opcional):') || null;
+    const { error } = await sb.from('esteira_processos').update({
+      status: 'DESISTENCIA', concluido_em: new Date().toISOString(), motivo_devolucao: motivo,
+    }).eq('id', id);
+    if (error) { $('epMsg').textContent = error.message; return; }
+    await sb.from('esteira_historico').insert({ processo_id: id,
+      evento: '❌ Desistência do cliente' + (motivo ? ` · Motivo: ${motivo}` : ''), autor: state.session?.user?.email });
+    div.remove(); renderEsteira();
+  };
   const btnExcluirProc = $('btnExcluirProc');
   if (btnExcluirProc) btnExcluirProc.onclick = async () => {
     if (!confirm(`Excluir definitivamente o processo "${p.titulo}"? Essa ação não pode ser desfeita.`)) return;
@@ -4577,7 +4590,7 @@ async function openGerenciarEtapas(etapas) {
     div.remove(); renderEsteira();
   };
   div.querySelectorAll('.del-etapa').forEach(b => b.onclick = async () => {
-    const { count } = await sb.from('esteira_processos').select('id', { count: 'exact', head: true }).eq('etapa_atual_id', b.dataset.id).neq('status', 'CONCLUIDO');
+    const { count } = await sb.from('esteira_processos').select('id', { count: 'exact', head: true }).eq('etapa_atual_id', b.dataset.id).not('status', 'in', '("CONCLUIDO","DESISTENCIA")');
     if (count > 0) { alert('Existem processos nesta etapa. Mova-os antes de remover.'); return; }
     await sb.from('etapas_esteira').update({ ativa: false }).eq('id', b.dataset.id);
     div.remove(); renderEsteira();
@@ -5313,16 +5326,18 @@ async function renderPortalCliente(perfil) {
   });
   const mesesCredito = Object.values(porMes).sort((a,b) => b.data - a.data);
   const fmtMes = d => d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
-  const emAndamento = (processos||[]).filter(p=>p.status!=='CONCLUIDO').length;
+  const emAberto = (p) => !['CONCLUIDO','DESISTENCIA'].includes(p.status);
+  const emAndamento = (processos||[]).filter(emAberto).length;
   const concluidos = (processos||[]).filter(p=>p.status==='CONCLUIDO').length;
+  const desistencias = (processos||[]).filter(p=>p.status==='DESISTENCIA').length;
   const procPorEmp = {};
   (processos||[]).forEach(p => {
     const r = procPorEmp[p.empreendimento_id] = procPorEmp[p.empreendimento_id] || { abertos: 0, concluidos: 0 };
-    if (p.status !== 'CONCLUIDO') r.abertos++; else r.concluidos++;
+    if (emAberto(p)) r.abertos++; else if (p.status === 'CONCLUIDO') r.concluidos++;
   });
   // Funil resumido por tipo de esteira (análise de crédito / emissão de contrato) + concluídos
-  const emAndamentoCredito = (processos||[]).filter(p => p.status!=='CONCLUIDO' && p.esteira_tipo==='analise_credito').length;
-  const emAndamentoContrato = (processos||[]).filter(p => p.status!=='CONCLUIDO' && p.esteira_tipo==='emissao_contrato').length;
+  const emAndamentoCredito = (processos||[]).filter(p => emAberto(p) && p.esteira_tipo==='analise_credito').length;
+  const emAndamentoContrato = (processos||[]).filter(p => emAberto(p) && p.esteira_tipo==='emissao_contrato').length;
   const funilPassos = [
     ['Recebidos', (processos||[]).length],
     ['Análise de Crédito', emAndamentoCredito],
@@ -5397,7 +5412,7 @@ async function renderPortalEmpreendimento(perfil, empId) {
       <div class="portal-proc-card">
         <div><b>${esc(p.titulo)}</b><div class="portal-proc-meta">${p.unidade?`Unidade ${esc(p.unidade)}`:'Sem unidade informada'}</div></div>
         <div style="display:flex;align-items:center;gap:14px">
-          <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${esc(p.status)}</span>
+          <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='EM_ANDAMENTO'?'RECEBIDO':'PENDENTE'}">${p.status==='DESISTENCIA'?'Desistência':esc(p.status)}</span>
           <button class="pcAbrir" data-id="${p.id}">Acompanhar →</button>
         </div>
       </div>`).join('') || '<p style="color:var(--muted)">Nenhum processo neste empreendimento ainda.</p>'}`,
@@ -5438,7 +5453,7 @@ async function renderPortalProcesso(perfil, processoId, empId) {
   portalShell(perfil, `
     <button id="pcVoltar" class="ghost" style="margin-bottom:14px">← ${esc(empNome)}</button>
     <div class="card" style="margin-bottom:14px">
-      <p style="color:var(--muted);font-size:13px">Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':'RECEBIDO'}">${esc(p.status)}</span>
+      <p style="color:var(--muted);font-size:13px">Status <span class="tag ${p.status==='CONCLUIDO'?'CONCLUIDO':p.status==='DESISTENCIA'?'PENDENTE':'RECEBIDO'}">${p.status==='DESISTENCIA'?'Desistência':esc(p.status)}</span>
         </p>
     </div>
     <div class="card" style="margin-bottom:14px">
