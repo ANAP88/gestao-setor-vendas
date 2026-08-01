@@ -60,29 +60,9 @@ function escaparBuscaPostgREST(termo) {
   return String(termo).replace(/[,;.()]/g, '').slice(0, 100);
 }
 
-// P0-3: Rate limiting — evitar brute force
-const rateLimitChecks = {};
-function verificarRateLimit(chave, maxTentativas = 5, janelaMinutos = 15) {
-  const agora = Date.now();
-  const dados = rateLimitChecks[chave] || { tentativas: [], bloqueadoAte: 0 };
-
-  if (agora < dados.bloqueadoAte) {
-    const segundosFaltam = Math.ceil((dados.bloqueadoAte - agora) / 1000);
-    return { bloqueado: true, msg: `Aguarde ${segundosFaltam}s antes de tentar novamente.` };
-  }
-
-  dados.tentativas = dados.tentativas.filter(t => agora - t < janelaMinutos * 60000);
-
-  if (dados.tentativas.length >= maxTentativas) {
-    dados.bloqueadoAte = agora + 15 * 60000;
-    rateLimitChecks[chave] = dados;
-    return { bloqueado: true, msg: 'Muitas tentativas. Aguarde 15 minutos.' };
-  }
-
-  dados.tentativas.push(agora);
-  rateLimitChecks[chave] = dados;
-  return { bloqueado: false };
-}
+// P0-3: Rate limiting de login é feito no servidor (funções login_esta_bloqueado /
+// registrar_falha_login / limpar_tentativas_login no Postgres) — não em memória do navegador,
+// que reseta com F5 e não protege nada de verdade.
 function tempoAberto(desde){
   if (!desde) return '—';
   const dias = Math.floor((Date.now() - new Date(desde)) / 86400000);
@@ -147,10 +127,16 @@ function renderLogin(msg = '', tipo = 'erro') {
   btnLogin.onclick = async () => {
     if (!valida()) return;
     const emailLimpo = email.value.trim();
-    const rateLim = verificarRateLimit(`login:${emailLimpo}`);
-    if (rateLim.bloqueado) { renderLogin(rateLim.msg); return; }
+    const { data: bloqueado } = await sb.rpc('login_esta_bloqueado', { p_email: emailLimpo });
+    if (bloqueado) { renderLogin('Muitas tentativas de acesso. Aguarde 15 minutos antes de tentar novamente.'); return; }
     const { error } = await sb.auth.signInWithPassword({ email: emailLimpo, password: senha.value });
-    if (error) renderLogin(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : 'Erro no acesso. Tente novamente.'); else init();
+    if (error) {
+      await sb.rpc('registrar_falha_login', { p_email: emailLimpo });
+      renderLogin(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : 'Erro no acesso. Tente novamente.');
+    } else {
+      await sb.rpc('limpar_tentativas_login', { p_email: emailLimpo });
+      init();
+    }
   };
   linkEsqueci.onclick = async (e) => {
     e.preventDefault();
@@ -3459,7 +3445,8 @@ async function renderUsuariosEquipe() {
       const { data, error } = await sb.functions.invoke('resetar-senha', { body: { userId: b.dataset.uid } });
       b.disabled = false; b.textContent = txtOriginal;
       if (error || data?.error) { alert(data?.error || error.message); return; }
-      abrirEnvioAcessoEmail(b.dataset.email, data.senha, b.dataset.role);
+      await sb.auth.resetPasswordForEmail(b.dataset.email);
+      abrirEnvioAcessoEmail(b.dataset.email, b.dataset.role);
     });
     document.querySelectorAll('.btn-excluir-user').forEach(b => b.onclick = async () => {
       if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
@@ -3548,7 +3535,8 @@ async function renderPortalUsuarios() {
     const { data, error } = await sb.functions.invoke('resetar-senha', { body: { userId: b.dataset.uid } });
     b.disabled = false; b.textContent = txtOriginal;
     if (error || data?.error) { alert(data?.error || error.message); return; }
-    abrirEnvioAcessoEmail(b.dataset.email, data.senha, b.dataset.role);
+    await sb.auth.resetPasswordForEmail(b.dataset.email);
+    abrirEnvioAcessoEmail(b.dataset.email, b.dataset.role);
   });
   document.querySelectorAll('.btn-excluir-user-portal').forEach(b => b.onclick = async () => {
     if (!confirm(`Excluir permanentemente a conta de ${b.dataset.email}? Essa ação não pode ser desfeita.`)) return;
