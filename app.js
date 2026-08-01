@@ -53,6 +53,36 @@ let state = {
 
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDt(d){ return d ? new Date(d).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''; }
+
+// P0-1: Sanitizar strings para PostgREST (escape de caracteres perigosos)
+function escaparBuscaPostgREST(termo) {
+  if (!termo) return '';
+  return String(termo).replace(/[,;.()]/g, '').slice(0, 100);
+}
+
+// P0-3: Rate limiting — evitar brute force
+const rateLimitChecks = {};
+function verificarRateLimit(chave, maxTentativas = 5, janelaMinutos = 15) {
+  const agora = Date.now();
+  const dados = rateLimitChecks[chave] || { tentativas: [], bloqueadoAte: 0 };
+
+  if (agora < dados.bloqueadoAte) {
+    const segundosFaltam = Math.ceil((dados.bloqueadoAte - agora) / 1000);
+    return { bloqueado: true, msg: `Aguarde ${segundosFaltam}s antes de tentar novamente.` };
+  }
+
+  dados.tentativas = dados.tentativas.filter(t => agora - t < janelaMinutos * 60000);
+
+  if (dados.tentativas.length >= maxTentativas) {
+    dados.bloqueadoAte = agora + 15 * 60000;
+    rateLimitChecks[chave] = dados;
+    return { bloqueado: true, msg: 'Muitas tentativas. Aguarde 15 minutos.' };
+  }
+
+  dados.tentativas.push(agora);
+  rateLimitChecks[chave] = dados;
+  return { bloqueado: false };
+}
 function tempoAberto(desde){
   if (!desde) return '—';
   const dias = Math.floor((Date.now() - new Date(desde)) / 86400000);
@@ -116,8 +146,11 @@ function renderLogin(msg = '', tipo = 'erro') {
   };
   btnLogin.onclick = async () => {
     if (!valida()) return;
-    const { error } = await sb.auth.signInWithPassword({ email: email.value.trim(), password: senha.value });
-    if (error) renderLogin(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message); else init();
+    const emailLimpo = email.value.trim();
+    const rateLim = verificarRateLimit(`login:${emailLimpo}`);
+    if (rateLim.bloqueado) { renderLogin(rateLim.msg); return; }
+    const { error } = await sb.auth.signInWithPassword({ email: emailLimpo, password: senha.value });
+    if (error) renderLogin(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : 'Erro no acesso. Tente novamente.'); else init();
   };
   linkEsqueci.onclick = async (e) => {
     e.preventDefault();
@@ -877,7 +910,10 @@ function buildQuery(sel, count) {
   if (f.status === '__pendente__') q = q.neq('status', 'CONCLUIDO');
   else if (f.status) q = q.eq('status', f.status);
   if (f.analista) q = q.eq('analista_id', f.analista);
-  if (f.busca) q = q.or(`proponente1_nome.ilike.%${f.busca}%,unidade.ilike.%${f.busca}%,numero_processo.ilike.%${f.busca}%`);
+  if (f.busca) {
+    const termo = escaparBuscaPostgREST(f.busca);
+    q = q.ilike('proponente1_nome', `%${termo}%`).or(`unidade.ilike.%${termo}%`).or(`numero_processo.ilike.%${termo}%`);
+  }
   if (f.mes) {
     const [y, m] = f.mes.split('-').map(Number);
     q = q.gte('recebido_em', new Date(y, m-1, 1).toISOString()).lt('recebido_em', new Date(y, m, 1).toISOString());
@@ -1081,7 +1117,7 @@ function ligarValidadorDocumento(inputEl, avisoEl, demandaIdAtual) {
     const somenteDigitos = v.replace(/\D/g,'');
     const { data: existentes } = await sb.from('demandas')
       .select('id,numero,proponente1_nome,proponente1_cpf,proponente2_nome,proponente2_cpf')
-      .or(`proponente1_cpf.eq.${v},proponente2_cpf.eq.${v}`);
+      .or(`proponente1_cpf.eq.${somenteDigitos},proponente2_cpf.eq.${somenteDigitos}`);
     const outros = (existentes||[]).filter(d => d.id !== demandaIdAtual &&
       [d.proponente1_cpf, d.proponente2_cpf].some(c => c && c.replace(/\D/g,'') === somenteDigitos));
     if (outros.length) {
@@ -1977,7 +2013,7 @@ async function openChamado(c, areas, remetentePadrao) {
 // anexados ao chamado entram como link de download direto no corpo da mensagem.
 // Monta o e-mail de "primeiro acesso" já pronto, com a senha temporária e o passo a passo,
 // e oferece os mesmos jeitos de enviar do Chamados (Outlook Web, Gmail, app local, copiar tudo).
-function abrirEnvioAcessoEmail(email, senha, nivel) {
+function abrirEnvioAcessoEmail(email, nivel) {
   const NIVEL_LABEL = { admin: 'Admin', analista: 'Analista', leitura: 'Leitura', cliente: 'Cliente (portal externo)' };
   const url = nivel === 'cliente' ? 'https://secretaria-vendas-gestao.netlify.app/portal' : 'https://secretaria-vendas-gestao.netlify.app';
   const corpo = [
@@ -1987,13 +2023,13 @@ function abrirEnvioAcessoEmail(email, senha, nivel) {
     '',
     `Link de acesso: ${url}`,
     `E-mail de login: ${email}`,
-    `Senha provisória: ${senha}`,
     `Nível de acesso: ${NIVEL_LABEL[nivel] || nivel}`,
     '',
     'Passo a passo do primeiro acesso:',
-    '1. Acesse o link acima.',
-    '2. Entre com o e-mail e a senha provisória informados.',
-    '3. No menu, use a opção "Trocar minha senha" para criar sua própria senha.',
+    '1. Acesse o link acima e clique em "Esqueci minha senha".',
+    '2. Informe seu e-mail: ' + email,
+    '3. Você receberá um link único para criar sua senha.',
+    '4. Acesse o link e defina sua senha pessoal.',
     '',
     'Qualquer dúvida, fale com o administrador do sistema.',
     '',
@@ -2007,18 +2043,18 @@ function abrirEnvioAcessoEmail(email, senha, nivel) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:620px">
-    <h2>✉️ Enviar instruções de primeiro acesso</h2>
-    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">O acesso já foi criado. Escolha como enviar o e-mail com a senha provisória:</p>
+    <h2>✉️ Instruções de acesso enviadas</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">O acesso foi criado com segurança (sem senha exposta). Um e-mail foi enviado com instruções para redefinir a senha:</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <button id="acOutlook">📧 Abrir no Outlook Web</button>
-      <button id="acMailto" class="ghost">💻 Abrir no app de e-mail</button>
-      <button id="acGmail" class="ghost">Abrir no Gmail</button>
-      <button id="acCopiar" class="ghost">📋 Copiar tudo</button>
+      <button id="acOutlook">📧 Reenviar via Outlook Web</button>
+      <button id="acMailto" class="ghost">💻 Reenviar via app de e-mail</button>
+      <button id="acGmail" class="ghost">Reenviar via Gmail</button>
+      <button id="acCopiar" class="ghost">📋 Copiar instruções</button>
     </div>
     <div class="grid2">
       <div style="grid-column:1/-1"><label>Para</label><input value="${esc(email)}" readonly></div>
       <div style="grid-column:1/-1"><label>Assunto</label><input value="${esc(assunto)}" readonly></div>
-      <div style="grid-column:1/-1"><label>Mensagem</label><textarea id="acCorpo" rows="12" readonly>${esc(corpo)}</textarea></div>
+      <div style="grid-column:1/-1"><label>Mensagem</label><textarea id="acCorpo" rows="10" readonly>${esc(corpo)}</textarea></div>
     </div>
     <div class="msg" id="acMsg"></div>
     <div style="display:flex;justify-content:end;margin-top:14px"><button id="acFechar" class="ghost">Fechar</button></div>
@@ -3449,7 +3485,8 @@ async function renderUsuariosEquipe() {
       msg.textContent = `Acesso criado para ${email}.`;
       nuEmail.value = '';
       renderUsuariosEquipe();
-      abrirEnvioAcessoEmail(email, data.senha, nivel);
+      await sb.auth.resetPasswordForEmail(email);
+      abrirEnvioAcessoEmail(email, nivel);
     };
 }
 
@@ -3534,8 +3571,9 @@ async function renderPortalUsuarios() {
     if (error || data?.error) { msg.textContent = data?.error || error.message; return; }
     msg.textContent = `Acesso criado para ${email}.`;
     npEmail.value = '';
+    await sb.auth.resetPasswordForEmail(email);
     renderPortalUsuarios();
-    abrirEnvioAcessoEmail(email, data.senha, 'cliente');
+    abrirEnvioAcessoEmail(email, 'cliente');
   };
 }
 
