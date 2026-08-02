@@ -153,6 +153,7 @@ function renderLogin(msg = '', tipo = 'erro') {
       renderLogin(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : 'Erro no acesso. Tente novamente.');
     } else {
       await sb.rpc('limpar_tentativas_login', { p_email: emailLimpo });
+      await sb.rpc('registrar_acesso', { p_evento: 'login', p_ambiente: 'equipe' });
       init();
     }
   };
@@ -257,6 +258,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
       renderLoginPortal('Este acesso é exclusivo para clientes do Portal. Se você é da equipe interna, use o link do sistema interno.');
       return;
     }
+    await sb.rpc('registrar_acesso', { p_evento: 'login', p_ambiente: 'portal' });
     init();
   };
   plEsqueci.onclick = async (e) => {
@@ -301,6 +303,7 @@ const PILARES = [
   ['🛠️ Administração', [
     ['usuariosEquipe', '👤', 'Usuários'],
     ['cadastroOperacional', '🗂️', 'Cadastro operacional'],
+    ['auditoria', '🕵️', 'Auditoria'],
   ]],
   ['🌐 Portal do Cliente', [
     ['portalUsuarios', '👤', 'Usuários do portal'],
@@ -311,7 +314,7 @@ const PILARES = [
 ];
 // Telas restritas a gestão
 const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'arquivos', 'integracoes', 'automacoes', 'metas', 'implantacao',
-  'usuariosEquipe', 'cadastroOperacional', 'portalUsuarios', 'portalEmpreendimentos', 'portalDocumentos', 'portalFluxo'];
+  'usuariosEquipe', 'cadastroOperacional', 'auditoria', 'portalUsuarios', 'portalEmpreendimentos', 'portalDocumentos', 'portalFluxo'];
 function podeVer(view) {
   return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
 }
@@ -339,7 +342,7 @@ function shell(inner) {
     <main>${inner}</main>
   </div>`;
   document.querySelectorAll('.side-item').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
-  btnSair.onclick = async () => { await sb.auth.signOut(); renderLogin(); };
+  btnSair.onclick = async () => { await sb.rpc('registrar_acesso', { p_evento: 'logout', p_ambiente: 'equipe' }); await sb.auth.signOut(); renderLogin(); };
   btnExportAll.onclick = exportarPlanilhaCompleta;
   btnApresentacao.onclick = () => { state.modoApresentacao = !state.modoApresentacao; render(); };
   btnTrocarSenha.onclick = () => abrirTrocarSenha();
@@ -395,7 +398,7 @@ function render() {
      documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
-     usuariosEquipe: renderUsuariosEquipe, cadastroOperacional: renderCadastroOperacional,
+     usuariosEquipe: renderUsuariosEquipe, cadastroOperacional: renderCadastroOperacional, auditoria: () => renderAuditoria(''),
      portalUsuarios: renderPortalUsuarios, portalEmpreendimentos: renderPortalEmpreendimentos,
      portalDocumentos: renderPortalDocumentosAdmin, portalFluxo: () => renderFluxosAdmin(''),
      arquivos: () => renderArquivos(''),
@@ -1168,8 +1171,10 @@ async function openForm(id) {
       <div><label>Empreendimento</label><select id="mEmp"><option value=""></option>
         ${L.empreendimentos.map(e=>`<option value="${e.id}" data-ed="${e.empreendedora_id||''}" ${d.empreendimento_id===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
       <div><label>Unidade</label><input id="mUnid" value="${esc(d.unidade)}"></div>
-      <div><label>Atividade</label><select id="mAtiv"><option value=""></option>
+      <div><label>Atividade (tipo de serviço)</label><select id="mAtiv"><option value=""></option>
         ${L.atividades.filter(a=>a.ativa).map(a=>`<option value="${a.id}" ${d.atividade_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select></div>
+      <div><label>Imobiliária</label><input id="mImob" value="${esc(d.imobiliaria)}" placeholder="Ex.: Imobiliária Central"></div>
+      <div><label>Corretor</label><input id="mCorretor" value="${esc(d.corretor)}" placeholder="Nome do corretor da venda"></div>
       <div><label>Analista</label><select id="mAnal"><option value=""></option>
         ${L.analistas.map(a=>`<option value="${a.id}" ${d.analista_id===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}</select></div>
       <div><label>Status</label><select id="mStatus">
@@ -1238,6 +1243,7 @@ async function openForm(id) {
       proponente2_nome: $('mP2').value || null, proponente2_cpf: $('mC2').value || null,
       empreendedora_id: $('mEmpdora').value || null, empreendimento_id: $('mEmp').value || null,
       unidade: $('mUnid').value || null, atividade_id: $('mAtiv').value || null,
+      imobiliaria: $('mImob').value || null, corretor: $('mCorretor').value || null,
       analista_id: $('mAnal').value || null, status: $('mStatus').value,
       concluido_em: $('mConcl').value ? new Date($('mConcl').value).toISOString() : ($('mStatus').value === 'CONCLUIDO' ? new Date().toISOString() : null),
       valor_proposta: $('mValor').value ? Number($('mValor').value) : null,
@@ -3804,6 +3810,185 @@ async function renderPortalDocumentosAdmin() {
   });
 }
 
+// ================= AUDITORIA (Acessos + Alterações) =================
+// Só admin acessa (ver VIEWS_GESTAO). Cobre equipe e Portal do Incorporador juntos.
+const auditState = { aba: 'acessos', ambiente: '', evento: '', tabela: '', busca: '', pagina: 0 };
+const AUDIT_TABELAS = ['esteira_processos','demandas','clientes','empreendimentos','empreendedoras','perfis',
+  'chamados','escala_plantao','metas_config','apontamentos_erro','atividades','analistas','etapas_esteira',
+  'esteira_transicoes','eventos_repasse','empreendimento_documentos','conhecimento_artigos','implantacoes',
+  'implantacao_checklist','implantacao_pendencias','indicador_mensal','indicadores_kpi','config_sistema'];
+const AUDIT_PAGE = 40;
+
+async function renderAuditoria() {
+  const abas = [['acessos', '🔑 Acessos (login/logout)'], ['alteracoes', '✏️ Alterações']];
+  shell(`
+    <div style="display:flex;gap:8px;margin-bottom:14px">${abas.map(([k, l]) =>
+      `<button class="ghost esteira-tab ${auditState.aba === k ? 'active' : ''}" data-aba="${k}">${l}</button>`).join('')}</div>
+    <div id="auditBody"></div>`);
+  document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
+    auditState.aba = b.dataset.aba; auditState.pagina = 0; renderAuditoria();
+  });
+  if (auditState.aba === 'acessos') await renderAuditoriaAcessos(); else await renderAuditoriaAlteracoes();
+}
+
+function fmtDtHora(iso) {
+  return iso ? new Date(iso).toLocaleString('pt-BR') : '—';
+}
+
+async function renderAuditoriaAcessos() {
+  let q = sb.from('acessos_log').select('*', { count: 'exact' }).order('criado_em', { ascending: false });
+  if (auditState.ambiente) q = q.eq('ambiente', auditState.ambiente);
+  if (auditState.evento) q = q.eq('evento', auditState.evento);
+  if (auditState.busca.trim()) q = q.ilike('email', `%${auditState.busca.trim()}%`);
+  q = q.range(auditState.pagina * AUDIT_PAGE, auditState.pagina * AUDIT_PAGE + AUDIT_PAGE - 1);
+  const { data: rows, count } = await q;
+  const total = count || 0;
+  const pages = Math.max(1, Math.ceil(total / AUDIT_PAGE));
+  document.getElementById('auditBody').innerHTML = `
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+      <div style="min-width:160px"><label>Ambiente</label><select id="auAmbiente" style="width:100%">
+        <option value="">Todos</option>
+        <option value="equipe" ${auditState.ambiente === 'equipe' ? 'selected' : ''}>Equipe (sistema interno)</option>
+        <option value="portal" ${auditState.ambiente === 'portal' ? 'selected' : ''}>Portal do Incorporador</option>
+      </select></div>
+      <div style="min-width:140px"><label>Evento</label><select id="auEvento" style="width:100%">
+        <option value="">Todos</option>
+        <option value="login" ${auditState.evento === 'login' ? 'selected' : ''}>Login</option>
+        <option value="logout" ${auditState.evento === 'logout' ? 'selected' : ''}>Logout</option>
+      </select></div>
+      <div style="flex:1;min-width:200px"><label>Buscar por e-mail</label><input id="auBusca" value="${esc(auditState.busca)}" placeholder="nome@..." style="width:100%"></div>
+      <button id="auLimpar" class="ghost">Limpar</button>
+    </div>
+    <div class="card">
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Quando</th><th>Pessoa</th><th>Papel</th><th>Ambiente</th><th>Evento</th></tr></thead>
+        <tbody>${(rows || []).map(r => `<tr>
+          <td style="white-space:nowrap">${fmtDtHora(r.criado_em)}</td>
+          <td><b>${esc(r.nome || r.email || '—')}</b>${r.nome ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(r.email)}</span>` : ''}</td>
+          <td>${esc(r.role || '—')}</td>
+          <td>${r.ambiente === 'portal' ? '🌐 Portal' : '🏢 Equipe'}</td>
+          <td><span class="tag ${r.evento === 'login' ? 'CONCLUIDO' : 'PENDENTE'}">${r.evento === 'login' ? '→ Entrou' : '← Saiu'}</span></td>
+        </tr>`).join('') || '<tr><td colspan="5" style="color:var(--muted)">Nenhum acesso registrado com esses filtros.</td></tr>'}</tbody></table></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <span style="color:var(--muted);font-size:12.5px">${total} registro(s)</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="ghost" id="auPrev" ${auditState.pagina === 0 ? 'disabled' : ''}>← Anterior</button>
+          <span style="font-size:12.5px">Página ${auditState.pagina + 1} de ${pages}</span>
+          <button class="ghost" id="auNext" ${auditState.pagina >= pages - 1 ? 'disabled' : ''}>Próxima →</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('auAmbiente').onchange = (e) => { auditState.ambiente = e.target.value; auditState.pagina = 0; renderAuditoriaAcessos(); };
+  document.getElementById('auEvento').onchange = (e) => { auditState.evento = e.target.value; auditState.pagina = 0; renderAuditoriaAcessos(); };
+  const busca = document.getElementById('auBusca');
+  let tm; busca.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { auditState.busca = busca.value; auditState.pagina = 0; renderAuditoriaAcessos(); }, 350); };
+  document.getElementById('auLimpar').onclick = () => { auditState.ambiente = ''; auditState.evento = ''; auditState.busca = ''; auditState.pagina = 0; renderAuditoriaAcessos(); };
+  document.getElementById('auPrev').onclick = () => { auditState.pagina--; renderAuditoriaAcessos(); };
+  document.getElementById('auNext').onclick = () => { auditState.pagina++; renderAuditoriaAcessos(); };
+}
+
+const AUDIT_ACAO_LABEL = { INSERT: 'Criou', UPDATE: 'Alterou', DELETE: 'Excluiu' };
+// Compara antes/depois e lista só os campos que realmente mudaram — evita jogar o registro inteiro na tela.
+function auditDiff(antes, depois) {
+  if (!antes) return Object.entries(depois || {}).filter(([k]) => k !== 'id').map(([k, v]) => `<b>${esc(k)}</b>: ${esc(String(v ?? '—'))}`);
+  if (!depois) return Object.entries(antes).filter(([k]) => k !== 'id').map(([k, v]) => `<b>${esc(k)}</b> (removido): ${esc(String(v ?? '—'))}`);
+  const linhas = [];
+  Object.keys(depois).forEach(k => {
+    if (k === 'id' || k === 'user_id') return;
+    const a = antes[k], d = depois[k];
+    if (JSON.stringify(a) !== JSON.stringify(d)) linhas.push(`<b>${esc(k)}</b>: ${esc(String(a ?? '—'))} → ${esc(String(d ?? '—'))}`);
+  });
+  return linhas;
+}
+
+async function renderAuditoriaAlteracoes() {
+  let q = sb.from('audit_log').select('*', { count: 'exact' }).order('criado_em', { ascending: false });
+  if (auditState.tabela) q = q.eq('tabela', auditState.tabela);
+  if (auditState.busca.trim()) q = q.ilike('autor_email', `%${auditState.busca.trim()}%`);
+  q = q.range(auditState.pagina * AUDIT_PAGE, auditState.pagina * AUDIT_PAGE + AUDIT_PAGE - 1);
+  const { data: rows, count } = await q;
+  const total = count || 0;
+  const pages = Math.max(1, Math.ceil(total / AUDIT_PAGE));
+  document.getElementById('auditBody').innerHTML = `
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+      <div style="min-width:200px"><label>Tabela</label><select id="auTabela" style="width:100%">
+        <option value="">Todas</option>
+        ${AUDIT_TABELAS.map(t => `<option value="${t}" ${auditState.tabela === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div style="flex:1;min-width:200px"><label>Buscar por quem alterou</label><input id="auBusca" value="${esc(auditState.busca)}" placeholder="e-mail..." style="width:100%"></div>
+      <button id="auLimpar" class="ghost">Limpar</button>
+    </div>
+    ${(rows || []).length ? (rows || []).map(r => {
+      const diff = auditDiff(r.dados_antes, r.dados_depois);
+      return `<div class="card" style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div><b>${AUDIT_ACAO_LABEL[r.acao] || r.acao}</b> em <code>${esc(r.tabela)}</code>
+            <div style="color:var(--muted);font-size:12px">${esc(r.autor_email || 'sistema')} · ${fmtDtHora(r.criado_em)}</div></div>
+          <span class="tag ${r.acao === 'DELETE' ? 'PENDENTE' : r.acao === 'INSERT' ? 'CONCLUIDO' : 'RECEBIDO'}">${r.acao}</span>
+        </div>
+        ${diff.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px">${diff.map(l => `<div>${l}</div>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('') : portalVazio('Nenhuma alteração registrada com esses filtros.')}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+      <span style="color:var(--muted);font-size:12.5px">${total} registro(s)</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="ghost" id="auPrev" ${auditState.pagina === 0 ? 'disabled' : ''}>← Anterior</button>
+        <span style="font-size:12.5px">Página ${auditState.pagina + 1} de ${pages}</span>
+        <button class="ghost" id="auNext" ${auditState.pagina >= pages - 1 ? 'disabled' : ''}>Próxima →</button>
+      </div>
+    </div>`;
+  document.getElementById('auTabela').onchange = (e) => { auditState.tabela = e.target.value; auditState.pagina = 0; renderAuditoriaAlteracoes(); };
+  const busca = document.getElementById('auBusca');
+  let tm; busca.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { auditState.busca = busca.value; auditState.pagina = 0; renderAuditoriaAlteracoes(); }, 350); };
+  document.getElementById('auLimpar').onclick = () => { auditState.tabela = ''; auditState.busca = ''; auditState.pagina = 0; renderAuditoriaAlteracoes(); };
+  document.getElementById('auPrev').onclick = () => { auditState.pagina--; renderAuditoriaAlteracoes(); };
+  document.getElementById('auNext').onclick = () => { auditState.pagina++; renderAuditoriaAlteracoes(); };
+}
+
+// Cadastro em massa: cola vários nomes de uma vez (um por linha) para empreendedoras,
+// empreendimentos ou atividades — evita repetir "+ Adicionar" dezenas de vezes.
+const CAD_MASSA_TIPOS = ['empreendedoras', 'empreendimentos', 'atividades'];
+const CAD_MASSA_ROTULO = { empreendedoras: 'empreendedoras', empreendimentos: 'empreendimentos', atividades: 'atividades' };
+function abrirCadastroMassa(tipo, L) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:480px">
+    <h2>📋 Cadastrar ${CAD_MASSA_ROTULO[tipo]} em massa</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Cole um nome por linha. Linhas em branco são ignoradas.</p>
+    ${tipo === 'empreendimentos' ? `<div style="margin-bottom:10px"><label>Empreendedora (vale para todos os itens colados)</label>
+      <select id="cmEmpdora" style="width:100%">${L.empreendedoras.map(e => `<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select></div>` : ''}
+    <textarea id="cmTexto" rows="10" style="width:100%" placeholder="Ex.:${tipo === 'atividades' ? '\nAnálise de crédito\nEmissão de contrato\nValidação documental' : '\nResidencial Jardim das Flores\nLoteamento Vista Verde\nCondomínio Bela Vista'}"></textarea>
+    <div class="msg" id="cmMsg" style="margin-top:6px"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="cmCancelar" class="ghost">Cancelar</button>
+      <button id="cmSalvar">Cadastrar todos</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  document.getElementById('cmCancelar').onclick = () => div.remove();
+  document.getElementById('cmSalvar').onclick = async () => {
+    const nomes = [...new Set(document.getElementById('cmTexto').value.split('\n').map(l => l.trim()).filter(Boolean))];
+    const msg = document.getElementById('cmMsg');
+    if (!nomes.length) { msg.textContent = 'Cole ao menos um nome.'; msg.style.color = 'var(--err)'; return; }
+    const empreendedoraId = tipo === 'empreendimentos' ? document.getElementById('cmEmpdora').value : null;
+    if (tipo === 'empreendimentos' && !empreendedoraId) { msg.textContent = 'Escolha a empreendedora.'; msg.style.color = 'var(--err)'; return; }
+    const btn = document.getElementById('cmSalvar');
+    btn.disabled = true; msg.style.color = ''; msg.textContent = `Cadastrando ${nomes.length} registro(s)...`;
+    const registros = nomes.map(nome => tipo === 'empreendimentos' ? { nome, empreendedora_id: empreendedoraId } : { nome });
+    const { data: inseridos, error } = await sb.from(tipo).insert(registros).select('id');
+    btn.disabled = false;
+    if (error) {
+      msg.style.color = 'var(--err)';
+      msg.textContent = error.message.includes('duplicate')
+        ? 'Um ou mais nomes já existem — nenhum foi cadastrado. Remova os duplicados e tente de novo.'
+        : error.message;
+      return;
+    }
+    div.remove();
+    await loadLookups(); renderCadastroOperacional();
+    alert(`${inseridos?.length || nomes.length} ${CAD_MASSA_ROTULO[tipo]} cadastrado(s) com sucesso.`);
+  };
+}
+
 async function renderCadastroOperacional() {
   const L = state.lookups;
   {
@@ -3829,6 +4014,7 @@ async function renderCadastroOperacional() {
           <input id="new_${tipo}" placeholder="Novo nome..." style="flex:1;min-width:140px">
           ${tipo === 'empreendimentos' ? `<select id="new_emp_ed" style="min-width:140px">${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>` : ''}
           <button class="cad-add" data-t="${tipo}">+ Adicionar</button>
+          ${CAD_MASSA_TIPOS.includes(tipo) ? `<button class="ghost cad-massa" data-t="${tipo}">📋 Cadastrar em massa</button>` : ''}
         </div>
         <div class="msg cad-msg" data-t="${tipo}" style="margin-top:6px"></div>
       </div>`;
@@ -3901,6 +4087,7 @@ async function renderCadastroOperacional() {
       state.cadBusca[t] = '';
       await loadLookups(); renderCadastroOperacional();
     });
+    document.querySelectorAll('.cad-massa').forEach(b => b.onclick = () => abrirCadastroMassa(b.dataset.t, L));
     document.querySelectorAll('.col-cargo').forEach(s => s.onchange = async () => {
       let novoCargo = s.value;
       if (novoCargo === '__outro__') {
@@ -4359,7 +4546,9 @@ async function openProcessoEsteira(id, etapas) {
     ]);
     p = pp.data; historico = hh.data || []; anexos = aa.data || []; mensagensProc = mm.data || [];
     if (p?.origem_demanda_id) {
-      const { data: dd } = await sb.from('demandas').select('proponente1_nome,proponente2_nome').eq('id', p.origem_demanda_id).maybeSingle();
+      const { data: dd } = await sb.from('demandas')
+        .select('proponente1_nome,proponente2_nome,unidade,imobiliaria,corretor,empreendedoras(nome),empreendimentos(nome),atividades(nome)')
+        .eq('id', p.origem_demanda_id).maybeSingle();
       demandaOrigem = dd || null;
     }
     const naoLidas = mensagensProc.filter(m => m.autor_tipo === 'cliente' && !m.lida);
@@ -4379,13 +4568,37 @@ async function openProcessoEsteira(id, etapas) {
   const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
   const etapaIdx = p ? etapas.findIndex(e => e.id === p.etapa_atual_id) : 0;
   const ro = state.role === 'leitura';
+  let demandaVinculadaId = p?.origem_demanda_id || null;
+  // Resumo somente-leitura dos dados que vieram exatamente do que foi cadastrado na Produção —
+  // não duplicamos os campos na esteira, só exibimos via join em origem_demanda_id.
+  const demandaResumoHtml = (d) => `<div id="epDemandaResumo" class="card" style="margin-bottom:12px;background:var(--panel2)">
+    <b style="font-size:12.5px">📋 Puxado da Produção</b>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 14px;margin-top:6px;font-size:12.5px;color:var(--muted)">
+      <div><b>Cliente:</b> ${esc(d.proponente1_nome || '—')}${d.proponente2_nome ? ' e ' + esc(d.proponente2_nome) : ''}</div>
+      <div><b>Incorporadora:</b> ${esc(d.empreendedoras?.nome || '—')}</div>
+      <div><b>Empreendimento:</b> ${esc(d.empreendimentos?.nome || '—')}</div>
+      <div><b>Unidade:</b> ${esc(d.unidade || '—')}</div>
+      <div><b>Tipo de serviço:</b> ${esc(d.atividades?.nome || '—')}</div>
+      <div><b>Imobiliária:</b> ${esc(d.imobiliaria || '—')}</div>
+      <div><b>Corretor:</b> ${esc(d.corretor || '—')}</div>
+    </div>
+  </div>`;
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal">
     <h2>${id ? '⛓️ ' + esc(p.titulo) : '⛓️ Novo processo na esteira'}</h2>
+    ${!id ? `<div class="card" id="epBuscaBox" style="margin-bottom:12px">
+      <b style="font-size:12.5px">📋 Vincular a um processo de Produção (opcional)</b>
+      <p style="color:var(--muted);font-size:11.5px;margin:4px 0 8px">Busque pelo nome do proponente ou nº do processo — cliente, incorporadora, unidade, tipo de serviço, imobiliária e corretor vêm automaticamente de lá.</p>
+      <div style="display:flex;gap:8px">
+        <input id="epBuscaDemanda" placeholder="Nome do proponente ou nº do processo..." style="flex:1">
+        <button id="epBuscarDemanda" class="ghost">Buscar</button>
+      </div>
+      <div id="epResultadosDemanda" style="margin-top:8px"></div>
+    </div>` : ''}
+    <div id="epDemandaResumoWrap">${demandaOrigem ? demandaResumoHtml(demandaOrigem) : ''}</div>
     <div class="grid2">
       <div style="grid-column:1/-1"><label>Título / referência do processo</label><input id="epTitulo" value="${esc(p?.titulo)}" placeholder="Ex.: nome do proponente ou nº do processo" ${ro?'disabled':''}>
-        ${demandaOrigem ? `<p style="color:var(--muted);font-size:11.5px;margin-top:4px">📋 Proponente cadastrado na Produção: <b>${esc(demandaOrigem.proponente1_nome)}</b>${demandaOrigem.proponente2_nome ? ' e ' + esc(demandaOrigem.proponente2_nome) : ''}</p>` : ''}
       </div>
       <div><label>Cliente (cadastro de Repasse)</label><select id="epCliente" ${ro?'disabled':''}><option value="">—</option>
         ${(state.clientesLookup||[]).map(c=>`<option value="${c.id}" ${p?.cliente_id===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select></div>
@@ -4495,6 +4708,36 @@ async function openProcessoEsteira(id, etapas) {
   document.body.appendChild(div);
   const $ = (i) => div.querySelector('#' + i);
   $('epCancel').onclick = () => div.remove();
+  const btnBuscarDemanda = $('epBuscarDemanda');
+  if (btnBuscarDemanda) btnBuscarDemanda.onclick = async () => {
+    const termo = $('epBuscaDemanda').value.trim();
+    const resultados = $('epResultadosDemanda');
+    if (!termo) { resultados.innerHTML = '<p style="color:var(--err);font-size:12px">Digite o nome do proponente ou o nº do processo.</p>'; return; }
+    resultados.innerHTML = '<p style="color:var(--muted);font-size:12px">Buscando...</p>';
+    const termoEscapado = escaparBuscaPostgREST(termo);
+    let q = sb.from('demandas')
+      .select('id,numero,proponente1_nome,proponente2_nome,unidade,empreendimento_id,imobiliaria,corretor,empreendedoras(nome),empreendimentos(nome),atividades(nome)')
+      .order('recebido_em', { ascending: false }).limit(15);
+    q = /^\d+$/.test(termo) ? q.eq('numero', Number(termo)) : q.ilike('proponente1_nome', `%${termoEscapado}%`);
+    const { data: achados, error } = await q;
+    if (error) { resultados.innerHTML = `<p style="color:var(--err);font-size:12px">${esc(error.message)}</p>`; return; }
+    resultados.innerHTML = (achados || []).length
+      ? `<div class="cad-list">${achados.map(d => `<div class="cad-item epDemandaOpcao" data-id="${d.id}" style="cursor:pointer">
+          <span style="flex:1"><b>${esc(d.proponente1_nome || '—')}</b> · ${esc(d.empreendimentos?.nome || '—')}${d.unidade ? ' · Unid. ' + esc(d.unidade) : ''}</span>
+        </div>`).join('')}</div>`
+      : '<p style="color:var(--muted);font-size:12px">Nenhum processo de Produção encontrado com esse termo.</p>';
+    div.querySelectorAll('.epDemandaOpcao').forEach(op => op.onclick = () => {
+      const d = achados.find(x => x.id === op.dataset.id);
+      if (!d) return;
+      demandaVinculadaId = d.id;
+      $('epTitulo').value = d.proponente1_nome + (d.proponente2_nome ? ' e ' + d.proponente2_nome : '');
+      $('epUnidade').value = d.unidade || '';
+      if (d.empreendimento_id) $('epEmp').value = d.empreendimento_id;
+      $('epDemandaResumoWrap').innerHTML = demandaResumoHtml(d);
+      $('epBuscaBox').remove();
+    });
+  };
+  $('epBuscaDemanda')?.addEventListener('keydown', e => { if (e.key === 'Enter') btnBuscarDemanda.click(); });
   div.querySelectorAll('.chk-item').forEach(c => c.onchange = async () => {
     await sb.from('repasse_checklist').update({ ok: c.checked, responsavel: c.checked ? state.session?.user?.email : null }).eq('id', c.dataset.id);
   });
@@ -4547,6 +4790,7 @@ async function openProcessoEsteira(id, etapas) {
 
   const coletar = () => ({
     titulo: $('epTitulo').value.trim(),
+    ...(!id ? { origem_demanda_id: demandaVinculadaId } : {}),
     cliente_id: $('epCliente').value || null,
     empreendimento_id: $('epEmp').value || null,
     unidade: $('epUnidade').value || null,
@@ -5433,7 +5677,10 @@ function renderCompletarCadastro(session, perfil) {
       </div>
     </div>
   </div>`;
-  document.getElementById('ccSair').onclick = async () => { await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); };
+  document.getElementById('ccSair').onclick = async () => {
+    await sb.rpc('registrar_acesso', { p_evento: 'logout', p_ambiente: EH_PORTAL_LOGIN ? 'portal' : 'equipe' });
+    await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)();
+  };
   const bS = document.getElementById('ccSalvar');
   if (bS) bS.onclick = async () => {
     const nome = document.getElementById('ccNome').value.trim();
@@ -5496,7 +5743,10 @@ function portalShell(perfil, inner, marca, topo, viewAtiva) {
       <div class="portal-content">${inner}</div>
     </div>
   </div>`;
-  document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); };
+  document.getElementById('pcSair').onclick = async () => {
+    await sb.rpc('registrar_acesso', { p_evento: 'logout', p_ambiente: 'portal' });
+    await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)();
+  };
   document.querySelectorAll('.portal-nav-item').forEach(b => b.onclick = () => portalIr(perfil, b.dataset.nav));
 }
 const PORTAL_VIEWS = {
