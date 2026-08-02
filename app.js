@@ -7,8 +7,26 @@ import { CONFIG } from './config.js';
 const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
 // Porta de entrada exclusiva para incorporadoras: /portal na URL (ou ?portal, por compatibilidade com links já enviados)
 const EH_PORTAL_LOGIN = location.pathname.replace(/\/$/, '') === '/portal' || new URLSearchParams(location.search).has('portal');
-const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey,
-  EH_STAGING ? { db: { schema: 'staging' } } : {});
+// A sessão do sistema interno e a do Portal ficam em chaves separadas no navegador. Sem isso, abrir
+// o Portal numa aba derrubava a sessão da equipe na outra (as chamadas passavam a sair sem login e
+// o Postgres respondia "permission denied for table ...").
+const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
+  ...(EH_STAGING ? { db: { schema: 'staging' } } : {}),
+  auth: { storageKey: EH_PORTAL_LOGIN ? 'sv-portal-auth' : 'sv-gestao-auth' },
+});
+
+// Sessão expirada/perdida: o Postgres devolve 42501 ("permission denied for table X") porque a
+// chamada saiu como anônima. Em vez de mostrar um erro técnico, devolvemos a pessoa para o login.
+function sessaoPerdida(erro) {
+  return erro?.code === '42501' || /permission denied for table/i.test(erro?.message || '');
+}
+function voltarParaLoginSeSessaoPerdida(erro) {
+  if (!sessaoPerdida(erro)) return false;
+  sb.auth.signOut().finally(() => {
+    (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)('Sua sessão expirou. Entre novamente para continuar.');
+  });
+  return true;
+}
 
 function svgIcon(path) {
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">${path}</svg>`;
@@ -912,6 +930,7 @@ async function renderDemandas() {
   const { data: rows, count, error: erroConsulta } = await buildQuery(
     'id,numero,numero_processo,recebido_em,proponente1_nome,proponente1_cpf,proponente2_nome,proponente2_cpf,unidade,status,concluido_em,fat_mensal,valor_proposta,obs,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome)', true
   ).order('recebido_em', { ascending: false }).range(state.page*PAGE, state.page*PAGE+PAGE-1);
+  if (voltarParaLoginSeSessaoPerdida(erroConsulta)) return;
   state.total = count || 0;
   const L = state.lookups, f = state.filtros;
   const pages = Math.max(1, Math.ceil(state.total / PAGE));
@@ -5729,7 +5748,8 @@ const portalEmAberto = (p) => !['CONCLUIDO', 'DESISTENCIA'].includes(p.status);
 const portalFiltro = { emp: '', tipo: '', status: '', busca: '' };
 
 async function portalCarregar() {
-  const { data: emps } = await sb.from('empreendimentos').select('id,nome').order('nome');
+  const { data: emps, error } = await sb.from('empreendimentos').select('id,nome').order('nome');
+  if (voltarParaLoginSeSessaoPerdida(error)) return { emps: [], nomeEmp: {}, processos: [], etapas: [], etapaPorId: {} };
   const lista = emps || [];
   const ids = lista.length ? lista.map(e => e.id) : ['00000000-0000-0000-0000-000000000000'];
   const [{ data: processos }, { data: etapas }] = await Promise.all([
