@@ -3239,6 +3239,19 @@ function aplicaFiltroImplantacao(lista) {
   if (f.tipo === 'pendencias') return lista.filter(i => i.pendencias_abertas > 0);
   return lista;
 }
+// Status de cada item do checklist de implantação. Só "Aprovado" conta como concluído —
+// é isso que trava o avanço em menos de 100% e impede o produto de virar "Concluído"
+// enquanto houver item pendente, em validação ou reprovado.
+const IMPL_STATUS_CHECKLIST = ['Documentação pendente', 'Documentação recebida', 'Documentação em validação', 'Aprovado', 'Reprovado'];
+const IMPL_STATUS_PADRAO = 'Documentação pendente';
+const IMPL_STATUS_TAG = {
+  'Documentação pendente': 'PENDENTE',
+  'Documentação recebida': 'RECEBIDO',
+  'Documentação em validação': 'RECEBIDO',
+  'Aprovado': 'CONCLUIDO',
+  'Reprovado': 'ERRO',
+};
+
 async function renderImplantacao() {
   const { data: itens } = await sb.from('implantacao_painel').select('*').order('previsao_lancamento');
   const lista = itens || [];
@@ -3246,6 +3259,7 @@ async function renderImplantacao() {
   const emImpl = lista.filter(i => i.status_auto === 'Em andamento').length;
   const concl = lista.filter(i => i.status_auto === 'Concluído').length;
   const naoIni = lista.filter(i => i.status_auto === 'Não iniciado').length;
+  const comReprov = lista.filter(i => i.status_auto === 'Com reprovação').length;
   const criticos = lista.filter(i => i.criticidade === '🔴 Risco crítico').length;
   const avancoMedio = total ? Math.round(lista.reduce((s,i)=>s+Number(i.avanco_pct||0),0)/total) : 0;
   const pendAbertas = lista.reduce((s,i)=>s+Number(i.pendencias_abertas||0),0);
@@ -3271,6 +3285,7 @@ async function renderImplantacao() {
       <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Em andamento"><div class="v" style="color:var(--accent)">${emImpl}</div><div class="l">⚙️ Em implantação</div></div>
       <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Concluído"><div class="v" style="color:var(--ok)">${concl}</div><div class="l">✅ Concluídos</div></div>
       <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Não iniciado"><div class="v" style="color:var(--muted)">${naoIni}</div><div class="l">⏸️ Não iniciados</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Com reprovação"><div class="v" style="color:${comReprov?'var(--err)':'var(--muted)'}">${comReprov}</div><div class="l">⛔ Com reprovação</div></div>
     </div>
     <div class="kpis">
       <div class="kpi kpi-clicavel" data-filtro-tipo="criticidade" data-filtro-valor="🔴 Risco crítico"><div class="v" style="color:${criticos?'var(--err)':'var(--ok)'}">${criticos}</div><div class="l">🔴 Em risco crítico</div></div>
@@ -3316,7 +3331,8 @@ async function renderImplantacao() {
         <td style="font-size:11.5px;color:var(--muted)">${esc(i.sistemas||'—')}</td>
         <td>${esc(i.fase||'—')}</td>
         <td><div class="hbar" style="min-width:70px"><div style="width:${i.avanco_pct}%"></div></div><span style="font-size:11px">${i.avanco_pct}%</span></td>
-        <td><span class="tag ${i.status_auto==='Concluído'?'CONCLUIDO':i.status_auto==='Em andamento'?'RECEBIDO':'PENDENTE'}">${esc(i.status_auto)}</span></td>
+        <td><span class="tag ${i.status_auto==='Concluído'?'CONCLUIDO':i.status_auto==='Com reprovação'?'ERRO':i.status_auto==='Em andamento'?'RECEBIDO':'PENDENTE'}">${esc(i.status_auto)}</span>
+          ${i.checklist_reprovados>0?`<br><span style="font-size:10.5px;color:var(--err)">${i.checklist_reprovados} item(ns) reprovado(s)</span>`:''}</td>
         <td style="text-align:center;color:${i.pendencias_abertas>0?'var(--warn)':'var(--muted)'}">${i.pendencias_abertas}</td>
         <td style="text-align:right">${i.unidades}</td>
         <td>${i.previsao_lancamento ? new Date(i.previsao_lancamento+'T12:00').toLocaleDateString('pt-BR') : '—'}</td>
@@ -3375,15 +3391,21 @@ async function openImplantacao(id) {
     </div>
     ${id ? `
     <h2 style="margin-top:18px">📋 Checklist de implantação</h2>
+    ${it.checklist_total > 0 && it.checklist_feitos < it.checklist_total ? `
+      <div class="msg" style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 10px;font-size:12.5px;margin-bottom:8px">
+        ⚠️ ${it.checklist_feitos} de ${it.checklist_total} item(ns) aprovado(s).
+        ${it.checklist_reprovados > 0 ? `<b>${it.checklist_reprovados} reprovado(s).</b> ` : ''}
+        O produto só chega a 100% e vira <b>Concluído</b> quando todos estiverem <b>Aprovados</b>.
+      </div>` : ''}
     ${grupos.map(g => `
       <div style="margin-bottom:10px">
         <div style="font-size:12px;color:var(--muted);font-weight:600;margin:8px 0 4px">${esc(g)}</div>
         ${checklist.filter(c=>c.grupo===g).map(c => `
           <div class="cad-item" style="display:flex;align-items:flex-start;gap:8px">
             <span style="flex:1;font-size:12.5px">${esc(c.item)}${c.formato?` <span style="color:var(--muted2);font-size:11px">(${esc(c.formato)})</span>`:''}</span>
-            ${ro ? `<span class="tag ${c.status_validacao==='Aprovado'?'CONCLUIDO':c.status_validacao==='Em validação'?'RECEBIDO':'PENDENTE'}">${esc(c.status_validacao||'Recebido')}</span>`
-              : `<select class="ck-item" data-id="${c.id}" style="min-width:140px">
-                ${['Recebido','Em validação','Aprovado'].map(s=>`<option ${(c.status_validacao||'Recebido')===s?'selected':''}>${s}</option>`).join('')}
+            ${ro ? `<span class="tag ${IMPL_STATUS_TAG[c.status_validacao] || 'PENDENTE'}">${esc(c.status_validacao || IMPL_STATUS_PADRAO)}</span>`
+              : `<select class="ck-item" data-id="${c.id}" style="min-width:200px">
+                ${IMPL_STATUS_CHECKLIST.map(s=>`<option ${(c.status_validacao||IMPL_STATUS_PADRAO)===s?'selected':''}>${s}</option>`).join('')}
               </select>`}
           </div>`).join('')}
       </div>`).join('')}
@@ -3441,7 +3463,9 @@ async function openImplantacao(id) {
     div.remove(); renderImplantacao();
   };
   div.querySelectorAll('.ck-item').forEach(c => c.onchange = async () => {
-    await sb.from('implantacao_checklist').update({ status_validacao: c.value, concluido: c.value === 'Aprovado' }).eq('id', c.dataset.id);
+    // concluido é derivado do status por trigger no banco, não precisa ser enviado aqui.
+    const { error } = await sb.from('implantacao_checklist').update({ status_validacao: c.value }).eq('id', c.dataset.id);
+    if (error) { alert(error.message); return; }
     div.remove(); openImplantacao(id);
   });
   div.querySelectorAll('.pd-status').forEach(s => s.onchange = async () => {
