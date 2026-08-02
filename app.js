@@ -313,7 +313,7 @@ const PILARES = [
   ]],
 ];
 // Telas restritas a gestão
-const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'arquivos', 'integracoes', 'automacoes', 'metas', 'implantacao',
+const VIEWS_GESTAO = ['dashboard', 'executivo', 'analytics', 'insights', 'fechamento', 'escala', 'arquivos', 'integracoes', 'automacoes', 'metas', 'implantacao',
   'usuariosEquipe', 'cadastroOperacional', 'auditoria', 'portalUsuarios', 'portalEmpreendimentos', 'portalDocumentos', 'portalFluxo'];
 function podeVer(view) {
   return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
@@ -392,6 +392,7 @@ function nomeExib(nome, rank) {
 function render() {
   if (!podeVer(state.view)) state.view = 'inicio';
   ({ inicio: renderInicio, dashboard: renderDashboard, analytics: renderAnalytics, insights: renderInsights,
+     executivo: renderExecutivo,
      pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, fluxogramas: renderFluxogramas,
      followup: renderFollowup, integracoes: () => renderStub('🔌 Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
      automacoes: renderAutomacoes,
@@ -512,6 +513,7 @@ async function loadLookups() {
 
 function dashSubTabs(ativo) {
   return `<div class="admin-tabs" style="margin-bottom:16px">
+    <button class="admin-tab dash-subtab ${ativo==='executivo'?'active':''}" data-v="executivo">🎯 Executivo</button>
     <button class="admin-tab dash-subtab ${ativo==='dashboard'?'active':''}" data-v="dashboard">📈 Visão Geral</button>
     <button class="admin-tab dash-subtab ${ativo==='analytics'?'active':''}" data-v="analytics">📉 Analytics</button>
     <button class="admin-tab dash-subtab ${ativo==='insights'?'active':''}" data-v="insights">💡 Insights</button>
@@ -910,6 +912,1008 @@ async function renderDashboard() {
       renderDashboard();
     };
   }
+}
+
+// ================= DASHBOARD EXECUTIVO =================
+// Painel gerencial: IGP, KPIs comparados com o período anterior, produtividade por analista,
+// SLA, gargalos, retrabalho, metas, forecast e heatmap. Tudo derivado das mesmas tabelas que a
+// equipe já alimenta (demandas, apontamentos_erro, chamados) — nenhum número é estimado.
+const execState = {
+  secao: 'geral', preset: '30d', customDe: null, customAte: null,
+  analista: '', empreendedora: '', empreendimento: '', atividade: '', status: '', canal: '',
+  ordemAnalista: 'processos', compA: '', compB: '',
+};
+const EXEC_SECOES = [
+  ['geral', '📊 Visão Geral'], ['equipe', '👥 Equipe'], ['sla', '⏱️ SLA & Gargalos'],
+  ['portfolio', '🏢 Portfólio'], ['metas', '🎯 Metas & Forecast'], ['operacao', '🗓️ Operação'],
+];
+const SLA_PADRAO_H = 24;
+
+function execPeriodo() {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const dAdd = (dt, n) => { const d = new Date(dt + 'T12:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const ym = hoje.slice(0, 7);
+  switch (execState.preset) {
+    case 'hoje': return [hoje, hoje];
+    case 'ontem': { const y = dAdd(hoje, -1); return [y, y]; }
+    case '7d': return [dAdd(hoje, -6), hoje];
+    case '30d': return [dAdd(hoje, -29), hoje];
+    case 'mes_atual': return [ym + '-01', hoje];
+    case 'mes_anterior': {
+      const [y, m] = ym.split('-').map(Number);
+      const pm = new Date(y, m - 2, 1);
+      const pmStr = pm.toISOString().slice(0, 7);
+      return [pmStr + '-01', pmStr + '-' + String(new Date(pm.getFullYear(), pm.getMonth() + 1, 0).getDate()).padStart(2, '0')];
+    }
+    case 'ano': return [hoje.slice(0, 4) + '-01-01', hoje];
+    case 'personalizado': return [execState.customDe || dAdd(hoje, -29), execState.customAte || hoje];
+    default: return [dAdd(hoje, -29), hoje];
+  }
+}
+
+// Métricas derivadas de um processo. O SLA vem do tipo de serviço (atividades.sla_horas);
+// quando o processo não tem atividade definida, cai no padrão de 24h.
+function execMetricasProcesso(d) {
+  const slaHoras = d.atividades?.sla_horas ?? SLA_PADRAO_H;
+  const inicio = new Date(d.recebido_em);
+  const concluido = d.status === 'CONCLUIDO';
+  const fim = concluido && d.concluido_em ? new Date(d.concluido_em) : new Date();
+  const horas = (fim - inicio) / 3600000;
+  return { slaHoras, horas, concluido, dentroSla: horas <= slaHoras, atrasado: !concluido && horas > slaHoras };
+}
+
+async function execCarregar() {
+  const [de, ate] = execPeriodo();
+  const dias = Math.max(1, Math.round((new Date(ate + 'T12:00') - new Date(de + 'T12:00')) / 86400000) + 1);
+  const dAdd = (dt, n) => { const d = new Date(dt + 'T12:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  // Período anterior de mesma duração, para as comparações "vs período anterior".
+  const antAte = dAdd(de, -1), antDe = dAdd(de, -dias);
+  const ateEx = dAdd(ate, 1);
+  const sel = 'id,numero,recebido_em,concluido_em,status,unidade,valor_proposta,imobiliaria,corretor,analista_id,empreendedora_id,empreendimento_id,atividade_id,canal_id,analistas(nome),empreendedoras(nome),empreendimentos(nome),atividades(nome,sla_horas),canais(nome)';
+  const [atual, anterior, erros, chamados, cfg] = await Promise.all([
+    sb.from('demandas').select(sel).gte('recebido_em', de).lt('recebido_em', ateEx),
+    sb.from('demandas').select('id,status,recebido_em,concluido_em,atividade_id,atividades(sla_horas)').gte('recebido_em', antDe).lt('recebido_em', de),
+    sb.from('apontamentos_erro').select('*,analistas(nome)').gte('criado_em', de).lt('criado_em', ateEx),
+    sb.from('chamados').select('*').gte('criado_em', de).lt('criado_em', ateEx),
+    sb.from('metas_config').select('*'),
+  ]);
+  if (voltarParaLoginSeSessaoPerdida(atual.error)) return null;
+  const cfgMap = {}; (cfg.data || []).forEach(c => cfgMap[c.id] = Number(c.valor));
+  return {
+    de, ate, dias, antDe, antAte,
+    processos: atual.data || [], anteriores: anterior.data || [],
+    erros: erros.data || [], chamados: chamados.data || [], metas: cfgMap,
+  };
+}
+
+function execAplicaFiltros(processos) {
+  return processos.filter(d => {
+    if (execState.analista && d.analista_id !== execState.analista) return false;
+    if (execState.empreendedora && d.empreendedora_id !== execState.empreendedora) return false;
+    if (execState.empreendimento && d.empreendimento_id !== execState.empreendimento) return false;
+    if (execState.atividade && d.atividade_id !== execState.atividade) return false;
+    if (execState.canal && d.canal_id !== execState.canal) return false;
+    if (execState.status === '__pendente__' && d.status === 'CONCLUIDO') return false;
+    if (execState.status && execState.status !== '__pendente__' && d.status !== execState.status) return false;
+    return true;
+  });
+}
+
+// ---------- Blocos visuais reaproveitados pelas seções ----------
+const execFmt = (n, casas = 0) => Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+const execHoras = (h) => h == null || !isFinite(h) ? '—' : h < 24 ? `${execFmt(h, 1)}h` : `${execFmt(h / 24, 1)}d`;
+
+// Cartão de KPI com valor, variação vs período anterior e cor por desempenho.
+// maiorEhMelhor=false inverte a cor (ex.: atrasados subindo é ruim).
+function execKpi(rotulo, valor, anterior, { maiorEhMelhor = true, formato = 'num', dica = '' } = {}) {
+  const fmtVal = formato === 'horas' ? execHoras(valor)
+    : formato === 'pct' ? execFmt(valor, 1) + '%'
+    : formato === 'dec' ? execFmt(valor, 1)
+    : execFmt(valor);
+  let variacao = null;
+  if (anterior != null && anterior !== 0) variacao = ((valor - anterior) / Math.abs(anterior)) * 100;
+  else if (anterior === 0 && valor > 0) variacao = 100;
+  const subiu = variacao != null && variacao > 0;
+  const bom = variacao == null || variacao === 0 ? null : (maiorEhMelhor ? subiu : !subiu);
+  const cor = bom === null ? 'var(--muted)' : bom ? 'var(--ok)' : 'var(--err)';
+  return `<div class="kpi" ${dica ? `title="${esc(dica)}"` : ''}>
+    <div class="v">${fmtVal}</div>
+    <div class="l">${rotulo}</div>
+    ${variacao != null ? `<div style="font-size:11.5px;color:${cor};margin-top:4px;font-weight:600">
+      ${subiu ? '↑' : '↓'} ${execFmt(Math.abs(variacao), 1)}% vs período anterior</div>`
+      : '<div style="font-size:11.5px;color:var(--muted2);margin-top:4px">sem base anterior</div>'}
+  </div>`;
+}
+
+function execBarras(itens, { max, cor = 'var(--accent)', sufixo = '' } = {}) {
+  const maior = max || Math.max(1, ...itens.map(i => i.valor));
+  return `<div style="display:flex;flex-direction:column;gap:7px">${itens.map(i => `
+    <div style="display:grid;grid-template-columns:minmax(90px,1.4fr) 3fr auto;gap:10px;align-items:center;font-size:12.5px">
+      <span title="${esc(i.rotulo)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.rotulo)}</span>
+      <div style="height:9px;background:var(--border);border-radius:5px;overflow:hidden">
+        <i style="display:block;height:100%;width:${Math.round(i.valor / maior * 100)}%;background:${i.cor || cor}"></i></div>
+      <b style="min-width:44px;text-align:right">${execFmt(i.valor, i.casas || 0)}${sufixo}</b>
+    </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Sem dados no período.</p>'}</div>`;
+}
+
+function execVazio(txt) {
+  return `<div class="card" style="text-align:center;padding:34px 18px;color:var(--muted);font-size:13px">${esc(txt)}</div>`;
+}
+
+// Índice Geral de Performance (0–100), composição ponderada definida pela gestão.
+function execIGP(m) {
+  const partes = [
+    ['Cumprimento de SLA', 0.30, m.pctDentroSla],
+    ['Produtividade', 0.20, m.pctMeta],
+    ['Retrabalho', 0.15, m.scoreRetrabalho],
+    ['Tempo médio de conclusão', 0.15, m.scoreTempo],
+    ['Processos concluídos', 0.10, m.pctConcluidos],
+    ['Metas atingidas', 0.10, m.pctMeta],
+  ].map(([nome, peso, valor]) => ({ nome, peso, valor: Math.max(0, Math.min(100, valor || 0)) }));
+  const nota = partes.reduce((s, p) => s + p.peso * p.valor, 0);
+  const faixa = nota >= 90 ? ['🟢', 'Excelente', 'var(--ok)']
+    : nota >= 80 ? ['🔵', 'Muito bom', 'var(--accent)']
+    : nota >= 70 ? ['🟡', 'Atenção', 'var(--warn)']
+    : nota >= 60 ? ['🟠', 'Crítico', '#e67e22']
+    : ['🔴', 'Ação imediata', 'var(--err)'];
+  return { nota, partes, faixa };
+}
+
+function execCardIGP(igp) {
+  const { nota, partes, faixa } = igp;
+  const [emoji, rotulo, cor] = faixa;
+  const grau = Math.round(nota / 100 * 360);
+  return `<div class="card" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    <div style="width:132px;height:132px;border-radius:50%;flex-shrink:0;
+      background:conic-gradient(${cor} 0deg ${grau}deg, var(--border) ${grau}deg 360deg);
+      display:flex;align-items:center;justify-content:center">
+      <div style="width:104px;height:104px;border-radius:50%;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:30px;font-weight:800;line-height:1;color:${cor}">${execFmt(nota, 1)}</div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:2px">de 100</div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:260px">
+      <div style="font-size:12px;color:var(--muted);letter-spacing:.4px">ÍNDICE GERAL DE PERFORMANCE</div>
+      <div style="font-size:19px;font-weight:800;margin:2px 0 12px;color:${cor}">${emoji} ${rotulo}</div>
+      ${execBarras(partes.map(p => ({ rotulo: `${p.nome} (${Math.round(p.peso * 100)}%)`, valor: p.valor, casas: 1 })), { max: 100, sufixo: '%' })}
+    </div>
+  </div>`;
+}
+
+// Consolida tudo que as seções precisam, uma vez só por render.
+function execCalcular(ctx) {
+  const proc = execAplicaFiltros(ctx.processos);
+  const met = proc.map(d => ({ d, m: execMetricasProcesso(d) }));
+  const concluidos = met.filter(x => x.m.concluido);
+  const abertos = met.filter(x => !x.m.concluido);
+  const atrasados = abertos.filter(x => x.m.atrasado);
+  const dentroSla = met.filter(x => x.m.dentroSla);
+  const temposConcl = concluidos.map(x => x.m.horas);
+  const tempoMedio = temposConcl.length ? temposConcl.reduce((a, b) => a + b, 0) / temposConcl.length : null;
+
+  const antMet = ctx.anteriores.map(d => ({ d, m: execMetricasProcesso(d) }));
+  const antConcl = antMet.filter(x => x.m.concluido);
+  const antTempos = antConcl.map(x => x.m.horas);
+
+  const hojeStr = new Date().toISOString().slice(0, 10);
+  const semanaAtras = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const mesAtual = hojeStr.slice(0, 7), anoAtual = hojeStr.slice(0, 4);
+  const noDia = (d, dia) => d.recebido_em.slice(0, 10) === dia;
+
+  // Todas as médias usam dias corridos do período, para que a comparação com o período
+  // anterior (que tem a mesma duração) seja feita sobre a mesma base.
+  const semanasPeriodo = Math.max(1, ctx.dias / 7), mesesPeriodo = Math.max(1, ctx.dias / 30);
+
+  const metaMensal = ctx.metas.mensal || 0;
+  const metaPeriodo = metaMensal ? metaMensal * (ctx.dias / 30) : 0;
+  const pctMeta = metaPeriodo ? Math.min(200, 100 * proc.length / metaPeriodo) : 0;
+
+  // Retrabalho: apontamentos de erro sobre o volume do período (quanto menos, melhor).
+  const taxaRetrabalho = proc.length ? 100 * ctx.erros.length / proc.length : 0;
+  const scoreRetrabalho = Math.max(0, 100 - taxaRetrabalho * 4);
+  // Tempo médio comparado ao SLA médio contratado: no prazo = 100 pontos.
+  const slaMedio = met.length ? met.reduce((s, x) => s + x.m.slaHoras, 0) / met.length : SLA_PADRAO_H;
+  const scoreTempo = tempoMedio == null ? 0 : Math.max(0, Math.min(100, 100 * (slaMedio / Math.max(tempoMedio, 0.01))));
+
+  const resumo = {
+    total: proc.length,
+    concluidos: concluidos.length,
+    andamento: met.filter(x => x.d.status === 'EM_ANALISE').length,
+    pendentes: met.filter(x => ['RECEBIDO', 'PENDENTE'].includes(x.d.status)).length,
+    atrasados: atrasados.length,
+    dentroSla: dentroSla.length,
+    foraSla: met.length - dentroSla.length,
+    tempoMedio,
+    pctDentroSla: met.length ? 100 * dentroSla.length / met.length : 0,
+    pctConcluidos: proc.length ? 100 * concluidos.length / proc.length : 0,
+    pctMeta, metaPeriodo, taxaRetrabalho, scoreRetrabalho, scoreTempo, slaMedio,
+    prodDia: proc.filter(d => noDia(d, hojeStr)).length,
+    prodSemana: proc.filter(d => d.recebido_em.slice(0, 10) >= semanaAtras).length,
+    prodMes: proc.filter(d => d.recebido_em.slice(0, 7) === mesAtual).length,
+    prodAno: proc.filter(d => d.recebido_em.slice(0, 4) === anoAtual).length,
+    mediaDiaria: proc.length / Math.max(1, ctx.dias),
+    mediaSemanal: proc.length / semanasPeriodo,
+    mediaMensal: proc.length / mesesPeriodo,
+  };
+  const anterior = {
+    total: ctx.anteriores.length,
+    concluidos: antConcl.length,
+    andamento: antMet.filter(x => x.d.status === 'EM_ANALISE').length,
+    pendentes: antMet.filter(x => ['RECEBIDO', 'PENDENTE'].includes(x.d.status)).length,
+    atrasados: antMet.filter(x => x.m.atrasado).length,
+    dentroSla: antMet.filter(x => x.m.dentroSla).length,
+    foraSla: antMet.length - antMet.filter(x => x.m.dentroSla).length,
+    tempoMedio: antTempos.length ? antTempos.reduce((a, b) => a + b, 0) / antTempos.length : null,
+    mediaDiaria: ctx.anteriores.length / Math.max(1, ctx.dias),
+  };
+  return { proc, met, concluidos, abertos, atrasados, resumo, anterior, igp: execIGP(resumo) };
+}
+
+async function renderExecutivo() {
+  const ctx = await execCarregar();
+  if (!ctx) return;
+  const calc = execCalcular(ctx);
+  const L = state.lookups;
+  const [de, ate] = [ctx.de, ctx.ate];
+  const fmtD = (d) => new Date(d + 'T12:00').toLocaleDateString('pt-BR');
+  const opts = (lista, sel) => lista.map(o => `<option value="${o.id}" ${sel === o.id ? 'selected' : ''}>${esc(o.nome)}</option>`).join('');
+
+  shell(`
+    ${dashSubTabs('executivo')}
+    <div class="card filters" style="align-items:end">
+      <div><label>Período</label><select id="exPreset">
+        ${[['hoje','Hoje'],['ontem','Ontem'],['7d','Últimos 7 dias'],['30d','Últimos 30 dias'],['mes_atual','Este mês'],['mes_anterior','Mês passado'],['ano','Este ano'],['personalizado','Personalizado']]
+          .map(([k,l]) => `<option value="${k}" ${execState.preset===k?'selected':''}>${l}</option>`).join('')}</select></div>
+      ${execState.preset === 'personalizado' ? `
+      <div><label>De</label><input id="exDe" type="date" value="${de}"></div>
+      <div><label>Até</label><input id="exAte" type="date" value="${ate}"></div>
+      <button id="exAplicar">Aplicar</button>` : ''}
+      <div><label>Analista</label><select id="exAnalista"><option value="">Todos</option>${opts(L.analistas, execState.analista)}</select></div>
+      <div><label>Incorporadora</label><select id="exEmpdora"><option value="">Todas</option>${opts(L.empreendedoras, execState.empreendedora)}</select></div>
+      <div><label>Empreendimento</label><select id="exEmp"><option value="">Todos</option>${opts(L.empreendimentos, execState.empreendimento)}</select></div>
+      <div><label>Tipo de serviço</label><select id="exAtiv"><option value="">Todos</option>${opts(L.atividades, execState.atividade)}</select></div>
+      <div><label>Status</label><select id="exStatus">
+        <option value="">Todos</option>
+        <option value="__pendente__" ${execState.status==='__pendente__'?'selected':''}>Em aberto</option>
+        ${['RECEBIDO','EM_ANALISE','PENDENTE','CONCLUIDO'].map(s=>`<option value="${s}" ${execState.status===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div class="spacer"></div>
+      <button id="exLimpar" class="ghost">Limpar filtros</button>
+      <button id="exExportar" class="ghost">⬇ Exportar</button>
+      <button id="exImprimir" class="ghost">🖨️ Imprimir</button>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin:-4px 0 12px">
+      ${fmtD(de)} a ${fmtD(ate)} · ${ctx.dias} dia(s) · comparado com ${fmtD(ctx.antDe)} a ${fmtD(ctx.antAte)}
+      · <b>${execFmt(calc.resumo.total)}</b> processo(s) no recorte
+    </p>
+    <div class="admin-tabs" style="margin-bottom:14px">
+      ${EXEC_SECOES.map(([k, l]) => `<button class="admin-tab exec-sec ${execState.secao===k?'active':''}" data-s="${k}">${l}</button>`).join('')}
+    </div>
+    <div id="execBody"></div>`);
+
+  const rerender = () => renderExecutivo();
+  const liga = (id, campo) => {
+    const el = document.getElementById(id);
+    if (el) el.onchange = () => { execState[campo] = el.value; rerender(); };
+  };
+  liga('exPreset', 'preset'); liga('exAnalista', 'analista'); liga('exEmpdora', 'empreendedora');
+  liga('exEmp', 'empreendimento'); liga('exAtiv', 'atividade'); liga('exStatus', 'status');
+  const bAplicar = document.getElementById('exAplicar');
+  if (bAplicar) bAplicar.onclick = () => {
+    execState.customDe = document.getElementById('exDe').value;
+    execState.customAte = document.getElementById('exAte').value;
+    rerender();
+  };
+  document.getElementById('exLimpar').onclick = () => {
+    Object.assign(execState, { analista: '', empreendedora: '', empreendimento: '', atividade: '', status: '', canal: '' });
+    rerender();
+  };
+  document.getElementById('exImprimir').onclick = () => window.print();
+  document.getElementById('exExportar').onclick = () => execExportar(ctx, calc);
+  document.querySelectorAll('.exec-sec').forEach(b => b.onclick = () => { execState.secao = b.dataset.s; rerender(); });
+  document.querySelectorAll('.dash-subtab').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
+
+  const body = document.getElementById('execBody');
+  ({
+    geral: execSecaoGeral, equipe: execSecaoEquipe, sla: execSecaoSla,
+    portfolio: execSecaoPortfolio, metas: execSecaoMetas, operacao: execSecaoOperacao,
+  }[execState.secao] || execSecaoGeral)(body, ctx, calc, rerender);
+}
+
+// ---------- Seção: Visão Geral ----------
+function execSecaoGeral(el, ctx, calc, rerender) {
+  const r = calc.resumo, a = calc.anterior;
+  // Evolução diária dentro do período
+  const porDia = {};
+  calc.proc.forEach(d => { const k = d.recebido_em.slice(0, 10); porDia[k] = (porDia[k] || 0) + 1; });
+  const chaves = Object.keys(porDia).sort();
+  const maxDia = Math.max(1, ...Object.values(porDia));
+  const fmtDiaCurto = (k) => new Date(k + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+  el.innerHTML = `
+    ${execCardIGP(calc.igp)}
+    <div class="kpis">
+      ${execKpi('📋 Total de processos', r.total, a.total)}
+      ${execKpi('✅ Concluídos', r.concluidos, a.concluidos)}
+      ${execKpi('🔄 Em andamento', r.andamento, a.andamento, { maiorEhMelhor: false })}
+      ${execKpi('⏳ Pendentes', r.pendentes, a.pendentes, { maiorEhMelhor: false })}
+      ${execKpi('🚨 Atrasados', r.atrasados, a.atrasados, { maiorEhMelhor: false })}
+      ${execKpi('🎯 Dentro do SLA', r.dentroSla, a.dentroSla)}
+      ${execKpi('❌ Fora do SLA', r.foraSla, a.foraSla, { maiorEhMelhor: false })}
+      ${execKpi('⏱️ Tempo médio de conclusão', r.tempoMedio, a.tempoMedio, { maiorEhMelhor: false, formato: 'horas' })}
+    </div>
+    <div class="kpis">
+      ${execKpi('📥 Produtividade do dia', r.prodDia, null)}
+      ${execKpi('📆 Produtividade da semana', r.prodSemana, null)}
+      ${execKpi('🗓️ Produtividade do mês', r.prodMes, null)}
+      ${execKpi('📅 Produtividade do ano', r.prodAno, null)}
+      ${execKpi('📊 Média diária', r.mediaDiaria, a.mediaDiaria, { formato: 'dec' })}
+      ${execKpi('📈 Média semanal', r.mediaSemanal, null, { formato: 'dec' })}
+      ${execKpi('📉 Média mensal', r.mediaMensal, null, { formato: 'dec' })}
+      ${execKpi('🔁 Taxa de retrabalho', r.taxaRetrabalho, null, { maiorEhMelhor: false, formato: 'pct' })}
+    </div>
+    <div class="card">
+      <h2 style="margin:0 0 12px">Evolução da produção no período</h2>
+      ${chaves.length ? `<div class="chart">${chaves.map(k => `
+        <div class="bar-wrap" title="${fmtDiaCurto(k)}: ${porDia[k]}">
+          <div class="bar-val">${porDia[k]}</div>
+          <div class="bar" style="height:${Math.round(140 * porDia[k] / maxDia)}px"></div>
+          <div class="bar-lbl">${fmtDiaCurto(k)}</div>
+        </div>`).join('')}</div>`
+        : '<p style="color:var(--muted);font-size:13px">Nenhum processo recebido no período selecionado.</p>'}
+    </div>
+    ${execBlocoInsights(ctx, calc)}
+    ${execBlocoAlertas(ctx, calc)}`;
+}
+
+// Insights automáticos — todos derivados dos números do período, sem texto genérico.
+function execBlocoInsights(ctx, calc) {
+  const r = calc.resumo;
+  const linhas = [];
+  if (calc.anterior.total > 0) {
+    const varTotal = ((r.total - calc.anterior.total) / calc.anterior.total) * 100;
+    linhas.push(`A produtividade ${varTotal >= 0 ? 'aumentou' : 'caiu'} <b>${execFmt(Math.abs(varTotal), 1)}%</b> em relação ao período anterior.`);
+  }
+  const porAnalista = {};
+  calc.proc.forEach(d => { const n = d.analistas?.nome; if (n) porAnalista[n] = (porAnalista[n] || 0) + 1; });
+  const nomes = Object.keys(porAnalista);
+  if (nomes.length > 1) {
+    const media = calc.proc.length / nomes.length;
+    const top = nomes.sort((x, y) => porAnalista[y] - porAnalista[x])[0];
+    const acima = porAnalista[top] - media;
+    if (acima > 0) linhas.push(`<b>${esc(top)}</b> concluiu <b>${execFmt(acima, 0)}</b> processo(s) acima da média da equipe.`);
+  }
+  const porCliente = {};
+  calc.proc.forEach(d => { const n = d.empreendedoras?.nome; if (n) porCliente[n] = (porCliente[n] || 0) + 1; });
+  const topCliente = Object.entries(porCliente).sort((a, b) => b[1] - a[1])[0];
+  if (topCliente && calc.proc.length) linhas.push(`O cliente <b>${esc(topCliente[0])}</b> representa <b>${execFmt(100 * topCliente[1] / calc.proc.length, 1)}%</b> do volume.`);
+  const porAtivTempo = {};
+  calc.concluidos.forEach(({ d, m }) => {
+    const n = d.atividades?.nome; if (!n) return;
+    const t = porAtivTempo[n] = porAtivTempo[n] || { soma: 0, n: 0 };
+    t.soma += m.horas; t.n++;
+  });
+  const piorAtiv = Object.entries(porAtivTempo).map(([n, t]) => [n, t.soma / t.n]).sort((a, b) => b[1] - a[1])[0];
+  if (piorAtiv) linhas.push(`<b>${esc(piorAtiv[0])}</b> tem o maior tempo médio: <b>${execHoras(piorAtiv[1])}</b>.`);
+  const porEmpPend = {};
+  calc.abertos.forEach(({ d }) => { const n = d.empreendimentos?.nome; if (n) porEmpPend[n] = (porEmpPend[n] || 0) + 1; });
+  const topPend = Object.entries(porEmpPend).sort((a, b) => b[1] - a[1])[0];
+  if (topPend && calc.abertos.length) linhas.push(`O empreendimento <b>${esc(topPend[0])}</b> concentra <b>${execFmt(100 * topPend[1] / calc.abertos.length, 1)}%</b> das pendências.`);
+  if (!linhas.length) return '';
+  return `<div class="card">
+    <h2 style="margin:0 0 10px">🤖 Insights automáticos</h2>
+    <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted)">
+      ${linhas.map(l => `<div>• ${l}</div>`).join('')}
+    </div></div>`;
+}
+
+function execBlocoAlertas(ctx, calc) {
+  const r = calc.resumo;
+  const alertas = [];
+  const vencendo = calc.abertos.filter(({ m }) => !m.atrasado && m.horas > m.slaHoras * 0.8);
+  if (vencendo.length) alertas.push(['warn', `${vencendo.length} processo(s) com SLA prestes a vencer (acima de 80% do prazo).`]);
+  if (r.atrasados) alertas.push(['err', `${r.atrasados} processo(s) já estouraram o SLA.`]);
+  if (r.metaPeriodo && r.pctMeta < 80) alertas.push(['warn', `Meta do período em ${execFmt(r.pctMeta, 1)}% — abaixo do esperado.`]);
+  if (r.taxaRetrabalho > 10) alertas.push(['err', `Taxa de retrabalho em ${execFmt(r.taxaRetrabalho, 1)}% — acima do aceitável.`]);
+  const porAnalistaAberto = {};
+  calc.abertos.forEach(({ d }) => { const n = d.analistas?.nome; if (n) porAnalistaAberto[n] = (porAnalistaAberto[n] || 0) + 1; });
+  const nomes = Object.keys(porAnalistaAberto);
+  if (nomes.length > 1) {
+    const media = calc.abertos.length / nomes.length;
+    nomes.filter(n => porAnalistaAberto[n] > media * 1.5)
+      .forEach(n => alertas.push(['warn', `${n} está sobrecarregado(a): ${porAnalistaAberto[n]} processos em aberto (média da equipe: ${execFmt(media, 1)}).`]));
+  }
+  const paradosDias = 7;
+  const parados = calc.abertos.filter(({ m }) => m.horas > paradosDias * 24);
+  if (parados.length) alertas.push(['warn', `${parados.length} processo(s) parados há mais de ${paradosDias} dias.`]);
+  if (!alertas.length) return '<div class="card"><h2 style="margin:0 0 8px">🔔 Alertas</h2><p style="color:var(--ok);font-size:13px">✅ Nenhum alerta no período. Operação dentro do esperado.</p></div>';
+  return `<div class="card">
+    <h2 style="margin:0 0 10px">🔔 Alertas (${alertas.length})</h2>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${alertas.map(([tipo, txt]) => `<div style="font-size:13px;padding:8px 10px;border-radius:8px;
+        background:${tipo === 'err' ? 'var(--err-soft, rgba(220,53,69,.08))' : 'var(--warn-soft, rgba(255,193,7,.10))'};
+        border-left:3px solid ${tipo === 'err' ? 'var(--err)' : 'var(--warn)'}">${tipo === 'err' ? '🚨' : '⚠️'} ${esc(txt)}</div>`).join('')}
+    </div></div>`;
+}
+
+// Agrega por analista: volume, SLA, tempo, retrabalho e eficiência.
+function execPorAnalista(ctx, calc) {
+  const mapa = {};
+  const garante = (nome) => mapa[nome] = mapa[nome] || {
+    nome, total: 0, concluidos: 0, pendentes: 0, atrasados: 0, dentroSla: 0, tempos: [], retrabalho: 0,
+  };
+  // Analistas ativos entram mesmo zerados, para a gestão enxergar quem não produziu.
+  (state.lookups.analistas || [])
+    .filter(a => a.cargo === 'analista' && ['Ativo', 'Em licença'].includes(a.status))
+    .forEach(a => garante(a.nome));
+  calc.met.forEach(({ d, m }) => {
+    const r = garante(d.analistas?.nome || 'Sem analista');
+    r.total++;
+    if (m.concluido) { r.concluidos++; r.tempos.push(m.horas); } else r.pendentes++;
+    if (m.atrasado) r.atrasados++;
+    if (m.dentroSla) r.dentroSla++;
+  });
+  ctx.erros.forEach(e => { const n = e.analistas?.nome; if (n && mapa[n]) mapa[n].retrabalho++; });
+  return Object.values(mapa).map(r => {
+    const tempoMedio = r.tempos.length ? r.tempos.reduce((a, b) => a + b, 0) / r.tempos.length : null;
+    const pctSla = r.total ? 100 * r.dentroSla / r.total : 0;
+    const pctConcl = r.total ? 100 * r.concluidos / r.total : 0;
+    const pctRetrabalho = r.total ? 100 * r.retrabalho / r.total : 0;
+    // Eficiência: entrega e prazo puxam para cima, retrabalho puxa para baixo.
+    const eficiencia = Math.max(0, Math.min(100, 0.45 * pctConcl + 0.4 * pctSla - 2 * pctRetrabalho + 15));
+    return { ...r, tempoMedio, pctSla, pctConcl, pctRetrabalho, eficiencia };
+  });
+}
+
+function execSecaoEquipe(el, ctx, calc, rerender) {
+  const linhas = execPorAnalista(ctx, calc);
+  const ordens = {
+    processos: (a, b) => b.total - a.total,
+    concluidos: (a, b) => b.concluidos - a.concluidos,
+    sla: (a, b) => b.pctSla - a.pctSla,
+    eficiencia: (a, b) => b.eficiencia - a.eficiencia,
+    retrabalho: (a, b) => a.pctRetrabalho - b.pctRetrabalho,
+    tempo: (a, b) => (a.tempoMedio ?? 1e9) - (b.tempoMedio ?? 1e9),
+  };
+  const ordenadas = [...linhas].sort(ordens[execState.ordemAnalista] || ordens.processos);
+  // Ranking de performance usa eficiência (que já combina entrega, prazo e qualidade).
+  const ranking = [...linhas].filter(r => r.total > 0).sort((a, b) => b.eficiencia - a.eficiencia);
+  const medalha = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}º`;
+
+  // Capacidade: a referência é a melhor média diária observada na própria equipe no período.
+  const diasUteis = Math.max(1, Math.round(ctx.dias * 5 / 7));
+  const capacidadeDia = Math.max(1, ...linhas.map(r => r.total / diasUteis));
+  const cargaAberta = {};
+  calc.abertos.forEach(({ d }) => { const n = d.analistas?.nome || 'Sem analista'; cargaAberta[n] = (cargaAberta[n] || 0) + 1; });
+  const mediaAberta = Object.keys(cargaAberta).length ? calc.abertos.length / Object.keys(cargaAberta).length : 0;
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="admin-head">
+        <h2 style="margin:0">👥 Produtividade por analista</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0;font-size:12px">Ordenar por</label>
+          <select id="exOrdem">
+            ${[['processos','Processos'],['concluidos','Concluídos'],['sla','SLA'],['eficiencia','Eficiência'],['retrabalho','Menor retrabalho'],['tempo','Menor tempo']]
+              .map(([k,l]) => `<option value="${k}" ${execState.ordemAnalista===k?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <button id="exExportEquipe" class="ghost">⬇ CSV</button>
+        </div>
+      </div>
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Analista</th><th>Processos</th><th>Concluídos</th><th>Pendentes</th><th>Em atraso</th>
+          <th>Tempo médio</th><th>SLA</th><th>Taxa conclusão</th><th>Retrabalho</th><th>Eficiência</th></tr></thead>
+        <tbody>${ordenadas.map(r => `<tr>
+          <td><b>${esc(r.nome)}</b></td>
+          <td>${execFmt(r.total)}</td>
+          <td style="color:var(--ok)">${execFmt(r.concluidos)}</td>
+          <td>${execFmt(r.pendentes)}</td>
+          <td style="color:${r.atrasados ? 'var(--err)' : 'inherit'}">${execFmt(r.atrasados)}</td>
+          <td>${execHoras(r.tempoMedio)}</td>
+          <td>${execFmt(r.pctSla, 1)}%</td>
+          <td>${execFmt(r.pctConcl, 1)}%</td>
+          <td>${execFmt(r.pctRetrabalho, 1)}%</td>
+          <td><b>${execFmt(r.eficiencia, 1)}</b></td>
+        </tr>`).join('') || '<tr><td colspan="10" style="color:var(--muted)">Nenhum analista com processos no período.</td></tr>'}</tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 12px">🏆 Ranking de performance</h2>
+      ${ranking.length ? `<div class="table-scroll"><table class="users-table">
+        <thead><tr><th></th><th>Analista</th><th>Eficiência</th><th>Volume</th><th>SLA</th><th>Sem retrabalho</th><th>Velocidade</th></tr></thead>
+        <tbody>${ranking.map((r, i) => `<tr>
+          <td style="font-size:16px">${medalha(i)}</td>
+          <td><b>${esc(r.nome)}</b></td>
+          <td><b>${execFmt(r.eficiencia, 1)}</b></td>
+          <td>${execFmt(r.total)}</td>
+          <td>${execFmt(r.pctSla, 1)}%</td>
+          <td>${execFmt(100 - r.pctRetrabalho, 1)}%</td>
+          <td>${execHoras(r.tempoMedio)}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<p style="color:var(--muted);font-size:13px">Sem produção no período para ranquear.</p>'}
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">⚙️ Capacidade operacional</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Referência de capacidade = melhor média diária observada na própria equipe no período (${execFmt(capacidadeDia, 1)}/dia útil em ${diasUteis} dia(s) úteis).</p>
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Analista</th><th>Capacidade diária</th><th>Capacidade no período</th><th>Realizado</th><th>Utilização</th><th>Situação</th></tr></thead>
+        <tbody>${linhas.map(r => {
+          const capPeriodo = capacidadeDia * diasUteis;
+          const util = capPeriodo ? 100 * r.total / capPeriodo : 0;
+          const sit = util >= 100 ? ['Sobrecarga', 'var(--err)'] : util >= 70 ? ['Adequada', 'var(--ok)'] : ['Ociosidade', 'var(--warn)'];
+          return `<tr>
+            <td><b>${esc(r.nome)}</b></td>
+            <td>${execFmt(capacidadeDia, 1)}</td>
+            <td>${execFmt(capPeriodo, 0)}</td>
+            <td>${execFmt(r.total)}</td>
+            <td>${execFmt(util, 1)}%</td>
+            <td style="color:${sit[1]};font-weight:600">${sit[0]}</td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="6" style="color:var(--muted)">Sem analistas cadastrados.</td></tr>'}</tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">⚖️ Distribuição de carga (processos em aberto)</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Média da equipe: ${execFmt(mediaAberta, 1)} processo(s) em aberto por analista.</p>
+      ${execBarras(Object.entries(cargaAberta).sort((a, b) => b[1] - a[1]).map(([nome, n]) => ({
+        rotulo: nome, valor: n, cor: n > mediaAberta * 1.5 ? 'var(--err)' : n < mediaAberta * 0.5 ? 'var(--warn)' : 'var(--accent)',
+      })))}
+    </div>`;
+
+  document.getElementById('exOrdem').onchange = (e) => { execState.ordemAnalista = e.target.value; rerender(); };
+  document.getElementById('exExportEquipe').onclick = () => execBaixarCsv('produtividade-analistas', ordenadas.map(r => ({
+    Analista: r.nome, Processos: r.total, Concluidos: r.concluidos, Pendentes: r.pendentes, Em_atraso: r.atrasados,
+    Tempo_medio_h: r.tempoMedio == null ? '' : r.tempoMedio.toFixed(1),
+    SLA_pct: r.pctSla.toFixed(1), Taxa_conclusao_pct: r.pctConcl.toFixed(1),
+    Retrabalho_pct: r.pctRetrabalho.toFixed(1), Eficiencia: r.eficiencia.toFixed(1),
+  })));
+}
+
+function execSecaoSla(el, ctx, calc, rerender) {
+  const tempos = calc.concluidos.map(x => x.m.horas);
+  const media = tempos.length ? tempos.reduce((a, b) => a + b, 0) / tempos.length : null;
+  const agrupaSla = (chave) => {
+    const mapa = {};
+    calc.met.forEach(({ d, m }) => {
+      const k = chave(d) || '—';
+      const r = mapa[k] = mapa[k] || { total: 0, dentro: 0, tempos: [] };
+      r.total++; if (m.dentroSla) r.dentro++; if (m.concluido) r.tempos.push(m.horas);
+    });
+    return Object.entries(mapa).map(([nome, r]) => ({
+      nome, total: r.total, pctSla: 100 * r.dentro / r.total,
+      tempoMedio: r.tempos.length ? r.tempos.reduce((a, b) => a + b, 0) / r.tempos.length : null,
+    })).sort((a, b) => b.total - a.total);
+  };
+  const tabelaSla = (titulo, itens) => `<div class="card">
+    <h2 style="margin:0 0 12px">${titulo}</h2>
+    <div class="table-scroll"><table class="users-table">
+      <thead><tr><th>Nome</th><th>Processos</th><th>% dentro do SLA</th><th>Tempo médio</th></tr></thead>
+      <tbody>${itens.map(i => `<tr>
+        <td><b>${esc(i.nome)}</b></td><td>${execFmt(i.total)}</td>
+        <td style="color:${i.pctSla >= 90 ? 'var(--ok)' : i.pctSla >= 70 ? 'var(--warn)' : 'var(--err)'};font-weight:600">${execFmt(i.pctSla, 1)}%</td>
+        <td>${execHoras(i.tempoMedio)}</td></tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Sem dados.</td></tr>'}</tbody></table></div>
+  </div>`;
+
+  // Aging por faixas de idade do processo em aberto
+  const faixas = [['0–2 dias', 0, 2], ['3–5 dias', 3, 5], ['6–10 dias', 6, 10], ['Acima de 10 dias', 11, Infinity]];
+  const aging = faixas.map(([rotulo, min, max]) => ({
+    rotulo, valor: calc.abertos.filter(({ m }) => { const dias = m.horas / 24; return dias >= min && dias <= max; }).length,
+    cor: max === Infinity ? 'var(--err)' : max <= 2 ? 'var(--ok)' : max <= 5 ? 'var(--accent)' : 'var(--warn)',
+  }));
+  const vencendo = calc.abertos.filter(({ m }) => !m.atrasado && m.horas > m.slaHoras * 0.8);
+
+  // Gargalos: onde a fila e o tempo se concentram
+  const porAtividade = agrupaSla(d => d.atividades?.nome);
+  const maisLentas = [...porAtividade].filter(i => i.tempoMedio != null).sort((a, b) => b.tempoMedio - a.tempoMedio).slice(0, 8);
+  const filaPorAtividade = {};
+  calc.abertos.forEach(({ d }) => { const n = d.atividades?.nome || '—'; filaPorAtividade[n] = (filaPorAtividade[n] || 0) + 1; });
+
+  // Retrabalho / qualidade
+  const porCategoria = {}, porAnalistaErro = {}, porOrigem = {};
+  ctx.erros.forEach(e => {
+    porCategoria[e.categoria || '—'] = (porCategoria[e.categoria || '—'] || 0) + 1;
+    const n = e.analistas?.nome || '—'; porAnalistaErro[n] = (porAnalistaErro[n] || 0) + 1;
+    porOrigem[e.origem || '—'] = (porOrigem[e.origem || '—'] || 0) + 1;
+  });
+  const taxaAprovPrimeira = calc.proc.length ? 100 * (calc.proc.length - ctx.erros.length) / calc.proc.length : 0;
+
+  el.innerHTML = `
+    <div class="kpis">
+      ${execKpi('⏱️ Tempo médio', media, calc.anterior.tempoMedio, { maiorEhMelhor: false, formato: 'horas' })}
+      ${execKpi('🔺 Tempo máximo', tempos.length ? Math.max(...tempos) : null, null, { maiorEhMelhor: false, formato: 'horas' })}
+      ${execKpi('🔻 Tempo mínimo', tempos.length ? Math.min(...tempos) : null, null, { formato: 'horas' })}
+      ${execKpi('🎯 % dentro do SLA', calc.resumo.pctDentroSla, null, { formato: 'pct' })}
+      ${execKpi('🚨 Processos vencidos', calc.resumo.atrasados, calc.anterior.atrasados, { maiorEhMelhor: false })}
+      ${execKpi('⚠️ Próximos do vencimento', vencendo.length, null, { maiorEhMelhor: false, dica: 'Acima de 80% do prazo e ainda em aberto' })}
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">📅 Análise de envelhecimento (aging)</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Idade dos ${execFmt(calc.abertos.length)} processo(s) em aberto.</p>
+      ${execBarras(aging)}
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">🧱 Gargalos</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Onde a fila e o tempo se concentram hoje.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px">
+        <div><b style="font-size:12.5px">Maior fila em aberto (por serviço)</b><div style="margin-top:8px">
+          ${execBarras(Object.entries(filaPorAtividade).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([rotulo, valor]) => ({ rotulo, valor })), { cor: 'var(--warn)' })}</div></div>
+        <div><b style="font-size:12.5px">Serviços mais lentos (tempo médio, h)</b><div style="margin-top:8px">
+          ${execBarras(maisLentas.map(i => ({ rotulo: i.nome, valor: i.tempoMedio, casas: 1 })), { cor: 'var(--err)' })}</div></div>
+      </div>
+    </div>
+
+    ${tabelaSla('⏱️ SLA por tipo de serviço', porAtividade)}
+    ${tabelaSla('🏢 SLA por cliente (incorporadora)', agrupaSla(d => d.empreendedoras?.nome))}
+    ${tabelaSla('🏗️ SLA por empreendimento', agrupaSla(d => d.empreendimentos?.nome))}
+    ${tabelaSla('👤 SLA por analista', agrupaSla(d => d.analistas?.nome))}
+
+    <div class="card">
+      <h2 style="margin:0 0 12px">🔁 Retrabalho e qualidade</h2>
+      <div class="kpis" style="margin-bottom:14px">
+        ${execKpi('Apontamentos de erro', ctx.erros.length, null, { maiorEhMelhor: false })}
+        ${execKpi('Taxa de retrabalho', calc.resumo.taxaRetrabalho, null, { maiorEhMelhor: false, formato: 'pct' })}
+        ${execKpi('Aprovação na 1ª análise', taxaAprovPrimeira, null, { formato: 'pct' })}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px">
+        <div><b style="font-size:12.5px">Motivos (categoria)</b><div style="margin-top:8px">
+          ${execBarras(Object.entries(porCategoria).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({ rotulo, valor })), { cor: 'var(--err)' })}</div></div>
+        <div><b style="font-size:12.5px">Por analista</b><div style="margin-top:8px">
+          ${execBarras(Object.entries(porAnalistaErro).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({ rotulo, valor })), { cor: 'var(--warn)' })}</div></div>
+        <div><b style="font-size:12.5px">Origem</b><div style="margin-top:8px">
+          ${execBarras(Object.entries(porOrigem).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({ rotulo, valor })))}</div></div>
+      </div>
+    </div>`;
+}
+
+function execSecaoPortfolio(el, ctx, calc, rerender) {
+  const agrupar = (chave) => {
+    const mapa = {};
+    calc.met.forEach(({ d, m }) => {
+      const k = chave(d) || '—';
+      const r = mapa[k] = mapa[k] || { nome: k, total: 0, concluidos: 0, pendentes: 0, dentro: 0, tempos: [], valor: 0 };
+      r.total++;
+      if (m.concluido) { r.concluidos++; r.tempos.push(m.horas); } else r.pendentes++;
+      if (m.dentroSla) r.dentro++;
+      r.valor += Number(d.valor_proposta || 0);
+    });
+    return Object.values(mapa).map(r => ({
+      ...r, pctSla: 100 * r.dentro / r.total,
+      tempoMedio: r.tempos.length ? r.tempos.reduce((a, b) => a + b, 0) / r.tempos.length : null,
+      pct: calc.proc.length ? 100 * r.total / calc.proc.length : 0,
+    })).sort((a, b) => b.total - a.total);
+  };
+  const demandas = agrupar(d => d.atividades?.nome);
+  const clientes = agrupar(d => d.empreendedoras?.nome);
+  const empreendimentos = agrupar(d => d.empreendimentos?.nome);
+  const errosPorDemanda = {};
+  ctx.erros.forEach(e => { const n = e.categoria || '—'; errosPorDemanda[n] = (errosPorDemanda[n] || 0) + 1; });
+
+  const tabela = (titulo, itens, colunas) => `<div class="card">
+    <h2 style="margin:0 0 12px">${titulo}</h2>
+    <div class="table-scroll"><table class="users-table">
+      <thead><tr>${colunas.map(c => `<th>${c[0]}</th>`).join('')}</tr></thead>
+      <tbody>${itens.map(i => `<tr>${colunas.map(c => `<td>${c[1](i)}</td>`).join('')}</tr>`).join('')
+        || `<tr><td colspan="${colunas.length}" style="color:var(--muted)">Sem dados no período.</td></tr>`}</tbody></table></div>
+  </div>`;
+
+  // Matriz volume x tempo: identifica o que vale automatizar (muito volume e muito tempo).
+  const maxVol = Math.max(1, ...demandas.map(d => d.total));
+  const maxTempo = Math.max(1, ...demandas.map(d => d.tempoMedio || 0));
+
+  el.innerHTML = `
+    ${tabela('📌 Ranking de demandas (tipo de serviço)', demandas, [
+      ['Serviço', i => `<b>${esc(i.nome)}</b>`],
+      ['Quantidade', i => execFmt(i.total)],
+      ['% do volume', i => execFmt(i.pct, 1) + '%'],
+      ['Tempo médio', i => execHoras(i.tempoMedio)],
+      ['SLA', i => execFmt(i.pctSla, 1) + '%'],
+    ])}
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">🧮 Matriz Volume × Tempo</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Serviços no canto superior direito são os melhores candidatos a automação: muito volume e muito tempo.</p>
+      ${demandas.length ? `<div style="position:relative;height:280px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);margin:0 10px 26px 46px">
+        ${demandas.map(i => {
+          const x = (i.total / maxVol) * 100, y = ((i.tempoMedio || 0) / maxTempo) * 100;
+          const critico = x > 50 && y > 50;
+          return `<div title="${esc(i.nome)} — ${i.total} processo(s), tempo médio ${execHoras(i.tempoMedio)}"
+            style="position:absolute;left:${x.toFixed(1)}%;bottom:${y.toFixed(1)}%;transform:translate(-50%,50%);
+            width:${Math.max(12, Math.min(38, 12 + i.total / maxVol * 26))}px;height:${Math.max(12, Math.min(38, 12 + i.total / maxVol * 26))}px;
+            border-radius:50%;background:${critico ? 'var(--err)' : 'var(--accent)'};opacity:.75;cursor:help"></div>`;
+        }).join('')}
+        <span style="position:absolute;left:-42px;top:-6px;font-size:11px;color:var(--muted)">tempo</span>
+        <span style="position:absolute;right:0;bottom:-20px;font-size:11px;color:var(--muted)">volume →</span>
+      </div>` : '<p style="color:var(--muted);font-size:13px">Sem dados no período.</p>'}
+    </div>
+
+    ${tabela('🏢 Principais clientes (incorporadoras)', clientes, [
+      ['Cliente', i => `<b>${esc(i.nome)}</b>`],
+      ['Processos', i => execFmt(i.total)],
+      ['% do volume', i => execFmt(i.pct, 1) + '%'],
+      ['Pendências', i => execFmt(i.pendentes)],
+      ['Tempo médio', i => execHoras(i.tempoMedio)],
+      ['SLA', i => execFmt(i.pctSla, 1) + '%'],
+      ['Valor em proposta', i => i.valor ? 'R$ ' + execFmt(i.valor, 2) : '—'],
+    ])}
+
+    ${tabela('🏗️ Principais empreendimentos', empreendimentos, [
+      ['Empreendimento', i => `<b>${esc(i.nome)}</b>`],
+      ['Processos', i => execFmt(i.total)],
+      ['% do volume', i => execFmt(i.pct, 1) + '%'],
+      ['Pendências', i => execFmt(i.pendentes)],
+      ['Prazo médio', i => execHoras(i.tempoMedio)],
+      ['SLA', i => execFmt(i.pctSla, 1) + '%'],
+    ])}
+
+    ${execBlocoChamados(ctx)}`;
+}
+
+function execBlocoChamados(ctx) {
+  const abertos = ctx.chamados.filter(c => c.status !== 'RESOLVIDO');
+  const resolvidos = ctx.chamados.filter(c => c.status === 'RESOLVIDO' && c.resolvido_em);
+  const temposRes = resolvidos.map(c => (new Date(c.resolvido_em) - new Date(c.criado_em)) / 3600000);
+  const mediaRes = temposRes.length ? temposRes.reduce((a, b) => a + b, 0) / temposRes.length : null;
+  const atrasados = abertos.filter(c => (Date.now() - new Date(c.criado_em)) / 3600000 > 48);
+  const porArea = {};
+  ctx.chamados.forEach(c => { const a = c.area || '—'; porArea[a] = (porArea[a] || 0) + 1; });
+  return `<div class="card">
+    <h2 style="margin:0 0 12px">📨 Chamados entre áreas</h2>
+    <div class="kpis" style="margin-bottom:14px">
+      ${execKpi('Abertos', abertos.length, null, { maiorEhMelhor: false })}
+      ${execKpi('Concluídos', resolvidos.length, null)}
+      ${execKpi('Atrasados (>48h)', atrasados.length, null, { maiorEhMelhor: false })}
+      ${execKpi('Tempo médio de resolução', mediaRes, null, { maiorEhMelhor: false, formato: 'horas' })}
+    </div>
+    <b style="font-size:12.5px">Volume por área</b>
+    <div style="margin-top:8px">${execBarras(Object.entries(porArea).sort((a, b) => b[1] - a[1]).map(([rotulo, valor]) => ({ rotulo, valor })))}</div>
+  </div>`;
+}
+
+function execSecaoMetas(el, ctx, calc, rerender) {
+  const m = ctx.metas;
+  const hoje = new Date();
+  const diaMes = hoje.getDate();
+  const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+  const mesAtual = hoje.toISOString().slice(0, 7);
+  const doMes = calc.proc.filter(d => d.recebido_em.slice(0, 7) === mesAtual).length;
+  // Forecast: ritmo médio diário observado no mês corrente projetado até o último dia.
+  const ritmoDia = diaMes ? doMes / diaMes : 0;
+  const projecaoMes = Math.round(ritmoDia * diasNoMes);
+  const metaMensal = m.mensal || 0;
+  const faltaMeta = Math.max(0, metaMensal - doMes);
+
+  const linhaMeta = (rotulo, realizado, meta) => {
+    const pct = meta ? 100 * realizado / meta : null;
+    const cor = pct == null ? 'var(--muted)' : pct >= 100 ? 'var(--ok)' : pct >= 70 ? 'var(--warn)' : 'var(--err)';
+    return `<tr>
+      <td><b>${rotulo}</b></td>
+      <td>${execFmt(realizado)}</td>
+      <td>${meta ? execFmt(meta) : '—'}</td>
+      <td style="color:${cor};font-weight:700">${pct == null ? '—' : execFmt(pct, 1) + '%'}</td>
+      <td>${meta ? execFmt(Math.max(0, meta - realizado)) : '—'}</td>
+    </tr>`;
+  };
+  const analistas = execPorAnalista(ctx, calc).filter(a => a.total > 0 || m.mensal);
+  const ativos = Math.max(1, analistas.length);
+  const metaIndividual = metaMensal ? Math.round(metaMensal / ativos) : 0;
+
+  el.innerHTML = `
+    <div class="kpis">
+      ${execKpi('Realizado no mês', doMes, null)}
+      ${execKpi('Meta mensal', metaMensal, null)}
+      ${execKpi('Projeção até o fim do mês', projecaoMes, null, { dica: `Ritmo atual: ${execFmt(ritmoDia, 1)}/dia` })}
+      ${execKpi('Falta para a meta', faltaMeta, null, { maiorEhMelhor: false })}
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 12px">🎯 Metas da equipe</h2>
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Período</th><th>Realizado</th><th>Meta</th><th>%</th><th>Quanto falta</th></tr></thead>
+        <tbody>
+          ${linhaMeta('Diária', calc.resumo.prodDia, m.diaria)}
+          ${linhaMeta('Semanal', calc.resumo.prodSemana, m.semanal)}
+          ${linhaMeta('Mensal', doMes, metaMensal)}
+          ${linhaMeta('Anual', calc.resumo.prodAno, metaMensal ? metaMensal * 12 : 0)}
+        </tbody></table></div>
+      <p style="color:var(--muted2);font-size:11.5px;margin-top:10px">Metas cadastradas em Visão Geral → Metas (somente admin).</p>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">📈 Forecast de produtividade</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
+        No ritmo atual de <b>${execFmt(ritmoDia, 1)}</b> processo(s)/dia, o mês fecha com aproximadamente
+        <b>${execFmt(projecaoMes)}</b> processo(s)${metaMensal ? ` — ${projecaoMes >= metaMensal ? '<span style="color:var(--ok)">acima da meta</span>' : '<span style="color:var(--err)">abaixo da meta</span>'}` : ''}.
+      </p>
+      ${execBarras([
+        { rotulo: `Realizado (dia ${diaMes})`, valor: doMes, cor: 'var(--accent)' },
+        { rotulo: 'Projeção do mês', valor: projecaoMes, cor: 'var(--warn)' },
+        ...(metaMensal ? [{ rotulo: 'Meta mensal', valor: metaMensal, cor: 'var(--ok)' }] : []),
+      ])}
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">🧪 Simulador de capacidade</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Baseado na produtividade média real por analista no período (${execFmt(calc.proc.length / ativos, 1)} processo(s) por analista).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <div><label>Volume extra de processos</label><input id="simVolume" type="number" min="0" value="300" style="width:150px"></div>
+        <div><label>Analistas ausentes (férias/licença)</label><input id="simAusentes" type="number" min="0" value="0" style="width:180px"></div>
+        <button id="simCalcular">Simular</button>
+      </div>
+      <div id="simResultado" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 12px">👤 Metas individuais</h2>
+      <p style="color:var(--muted);font-size:12px;margin:-6px 0 12px">Meta individual = meta mensal da equipe dividida por ${ativos} analista(s) = <b>${metaIndividual || '—'}</b>.</p>
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Analista</th><th>Realizado</th><th>Meta</th><th>%</th><th>Quanto falta</th></tr></thead>
+        <tbody>${analistas.map(a => {
+          const pct = metaIndividual ? 100 * a.total / metaIndividual : null;
+          const cor = pct == null ? 'var(--muted)' : pct >= 100 ? 'var(--ok)' : pct >= 70 ? 'var(--warn)' : 'var(--err)';
+          return `<tr><td><b>${esc(a.nome)}</b></td><td>${execFmt(a.total)}</td><td>${metaIndividual || '—'}</td>
+            <td style="color:${cor};font-weight:700">${pct == null ? '—' : execFmt(pct, 1) + '%'}</td>
+            <td>${metaIndividual ? execFmt(Math.max(0, metaIndividual - a.total)) : '—'}</td></tr>`;
+        }).join('') || '<tr><td colspan="5" style="color:var(--muted)">Sem analistas no período.</td></tr>'}</tbody></table></div>
+    </div>`;
+
+  document.getElementById('simCalcular').onclick = () => {
+    const extra = Number(document.getElementById('simVolume').value || 0);
+    const ausentes = Number(document.getElementById('simAusentes').value || 0);
+    const porAnalista = calc.proc.length / ativos;
+    const disponiveis = Math.max(0, ativos - ausentes);
+    const capacidade = porAnalista * disponiveis;
+    const demanda = calc.proc.length + extra;
+    const necessarios = porAnalista > 0 ? Math.ceil(demanda / porAnalista) : 0;
+    const faltam = Math.max(0, necessarios - disponiveis);
+    document.getElementById('simResultado').innerHTML = `
+      <div class="kpis">
+        ${execKpi('Demanda simulada', demanda, null)}
+        ${execKpi('Capacidade com a equipe atual', Math.round(capacidade), null)}
+        ${execKpi('Analistas necessários', necessarios, null)}
+        ${execKpi('Faltam contratar/realocar', faltam, null, { maiorEhMelhor: false })}
+      </div>
+      <p style="font-size:13px;color:${faltam ? 'var(--err)' : 'var(--ok)'};font-weight:600">
+        ${faltam ? `⚠️ Com ${disponiveis} analista(s) disponível(is), faltariam ${faltam} para absorver ${execFmt(demanda)} processos.`
+                 : `✅ Os ${disponiveis} analista(s) disponíveis absorvem ${execFmt(demanda)} processos no mesmo ritmo.`}
+      </p>`;
+  };
+}
+
+function execSecaoOperacao(el, ctx, calc, rerender) {
+  // Heatmap dia da semana x faixa de horário
+  const dows = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+  const faixas = [[0, 5, '00–05'], [6, 8, '06–08'], [9, 11, '09–11'], [12, 14, '12–14'], [15, 17, '15–17'], [18, 23, '18–23']];
+  const grade = {};
+  calc.proc.forEach(d => {
+    const dt = new Date(d.recebido_em);
+    const dow = (dt.getDay() + 6) % 7;
+    const faixa = faixas.findIndex(([a, b]) => dt.getHours() >= a && dt.getHours() <= b);
+    if (faixa < 0) return;
+    grade[`${dow}:${faixa}`] = (grade[`${dow}:${faixa}`] || 0) + 1;
+  });
+  const maxCel = Math.max(1, ...Object.values(grade));
+  const corCel = (n) => n === 0 ? 'var(--border)' : `color-mix(in srgb, var(--accent) ${Math.round(18 + 82 * n / maxCel)}%, transparent)`;
+
+  // Calendário do mês corrente
+  const hoje = new Date();
+  const ano = hoje.getFullYear(), mes = hoje.getMonth();
+  const primeiro = new Date(ano, mes, 1);
+  const diasMes = new Date(ano, mes + 1, 0).getDate();
+  const offset = (primeiro.getDay() + 6) % 7;
+  const porDiaMes = {}, pendPorDia = {};
+  calc.met.forEach(({ d, m }) => {
+    const k = d.recebido_em.slice(0, 10);
+    if (k.slice(0, 7) !== hoje.toISOString().slice(0, 7)) return;
+    porDiaMes[k] = (porDiaMes[k] || 0) + 1;
+    if (!m.concluido) pendPorDia[k] = (pendPorDia[k] || 0) + 1;
+  });
+  const maxDiaMes = Math.max(1, ...Object.values(porDiaMes));
+
+  const analistasLista = execPorAnalista(ctx, calc).filter(a => a.total > 0);
+  const acha = (nome) => analistasLista.find(a => a.nome === nome);
+  const A = acha(execState.compA), B = acha(execState.compB);
+  const linhaComp = (rotulo, va, vb, fmt = (v) => execFmt(v)) => `<tr>
+    <td><b>${rotulo}</b></td>
+    <td style="text-align:center">${A ? fmt(va) : '—'}</td>
+    <td style="text-align:center">${B ? fmt(vb) : '—'}</td>
+  </tr>`;
+
+  el.innerHTML = `
+    <div class="card">
+      <h2 style="margin:0 0 6px">🔥 Heatmap operacional</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Volume de entrada por dia da semana e faixa de horário.</p>
+      <div class="table-scroll"><table style="border-collapse:separate;border-spacing:4px">
+        <thead><tr><th></th>${faixas.map(f => `<th style="font-size:11px;color:var(--muted);font-weight:600">${f[2]}</th>`).join('')}</tr></thead>
+        <tbody>${dows.map((nome, di) => `<tr>
+          <td style="font-size:12px;font-weight:600;padding-right:6px">${nome}</td>
+          ${faixas.map((f, fi) => {
+            const n = grade[`${di}:${fi}`] || 0;
+            return `<td title="${nome} ${f[2]}h: ${n} processo(s)" style="background:${corCel(n)};border-radius:6px;
+              width:52px;height:34px;text-align:center;font-size:12px;font-weight:600;color:var(--text)">${n || ''}</td>`;
+          }).join('')}
+        </tr>`).join('')}</tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px">🗓️ Calendário operacional — ${primeiro.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Intensidade = volume recebido. Ponto vermelho = há pendências daquele dia.</p>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;max-width:560px">
+        ${dows.map(d => `<div style="text-align:center;font-size:11px;color:var(--muted);font-weight:600">${d}</div>`).join('')}
+        ${Array(offset).fill('<div></div>').join('')}
+        ${Array.from({ length: diasMes }, (_, i) => {
+          const dia = i + 1;
+          const k = `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+          const n = porDiaMes[k] || 0;
+          const pend = pendPorDia[k] || 0;
+          return `<div title="${k}: ${n} recebido(s), ${pend} em aberto" style="aspect-ratio:1;border-radius:7px;display:flex;
+            flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:600;
+            background:${n ? corCel(n * maxCel / maxDiaMes) : 'var(--panel2)'};border:1px solid var(--border)">
+            <span>${dia}</span>
+            ${n ? `<span style="font-size:10px;color:var(--muted)">${n}</span>` : ''}
+            ${pend ? '<span style="width:5px;height:5px;border-radius:50%;background:var(--err)"></span>' : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 12px">⚖️ Comparativo entre analistas</h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div><label>Analista A</label><select id="compA"><option value="">—</option>
+          ${analistasLista.map(a => `<option value="${esc(a.nome)}" ${execState.compA === a.nome ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
+        <div><label>Analista B</label><select id="compB"><option value="">—</option>
+          ${analistasLista.map(a => `<option value="${esc(a.nome)}" ${execState.compB === a.nome ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
+      </div>
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Indicador</th><th style="text-align:center">${esc(execState.compA || 'A')}</th><th style="text-align:center">${esc(execState.compB || 'B')}</th></tr></thead>
+        <tbody>
+          ${linhaComp('Processos', A?.total, B?.total)}
+          ${linhaComp('Concluídos', A?.concluidos, B?.concluidos)}
+          ${linhaComp('Em atraso', A?.atrasados, B?.atrasados)}
+          ${linhaComp('Tempo médio', A?.tempoMedio, B?.tempoMedio, execHoras)}
+          ${linhaComp('SLA', A?.pctSla, B?.pctSla, v => execFmt(v, 1) + '%')}
+          ${linhaComp('Retrabalho', A?.pctRetrabalho, B?.pctRetrabalho, v => execFmt(v, 1) + '%')}
+          ${linhaComp('Eficiência', A?.eficiencia, B?.eficiencia, v => execFmt(v, 1))}
+        </tbody></table></div>
+    </div>`;
+
+  document.getElementById('compA').onchange = (e) => { execState.compA = e.target.value; rerender(); };
+  document.getElementById('compB').onchange = (e) => { execState.compB = e.target.value; rerender(); };
+}
+
+// ---------- Exportações ----------
+function execBaixarCsv(nome, linhas) {
+  if (!linhas.length) { alert('Nada para exportar neste recorte.'); return; }
+  const cols = Object.keys(linhas[0]);
+  const escapa = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.join(';'), ...linhas.map(l => cols.map(c => escapa(l[c])).join(';'))].join('\r\n');
+  // BOM para o Excel abrir os acentos corretamente.
+  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = `${nome}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+async function execExportar(ctx, calc) {
+  const linhas = calc.met.map(({ d, m }) => ({
+    Numero: d.numero ?? '', Recebido_em: d.recebido_em, Concluido_em: d.concluido_em ?? '',
+    Status: d.status, Analista: d.analistas?.nome ?? '', Incorporadora: d.empreendedoras?.nome ?? '',
+    Empreendimento: d.empreendimentos?.nome ?? '', Unidade: d.unidade ?? '',
+    Tipo_de_servico: d.atividades?.nome ?? '', Imobiliaria: d.imobiliaria ?? '', Corretor: d.corretor ?? '',
+    Horas: m.horas.toFixed(1), SLA_horas: m.slaHoras, Dentro_do_SLA: m.dentroSla ? 'SIM' : 'NAO',
+    Valor_proposta: d.valor_proposta ?? '',
+  }));
+  if (!linhas.length) { alert('Nada para exportar neste recorte.'); return; }
+  const escolha = prompt('Exportar como:\n1 = Excel (.xlsx)\n2 = CSV (abre no Excel e no Power BI)\n\nDigite 1 ou 2:', '1');
+  if (escolha === null) return;
+  if (escolha.trim() === '2') { execBaixarCsv('dashboard-executivo', linhas); return; }
+  const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+  const ws = XLSX.utils.json_to_sheet(linhas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Processos');
+  XLSX.writeFile(wb, `dashboard-executivo-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 // ---------- DEMANDAS ----------
