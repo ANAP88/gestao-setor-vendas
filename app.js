@@ -287,12 +287,13 @@ const PILARES = [
   ['🌐 Portal do Cliente', [
     ['portalUsuarios', '👤', 'Usuários do portal'],
     ['portalEmpreendimentos', '🏗️', 'Empreendimentos'],
+    ['portalDocumentos', '📁', 'Documentos & Conhecimento'],
     ['portalFluxo', '⛓️', 'Fluxo do portal'],
   ]],
 ];
 // Telas restritas a gestão
 const VIEWS_GESTAO = ['dashboard', 'analytics', 'insights', 'fechamento', 'escala', 'arquivos', 'integracoes', 'automacoes', 'metas', 'implantacao',
-  'usuariosEquipe', 'cadastroOperacional', 'portalUsuarios', 'portalEmpreendimentos', 'portalFluxo'];
+  'usuariosEquipe', 'cadastroOperacional', 'portalUsuarios', 'portalEmpreendimentos', 'portalDocumentos', 'portalFluxo'];
 function podeVer(view) {
   return state.role === 'admin' ? true : !VIEWS_GESTAO.includes(view);
 }
@@ -377,7 +378,8 @@ function render() {
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      usuariosEquipe: renderUsuariosEquipe, cadastroOperacional: renderCadastroOperacional,
-     portalUsuarios: renderPortalUsuarios, portalEmpreendimentos: renderPortalEmpreendimentos, portalFluxo: () => renderFluxosAdmin(''),
+     portalUsuarios: renderPortalUsuarios, portalEmpreendimentos: renderPortalEmpreendimentos,
+     portalDocumentos: renderPortalDocumentosAdmin, portalFluxo: () => renderFluxosAdmin(''),
      arquivos: () => renderArquivos(''),
      bibliotecaRepasse: renderBibliotecaRepasse })[state.view]();
 }
@@ -3610,6 +3612,179 @@ async function renderPortalEmpreendimentos() {
   });
 }
 
+// Documentos e materiais de apoio que a equipe publica por empreendimento e que aparecem
+// no Portal do Incorporador (telas "Documentos" e "Base de Conhecimento").
+async function renderPortalDocumentosAdmin() {
+  const L = state.lookups;
+  if (!state.portalDocEmp) state.portalDocEmp = L.empreendimentos[0]?.id || '';
+  const empId = state.portalDocEmp;
+  const [{ data: docs }, { data: artigos }] = await Promise.all([
+    empId ? sb.from('empreendimento_documentos').select('*').eq('empreendimento_id', empId).order('criado_em', { ascending: false }) : { data: [] },
+    sb.from('conhecimento_artigos').select('*').order('criado_em', { ascending: false }),
+  ]);
+  const artigosDoEmp = (artigos || []).filter(a => a.empreendimento_id === empId || (!a.empreendimento_id && a.visivel_portal));
+  shell(`
+    <div class="card">
+      <div class="admin-head">
+        <div>
+          <h2 style="margin-bottom:2px">Documentos do Portal do Incorporador</h2>
+          <p style="color:var(--muted);font-size:12.5px">Publique arquivos e links por empreendimento. Só aparece no portal o que estiver marcado como visível.</p>
+        </div>
+      </div>
+      <div style="max-width:420px;margin-top:10px"><label>Empreendimento</label>
+        <select id="pdEmp" style="width:100%">
+          ${L.empreendimentos.map(e => `<option value="${e.id}" ${empId === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')
+            || '<option value="">Nenhum empreendimento cadastrado</option>'}</select></div>
+    </div>
+
+    ${empId ? `
+    <div class="card">
+      <h2>📁 Novo documento</h2>
+      <div class="grid2">
+        <div><label>Título</label><input id="pdTitulo" placeholder="Ex.: Memorial descritivo"></div>
+        <div><label>Categoria</label><input id="pdCategoria" placeholder="Ex.: Jurídico" value="Geral"></div>
+        <div style="grid-column:1/-1"><label>Descrição (opcional)</label><input id="pdDescricao" placeholder="Uma linha explicando o documento"></div>
+        <div><label>Tipo</label><select id="pdTipo"><option value="arquivo">Arquivo (upload)</option><option value="link">Link externo</option></select></div>
+        <div id="pdCampoArquivo"><label>Arquivo</label><input id="pdArquivo" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip"></div>
+        <div id="pdCampoUrl" class="hidden"><label>Endereço (URL)</label><input id="pdUrl" placeholder="https://..."></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <button id="pdSalvar">Publicar documento</button>
+        <span id="pdMsg" class="msg" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Documentos publicados <span class="count-badge">${(docs || []).length}</span></h2>
+      <div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Documento</th><th>Categoria</th><th>Tipo</th><th>Visível no portal</th><th>Publicado em</th><th></th></tr></thead>
+        <tbody>${(docs || []).map(d => `<tr>
+          <td><b>${esc(d.titulo)}</b>${d.descricao ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(d.descricao)}</span>` : ''}</td>
+          <td>${esc(d.categoria)}</td>
+          <td>${d.tipo === 'link' ? '🔗 Link' : '📄 Arquivo'}</td>
+          <td><input type="checkbox" class="pdVis" data-id="${d.id}" ${d.visivel_portal ? 'checked' : ''}></td>
+          <td style="color:var(--muted);white-space:nowrap">${fmtDt(d.criado_em)}</td>
+          <td style="text-align:right"><div class="row-actions">
+            <button class="ghost pdAbrir" data-path="${esc(d.storage_path || '')}" data-url="${esc(d.url || '')}">Abrir</button>
+            <button class="ghost pdExcluir danger" data-id="${d.id}" data-path="${esc(d.storage_path || '')}" style="color:var(--err)">🗑</button>
+          </div></td>
+        </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted)">Nenhum documento publicado para este empreendimento.</td></tr>'}</tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h2>❓ Base de conhecimento no portal</h2>
+      <p style="color:var(--muted);font-size:12.5px">Artigos, modelos e links de apoio. Sem empreendimento definido, o material vale para todos.</p>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>Título</label><input id="pcaTitulo" placeholder="Ex.: Como acompanhar a análise de crédito"></div>
+        <div><label>Categoria</label><input id="pcaCategoria" placeholder="Ex.: Processos" value="Geral"></div>
+        <div><label>Tipo</label><select id="pcaTipo">
+          ${['artigo', 'pdf', 'link', 'modelo', 'video'].map(t => `<option value="${t}">${t}</option>`).join('')}</select></div>
+        <div><label>Vale para</label><select id="pcaEscopo">
+          <option value="emp">Somente este empreendimento</option>
+          <option value="todos">Todos os empreendimentos</option></select></div>
+        <div style="grid-column:1/-1"><label>Conteúdo (opcional)</label><textarea id="pcaConteudo" rows="3" placeholder="Texto do artigo"></textarea></div>
+        <div style="grid-column:1/-1"><label>Link (opcional)</label><input id="pcaUrl" placeholder="https://..."></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <button id="pcaSalvar">Publicar material</button>
+        <span id="pcaMsg" class="msg" style="margin:0"></span>
+      </div>
+      <div class="table-scroll" style="margin-top:14px"><table class="users-table">
+        <thead><tr><th>Material</th><th>Categoria</th><th>Escopo</th><th>Visível no portal</th><th></th></tr></thead>
+        <tbody>${artigosDoEmp.map(a => `<tr>
+          <td><b>${esc(a.titulo)}</b></td>
+          <td>${esc(a.categoria || '—')}</td>
+          <td>${a.empreendimento_id ? esc(L.empreendimentos.find(e => e.id === a.empreendimento_id)?.nome || '—') : 'Todos'}</td>
+          <td><input type="checkbox" class="pcaVis" data-id="${a.id}" ${a.visivel_portal ? 'checked' : ''}></td>
+          <td style="text-align:right"><button class="ghost pcaExcluir" data-id="${a.id}" style="color:var(--err)">🗑</button></td>
+        </tr>`).join('') || '<tr><td colspan="5" style="color:var(--muted)">Nenhum material publicado ainda.</td></tr>'}</tbody></table></div>
+    </div>` : '<div class="card"><p style="color:var(--muted)">Cadastre um empreendimento em Administração → Cadastro operacional antes de publicar documentos.</p></div>'}`);
+
+  const selEmp = document.getElementById('pdEmp');
+  if (selEmp) selEmp.onchange = () => { state.portalDocEmp = selEmp.value; renderPortalDocumentosAdmin(); };
+  if (!empId) return;
+
+  const tipo = document.getElementById('pdTipo');
+  tipo.onchange = () => {
+    document.getElementById('pdCampoArquivo').classList.toggle('hidden', tipo.value !== 'arquivo');
+    document.getElementById('pdCampoUrl').classList.toggle('hidden', tipo.value !== 'link');
+  };
+
+  const msgDoc = (texto, erro) => {
+    const el = document.getElementById('pdMsg');
+    el.textContent = texto; el.style.color = erro ? 'var(--err)' : 'var(--ok)';
+  };
+  document.getElementById('pdSalvar').onclick = async () => {
+    const titulo = document.getElementById('pdTitulo').value.trim();
+    if (!titulo) { msgDoc('Informe o título do documento.', true); return; }
+    const registro = {
+      empreendimento_id: empId, titulo,
+      categoria: document.getElementById('pdCategoria').value.trim() || 'Geral',
+      descricao: document.getElementById('pdDescricao').value.trim() || null,
+      tipo: tipo.value, criado_por: state.session?.user?.email,
+    };
+    const btn = document.getElementById('pdSalvar');
+    btn.disabled = true; msgDoc('Publicando...');
+    if (tipo.value === 'link') {
+      const url = document.getElementById('pdUrl').value.trim();
+      if (!url) { btn.disabled = false; msgDoc('Informe o endereço do link.', true); return; }
+      registro.url = url;
+    } else {
+      const arquivo = document.getElementById('pdArquivo').files[0];
+      if (!arquivo) { btn.disabled = false; msgDoc('Escolha o arquivo.', true); return; }
+      const caminho = `${empId}/${Date.now()}-${arquivo.name.replace(/[^\w.\-]/g, '_')}`;
+      const { error: erroUpload } = await sb.storage.from('portal-documentos').upload(caminho, arquivo);
+      if (erroUpload) { btn.disabled = false; msgDoc('Falha no envio: ' + erroUpload.message, true); return; }
+      registro.storage_path = caminho;
+    }
+    const { error } = await sb.from('empreendimento_documentos').insert(registro);
+    btn.disabled = false;
+    if (error) { msgDoc(error.message, true); return; }
+    renderPortalDocumentosAdmin();
+  };
+
+  document.querySelectorAll('.pdVis').forEach(c => c.onchange = async () => {
+    const { error } = await sb.from('empreendimento_documentos').update({ visivel_portal: c.checked }).eq('id', c.dataset.id);
+    if (error) { alert(error.message); c.checked = !c.checked; }
+  });
+  document.querySelectorAll('.pdAbrir').forEach(b => b.onclick = () => abrirDocumentoPortal('portal-documentos', b.dataset.path, b.dataset.url));
+  document.querySelectorAll('.pdExcluir').forEach(b => b.onclick = async () => {
+    if (!confirm('Excluir este documento do portal? Essa ação não pode ser desfeita.')) return;
+    if (b.dataset.path) await sb.storage.from('portal-documentos').remove([b.dataset.path]);
+    const { error } = await sb.from('empreendimento_documentos').delete().eq('id', b.dataset.id);
+    if (error) { alert(error.message); return; }
+    renderPortalDocumentosAdmin();
+  });
+
+  document.getElementById('pcaSalvar').onclick = async () => {
+    const titulo = document.getElementById('pcaTitulo').value.trim();
+    const msg = document.getElementById('pcaMsg');
+    if (!titulo) { msg.textContent = 'Informe o título.'; msg.style.color = 'var(--err)'; return; }
+    const { error } = await sb.from('conhecimento_artigos').insert({
+      titulo,
+      categoria: document.getElementById('pcaCategoria').value.trim() || 'Geral',
+      tipo: document.getElementById('pcaTipo').value,
+      conteudo: document.getElementById('pcaConteudo').value.trim() || null,
+      url: document.getElementById('pcaUrl').value.trim() || null,
+      empreendimento_id: document.getElementById('pcaEscopo').value === 'emp' ? empId : null,
+      visivel_portal: true,
+      criado_por: state.session?.user?.email,
+    });
+    if (error) { msg.textContent = error.message; msg.style.color = 'var(--err)'; return; }
+    renderPortalDocumentosAdmin();
+  };
+  document.querySelectorAll('.pcaVis').forEach(c => c.onchange = async () => {
+    const { error } = await sb.from('conhecimento_artigos').update({ visivel_portal: c.checked }).eq('id', c.dataset.id);
+    if (error) { alert(error.message); c.checked = !c.checked; }
+  });
+  document.querySelectorAll('.pcaExcluir').forEach(b => b.onclick = async () => {
+    if (!confirm('Excluir este material da base de conhecimento?')) return;
+    const { error } = await sb.from('conhecimento_artigos').delete().eq('id', b.dataset.id);
+    if (error) { alert(error.message); return; }
+    renderPortalDocumentosAdmin();
+  });
+}
+
 async function renderCadastroOperacional() {
   const L = state.lookups;
   {
@@ -5259,20 +5434,21 @@ function renderCompletarCadastro(session, perfil) {
 // Incorporadoras/loteadoras acompanham seus empreendimentos e processos em tempo real,
 // sem acesso ao sistema interno da equipe. Escopo de dados garantido por RLS (perfis.empreendedora_id).
 let portalCanal = null;
-// Itens do menu lateral do portal. Só "inicio" tem tela própria hoje — os demais abrem um aviso "em breve"
-// até termos os dados correspondentes (boletos, repasse, relatórios etc.) modelados no banco.
+// Itens do menu lateral do portal. Não existe item "Assinaturas" de propósito: o acompanhamento de
+// assinatura é etapa da esteira e já aparece dentro de cada processo — item separado seria redundante.
 const PORTAL_NAV = [
   ['inicio', '🏠', 'Meus Empreendimentos'],
   ['processos', '📊', 'Processos'],
   ['pendencias', '📄', 'Pendências'],
-  ['assinaturas', '✍️', 'Assinaturas'],
-  ['boletos', '💳', 'Boletos'],
+  ['boletos', '💳', 'Boleto de Ato'],
   ['repasse', '🏦', 'Repasse'],
   ['relatorios', '📈', 'Relatórios'],
   ['interacoes', '💬', 'Central de Interações'],
   ['documentos', '📁', 'Documentos'],
   ['conhecimento', '❓', 'Base de Conhecimento'],
 ];
+// Repasse só entra no menu quando a incorporadora tem ao menos um processo de repasse vinculado.
+let portalTemRepasse = false;
 function portalShell(perfil, inner, marca, topo, viewAtiva) {
   if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
   const logoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
@@ -5286,7 +5462,8 @@ function portalShell(perfil, inner, marca, topo, viewAtiva) {
         ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<span class="logo" style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">${ICONE_PREDIO}</span>`}
         <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b><small>NEO SERVICE</small></div>
       </div>
-      ${PORTAL_NAV.map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}">${ic} ${esc(label)}</button>`).join('')}
+      ${PORTAL_NAV.filter(([v]) => v !== 'repasse' || portalTemRepasse)
+        .map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}">${ic} ${esc(label)}</button>`).join('')}
       <div class="portal-sidebar-foot">
         <div class="who">👤 ${esc(nome)}</div>
         <button id="pcSair">Sair</button>
@@ -5301,16 +5478,21 @@ function portalShell(perfil, inner, marca, topo, viewAtiva) {
     </div>
   </div>`;
   document.getElementById('pcSair').onclick = async () => { await sb.auth.signOut(); (EH_PORTAL_LOGIN ? renderLoginPortal : renderLogin)(); };
-  document.querySelectorAll('.portal-nav-item').forEach(b => b.onclick = () => {
-    if (b.dataset.nav === 'inicio') { renderPortalCliente(perfil); return; }
-    const label = PORTAL_NAV.find(([v]) => v === b.dataset.nav)?.[2] || '';
-    portalShell(perfil, `
-      <div class="card" style="text-align:center;padding:48px 20px">
-        <div style="font-size:34px;margin-bottom:10px">🚧</div>
-        <h2 style="margin-bottom:6px">${esc(label)}</h2>
-        <p style="color:var(--muted);font-size:13px">Essa área está em desenvolvimento e vai aparecer em breve por aqui.</p>
-      </div>`, marca, { titulo: label, subtitulo: 'Em breve.' }, b.dataset.nav);
-  });
+  document.querySelectorAll('.portal-nav-item').forEach(b => b.onclick = () => portalIr(perfil, b.dataset.nav));
+}
+const PORTAL_VIEWS = {
+  inicio: renderPortalCliente,
+  processos: renderPortalProcessos,
+  pendencias: renderPortalPendencias,
+  boletos: renderPortalBoletos,
+  repasse: renderPortalRepasse,
+  relatorios: renderPortalRelatorios,
+  interacoes: renderPortalInteracoes,
+  documentos: renderPortalDocumentos,
+  conhecimento: renderPortalConhecimento,
+};
+function portalIr(perfil, view) {
+  (PORTAL_VIEWS[view] || renderPortalCliente)(perfil);
 }
 // Assina mudanças em tempo real e re-renderiza a tela atual quando algo muda
 function portalRealtime(tabelas, aoMudar) {
@@ -5339,6 +5521,7 @@ async function renderPortalCliente(perfil) {
     sb.from('esteira_processos').select('parecer_credito,criado_em').eq('esteira_tipo','analise_credito')
       .in('empreendimento_id', empIds.length?empIds:['00000000-0000-0000-0000-000000000000']).gte('criado_em', seisAtras.toISOString()),
   ]);
+  portalTemRepasse = (processos || []).some(p => p.esteira_tipo === 'repasse');
   // Análise de crédito mês a mês: recebidos, reprovados, com pendência e evoluídos para contrato
   const porMes = {};
   (credito||[]).forEach(p => {
@@ -5448,13 +5631,16 @@ async function renderPortalEmpreendimento(perfil, empId) {
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalEmpreendimento(perfil, empId));
 }
 
-async function renderPortalProcesso(perfil, processoId, empId) {
+// voltar: função opcional de retorno — permite abrir o mesmo detalhe a partir de Processos,
+// Pendências, Boleto de Ato, Repasse ou Interações sem perder a tela de origem.
+async function renderPortalProcesso(perfil, processoId, empId, voltar) {
+  const voltarPara = voltar || (() => renderPortalEmpreendimento(perfil, empId));
   const [{ data: p }, { data: validacoes }, marca] = await Promise.all([
     sb.from('esteira_processos').select('*').eq('id', processoId).single(),
     sb.from('esteira_validacoes').select('*').eq('processo_id', processoId).order('criado_em'),
     marcaDoCliente(perfil),
   ]);
-  if (!p) { renderPortalEmpreendimento(perfil, empId); return; }
+  if (!p) { voltarPara(); return; }
   const { data: etapas } = await sb.from('etapas_esteira').select('*').eq('esteira_tipo', p.esteira_tipo).eq('ativa', true).order('ordem');
   const etapaAtualIdx = (etapas||[]).findIndex(e => e.id === p.etapa_atual_id);
   // última validação registrada para cada etapa (quem confirmou aquele passo como pronto, e quando)
@@ -5515,7 +5701,7 @@ async function renderPortalProcesso(perfil, processoId, empId) {
         <button id="pcChatEnviar">Enviar</button>
       </div>
     </div>`, marca, { titulo: p.titulo, subtitulo: `${empNome}${p.unidade ? ' · Unidade ' + p.unidade : ''}` });
-  document.getElementById('pcVoltar').onclick = () => renderPortalEmpreendimento(perfil, empId);
+  document.getElementById('pcVoltar').onclick = voltarPara;
   const chatMsgsEl = document.getElementById('pcChatMsgs');
   if (chatMsgsEl) chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight;
   document.getElementById('pcChatEnviar').onclick = async () => {
@@ -5525,10 +5711,509 @@ async function renderPortalProcesso(perfil, processoId, empId) {
     const { error } = await sb.from('processo_mensagens').insert({
       processo_id: processoId, autor_tipo: 'cliente', autor_email: state.session?.user?.email, mensagem: texto,
     });
-    if (!error) renderPortalProcesso(perfil, processoId, empId);
+    if (!error) renderPortalProcesso(perfil, processoId, empId, voltar);
   };
   document.getElementById('pcChatInput').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('pcChatEnviar').click(); });
-  portalRealtime(['esteira_processos','esteira_historico','processo_mensagens'], () => renderPortalProcesso(perfil, processoId, empId));
+  portalRealtime(['esteira_processos','esteira_historico','processo_mensagens'], () => renderPortalProcesso(perfil, processoId, empId, voltar));
+}
+
+// ================= PORTAL — DADOS E HELPERS COMPARTILHADOS =================
+// Todas as telas abaixo partem do mesmo carregamento: os empreendimentos que o RLS libera para
+// a incorporadora logada, os processos vinculados a eles e as etapas ativas de cada esteira.
+const PORTAL_TIPO_ROTULO = {
+  analise_credito: 'Análise de Crédito',
+  emissao_contrato: 'Emissão de Contrato',
+  repasse: 'Repasse',
+};
+const portalEmAberto = (p) => !['CONCLUIDO', 'DESISTENCIA'].includes(p.status);
+const portalFiltro = { emp: '', tipo: '', status: '', busca: '' };
+
+async function portalCarregar() {
+  const { data: emps } = await sb.from('empreendimentos').select('id,nome').order('nome');
+  const lista = emps || [];
+  const ids = lista.length ? lista.map(e => e.id) : ['00000000-0000-0000-0000-000000000000'];
+  const [{ data: processos }, { data: etapas }] = await Promise.all([
+    sb.from('esteira_processos').select('*').in('empreendimento_id', ids).order('criado_em', { ascending: false }),
+    sb.from('etapas_esteira').select('*').eq('ativa', true).order('ordem'),
+  ]);
+  const etapaPorId = {}; (etapas || []).forEach(e => { etapaPorId[e.id] = e; });
+  const nomeEmp = {}; lista.forEach(e => { nomeEmp[e.id] = e.nome; });
+  portalTemRepasse = (processos || []).some(p => p.esteira_tipo === 'repasse');
+  return { emps: lista, nomeEmp, processos: processos || [], etapas: etapas || [], etapaPorId };
+}
+
+function portalTagStatus(p) {
+  const cls = p.status === 'CONCLUIDO' ? 'CONCLUIDO' : p.status === 'DESISTENCIA' ? 'PENDENTE' : 'RECEBIDO';
+  const txt = p.status === 'DESISTENCIA' ? 'Desistência' : p.status === 'CONCLUIDO' ? 'Concluído' : 'Em andamento';
+  return `<span class="tag ${cls}">${txt}</span>`;
+}
+
+// Um processo entra em Pendências quando está parado numa etapa de pendência, foi devolvido para
+// alguém resolver, ou recebeu parecer de crédito aprovado-com-pendência.
+function portalEhPendencia(p, etapa) {
+  if (!portalEmAberto(p)) return false;
+  return /pend/i.test(etapa?.nome || '')
+    || !!p.devolvido_para
+    || ['aprovado_pendencia', 'aprovado_pendencia_contrato'].includes(p.parecer_credito);
+}
+
+// Faixa de etapas da emissão de contrato que tratam do boleto do ato e do seu pagamento.
+// Lida pelo nome da etapa (e não por número fixo) para continuar funcionando se a coordenação
+// editar o fluxo pela tela de Administração.
+function portalFaixaBoleto(ctx) {
+  const marcos = ctx.etapas
+    .filter(e => e.esteira_tipo === 'emissao_contrato' && /boleto|pagamento/i.test(e.nome))
+    .sort((a, b) => a.ordem - b.ordem);
+  if (!marcos.length) return null;
+  return { inicio: marcos[0].ordem, fim: marcos[marcos.length - 1].ordem };
+}
+
+function portalVazio(texto) {
+  return `<div class="card" style="text-align:center;padding:38px 20px;color:var(--muted);font-size:13px">${esc(texto)}</div>`;
+}
+
+function portalFiltrosHtml(ctx, { tipo = true, status = true, busca = true } = {}) {
+  return `<div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+    <div style="flex:1;min-width:170px"><label>Empreendimento</label>
+      <select id="pfEmp" style="width:100%"><option value="">Todos</option>
+        ${ctx.emps.map(e => `<option value="${e.id}" ${portalFiltro.emp === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></div>
+    ${tipo ? `<div style="min-width:170px"><label>Tipo de processo</label>
+      <select id="pfTipo" style="width:100%"><option value="">Todos</option>
+        ${Object.entries(PORTAL_TIPO_ROTULO).map(([k, v]) => `<option value="${k}" ${portalFiltro.tipo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>` : ''}
+    ${status ? `<div style="min-width:150px"><label>Situação</label>
+      <select id="pfStatus" style="width:100%">
+        <option value="">Todas</option>
+        <option value="abertos" ${portalFiltro.status === 'abertos' ? 'selected' : ''}>Em andamento</option>
+        <option value="CONCLUIDO" ${portalFiltro.status === 'CONCLUIDO' ? 'selected' : ''}>Concluídos</option>
+        <option value="DESISTENCIA" ${portalFiltro.status === 'DESISTENCIA' ? 'selected' : ''}>Desistências</option>
+      </select></div>` : ''}
+    ${busca ? `<div style="flex:1;min-width:170px"><label>Buscar</label>
+      <input id="pfBusca" value="${esc(portalFiltro.busca)}" placeholder="Título ou unidade..." style="width:100%"></div>` : ''}
+    <button id="pfLimpar" class="ghost">Limpar</button>
+  </div>`;
+}
+
+function portalLigarFiltros(recarregar) {
+  const emp = document.getElementById('pfEmp');
+  if (emp) emp.onchange = () => { portalFiltro.emp = emp.value; recarregar(); };
+  const tipo = document.getElementById('pfTipo');
+  if (tipo) tipo.onchange = () => { portalFiltro.tipo = tipo.value; recarregar(); };
+  const status = document.getElementById('pfStatus');
+  if (status) status.onchange = () => { portalFiltro.status = status.value; recarregar(); };
+  const busca = document.getElementById('pfBusca');
+  if (busca) {
+    let tm;
+    busca.oninput = () => { clearTimeout(tm); tm = setTimeout(() => { portalFiltro.busca = busca.value; recarregar(); }, 350); };
+  }
+  const limpar = document.getElementById('pfLimpar');
+  if (limpar) limpar.onclick = () => { portalFiltro.emp = ''; portalFiltro.tipo = ''; portalFiltro.status = ''; portalFiltro.busca = ''; recarregar(); };
+}
+
+function portalAplicaFiltro(processos) {
+  const q = portalFiltro.busca.trim().toLowerCase();
+  return processos.filter(p => {
+    if (portalFiltro.emp && p.empreendimento_id !== portalFiltro.emp) return false;
+    if (portalFiltro.tipo && p.esteira_tipo !== portalFiltro.tipo) return false;
+    if (portalFiltro.status === 'abertos' && !portalEmAberto(p)) return false;
+    if (['CONCLUIDO', 'DESISTENCIA'].includes(portalFiltro.status) && p.status !== portalFiltro.status) return false;
+    if (q && !`${p.titulo || ''} ${p.unidade || ''}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+// ================= PORTAL — PROCESSOS =================
+async function renderPortalProcessos(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const lista = portalAplicaFiltro(ctx.processos);
+  const voltar = () => renderPortalProcessos(perfil);
+  portalShell(perfil, `
+    ${portalFiltrosHtml(ctx)}
+    ${lista.length ? `<div class="card"><div class="table-scroll"><table class="users-table">
+      <thead><tr><th>Processo</th><th>Empreendimento</th><th>Unidade</th><th>Tipo</th><th>Etapa atual</th><th>Situação</th><th></th></tr></thead>
+      <tbody>${lista.map(p => `<tr class="pcLinha" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}" style="cursor:pointer">
+        <td><b>${esc(p.titulo)}</b></td>
+        <td>${esc(ctx.nomeEmp[p.empreendimento_id] || '—')}</td>
+        <td>${esc(p.unidade || '—')}</td>
+        <td style="white-space:nowrap">${esc(PORTAL_TIPO_ROTULO[p.esteira_tipo] || p.esteira_tipo || '—')}</td>
+        <td>${esc(ctx.etapaPorId[p.etapa_atual_id]?.nome || '—')}</td>
+        <td>${portalTagStatus(p)}</td>
+        <td style="text-align:right;color:var(--muted2)">→</td>
+      </tr>`).join('')}</tbody></table></div></div>`
+      : portalVazio(ctx.processos.length ? 'Nenhum processo corresponde a esses filtros.' : 'Nenhum processo cadastrado ainda.')}`,
+    marca, { titulo: 'Processos', subtitulo: `${lista.length} de ${ctx.processos.length} processo(s).` }, 'processos');
+  portalLigarFiltros(voltar);
+  document.querySelectorAll('.pcLinha').forEach(tr => tr.onclick = () => renderPortalProcesso(perfil, tr.dataset.id, tr.dataset.emp, voltar));
+  portalRealtime(['esteira_processos', 'esteira_historico'], voltar);
+}
+
+// ================= PORTAL — PENDÊNCIAS =================
+// Alimentada automaticamente pela esteira: não há cadastro manual de pendência.
+async function renderPortalPendencias(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalPendencias(perfil);
+  const pendentes = portalAplicaFiltro(ctx.processos)
+    .filter(p => portalEhPendencia(p, ctx.etapaPorId[p.etapa_atual_id]));
+  const diasParado = (p) => Math.max(0, Math.floor((Date.now() - new Date(p.criado_em)) / 86400000));
+  portalShell(perfil, `
+    ${portalFiltrosHtml(ctx, { status: false })}
+    ${pendentes.length ? `<div class="card"><div class="table-scroll"><table class="users-table">
+      <thead><tr><th>Processo</th><th>Empreendimento</th><th>Unidade</th><th>Origem</th><th>Etapa</th><th>Motivo</th><th>Aberto há</th><th></th></tr></thead>
+      <tbody>${pendentes.map(p => `<tr class="pcLinha" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}" style="cursor:pointer">
+        <td><b>${esc(p.titulo)}</b></td>
+        <td>${esc(ctx.nomeEmp[p.empreendimento_id] || '—')}</td>
+        <td>${esc(p.unidade || '—')}</td>
+        <td style="white-space:nowrap">${esc(PORTAL_TIPO_ROTULO[p.esteira_tipo] || '—')}</td>
+        <td>${esc(ctx.etapaPorId[p.etapa_atual_id]?.nome || '—')}</td>
+        <td>${esc(p.motivo_devolucao || p.observacoes || p.obs || '—')}</td>
+        <td style="white-space:nowrap">${diasParado(p)} dia(s)</td>
+        <td style="text-align:right;color:var(--muted2)">→</td>
+      </tr>`).join('')}</tbody></table></div></div>`
+      : portalVazio('Nenhuma pendência aberta no momento.')}`,
+    marca, { titulo: 'Pendências', subtitulo: 'Geradas automaticamente pela análise de crédito e pela emissão de contrato.' }, 'pendencias');
+  portalLigarFiltros(voltar);
+  document.querySelectorAll('.pcLinha').forEach(tr => tr.onclick = () => renderPortalProcesso(perfil, tr.dataset.id, tr.dataset.emp, voltar));
+  portalRealtime(['esteira_processos', 'esteira_historico'], voltar);
+}
+
+// ================= PORTAL — BOLETO DE ATO =================
+// Aparece a partir do momento em que a esteira de emissão de contrato chega na solicitação do
+// boleto do ato, e acompanha até a confirmação do pagamento.
+async function renderPortalBoletos(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalBoletos(perfil);
+  const faixa = portalFaixaBoleto(ctx);
+  const linhas = !faixa ? [] : portalAplicaFiltro(ctx.processos)
+    .filter(p => p.esteira_tipo === 'emissao_contrato')
+    .map(p => ({ p, etapa: ctx.etapaPorId[p.etapa_atual_id] }))
+    .filter(({ etapa }) => etapa && etapa.ordem >= faixa.inicio)
+    .map(({ p, etapa }) => ({
+      p, etapa,
+      situacao: etapa.ordem > faixa.fim || p.status === 'CONCLUIDO' ? 'Pago / concluído' : etapa.nome,
+      pago: etapa.ordem > faixa.fim || p.status === 'CONCLUIDO',
+    }));
+  const ids = linhas.map(l => l.p.id);
+  const { data: anexos } = ids.length
+    ? await sb.from('esteira_anexos').select('*').in('processo_id', ids)
+    : { data: [] };
+  const anexoPorProcesso = {};
+  (anexos || []).forEach(a => { if (/boleto/i.test(a.tipo || '')) anexoPorProcesso[a.processo_id] = a; });
+  portalShell(perfil, `
+    ${portalFiltrosHtml(ctx, { tipo: false, status: false })}
+    ${linhas.length ? `<div class="card"><div class="table-scroll"><table class="users-table">
+      <thead><tr><th>Processo</th><th>Empreendimento</th><th>Unidade</th><th>Situação do boleto</th><th>Boleto</th><th></th></tr></thead>
+      <tbody>${linhas.map(({ p, situacao, pago }) => `<tr>
+        <td><b>${esc(p.titulo)}</b></td>
+        <td>${esc(ctx.nomeEmp[p.empreendimento_id] || '—')}</td>
+        <td>${esc(p.unidade || '—')}</td>
+        <td><span class="tag ${pago ? 'CONCLUIDO' : 'PENDENTE'}">${esc(situacao)}</span></td>
+        <td>${anexoPorProcesso[p.id]
+          ? `<button class="ghost pcBoleto" data-path="${esc(anexoPorProcesso[p.id].storage_path || '')}" data-url="${esc(anexoPorProcesso[p.id].url || '')}">⬇ Baixar</button>`
+          : '<span style="color:var(--muted2)">não anexado</span>'}</td>
+        <td style="text-align:right"><button class="ghost pcAbrirProc" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}">Acompanhar →</button></td>
+      </tr>`).join('')}</tbody></table></div></div>`
+      : portalVazio('Nenhum boleto de ato solicitado até agora.')}`,
+    marca, { titulo: 'Boleto de Ato', subtitulo: 'Puxado direto da esteira, a partir da solicitação do boleto.' }, 'boletos');
+  portalLigarFiltros(voltar);
+  document.querySelectorAll('.pcAbrirProc').forEach(b => b.onclick = () => renderPortalProcesso(perfil, b.dataset.id, b.dataset.emp, voltar));
+  document.querySelectorAll('.pcBoleto').forEach(b => b.onclick = async () => {
+    if (b.dataset.path) {
+      const { data, error } = await sb.storage.from('esteira-documentos').createSignedUrl(b.dataset.path, 120);
+      if (error) { alert('Não foi possível abrir o boleto: ' + error.message); return; }
+      window.open(data.signedUrl, '_blank');
+    } else if (b.dataset.url) window.open(b.dataset.url, '_blank');
+  });
+  portalRealtime(['esteira_processos', 'esteira_anexos'], voltar);
+}
+
+// ================= PORTAL — REPASSE =================
+// Mesma leitura de esteira das demais telas, só que sobre o fluxo de repasse, que é bem mais longo.
+async function renderPortalRepasse(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalRepasse(perfil);
+  const etapasRepasse = ctx.etapas.filter(e => e.esteira_tipo === 'repasse');
+  const total = etapasRepasse.length || 1;
+  const lista = portalAplicaFiltro(ctx.processos).filter(p => p.esteira_tipo === 'repasse');
+  portalShell(perfil, `
+    ${portalFiltrosHtml(ctx, { tipo: false })}
+    ${lista.length ? lista.map(p => {
+      const idx = etapasRepasse.findIndex(e => e.id === p.etapa_atual_id);
+      const passo = idx < 0 ? 0 : idx + 1;
+      const pct = Math.round(passo / total * 100);
+      return `<div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+          <div>
+            <b>${esc(p.titulo)}</b>
+            <div style="color:var(--muted);font-size:12px">${esc(ctx.nomeEmp[p.empreendimento_id] || '—')}${p.unidade ? ' · Unidade ' + esc(p.unidade) : ''}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">${portalTagStatus(p)}
+            <button class="ghost pcAbrirProc" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}">Ver esteira completa →</button></div>
+        </div>
+        <div style="margin-top:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px">
+            <span>${esc(ctx.etapaPorId[p.etapa_atual_id]?.nome || 'Não iniciado')}</span>
+            <span>etapa ${passo} de ${total} · ${pct}%</span>
+          </div>
+          <div class="bar" style="height:8px;background:var(--border);border-radius:5px;overflow:hidden">
+            <i style="display:block;height:100%;width:${pct}%;background:var(--accent)"></i></div>
+        </div>
+      </div>`;
+    }).join('') : portalVazio('Nenhum processo de repasse vinculado à sua incorporadora.')}`,
+    marca, { titulo: 'Repasse', subtitulo: `Acompanhamento do repasse bancário — fluxo de ${total} etapas.` }, 'repasse');
+  portalLigarFiltros(voltar);
+  document.querySelectorAll('.pcAbrirProc').forEach(b => b.onclick = () => renderPortalProcesso(perfil, b.dataset.id, b.dataset.emp, voltar));
+  portalRealtime(['esteira_processos', 'esteira_historico'], voltar);
+}
+
+// ================= PORTAL — RELATÓRIOS =================
+// Analítico interativo: os cartões e a tabela são clicáveis e abrem, logo abaixo,
+// a lista dos processos que compõem aquele número.
+const portalRel = { meses: 6, recorte: '', recorteRotulo: '' };
+
+// Marcos do fluxo de emissão de contrato, lidos pelo nome da etapa para sobreviver a edições no fluxo.
+function portalMarcosContrato(ctx) {
+  const etapas = ctx.etapas.filter(e => e.esteira_tipo === 'emissao_contrato');
+  const acha = (re) => etapas.filter(e => re.test(e.nome)).sort((a, b) => a.ordem - b.ordem);
+  const contraparte = acha(/assinatura.*(incorporador|vendedor)/i);
+  const concluido = acha(/assinaturas? e pagamentos? conclu/i);
+  const cliente = acha(/assinatura/i).filter(e => !contraparte.some(c => c.id === e.id) && !concluido.some(c => c.id === e.id));
+  return { cliente, contraparte, ordemAssinado: concluido[0]?.ordem ?? null };
+}
+
+function portalRecortes(ctx) {
+  const marcos = portalMarcosContrato(ctx);
+  const naEtapa = (lista) => (p) => lista.some(e => e.id === p.etapa_atual_id);
+  return [
+    ['todos', 'Processos no período', () => true],
+    ['credito', 'Análises de crédito', (p) => p.esteira_tipo === 'analise_credito'],
+    ['contrato', 'Emissões de contrato', (p) => p.esteira_tipo === 'emissao_contrato'],
+    ['assinados', 'Contratos assinados', (p) => p.esteira_tipo === 'emissao_contrato'
+      && (p.status === 'CONCLUIDO'
+        || (marcos.ordemAssinado != null && (ctx.etapaPorId[p.etapa_atual_id]?.ordem ?? -1) >= marcos.ordemAssinado))],
+    ['aguard_cliente', 'Aguardando assinatura do cliente', (p) => p.esteira_tipo === 'emissao_contrato' && portalEmAberto(p) && naEtapa(marcos.cliente)(p)],
+    ['aguard_vendedor', 'Aguardando assinatura do vendedor', (p) => p.esteira_tipo === 'emissao_contrato' && portalEmAberto(p) && naEtapa(marcos.contraparte)(p)],
+  ];
+}
+
+async function renderPortalRelatorios(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalRelatorios(perfil);
+  const desde = new Date();
+  desde.setMonth(desde.getMonth() - (portalRel.meses - 1));
+  desde.setDate(1); desde.setHours(0, 0, 0, 0);
+  const base = ctx.processos.filter(p => (!portalFiltro.emp || p.empreendimento_id === portalFiltro.emp) && new Date(p.criado_em) >= desde);
+  const recortes = portalRecortes(ctx);
+  const contagem = Object.fromEntries(recortes.map(([k, , fn]) => [k, base.filter(fn).length]));
+
+  const porMes = {};
+  base.forEach(p => {
+    const d = new Date(p.criado_em);
+    const chave = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    porMes[chave] = porMes[chave] || { n: 0, data: new Date(d.getFullYear(), d.getMonth(), 1) };
+    porMes[chave].n++;
+  });
+  const meses = Object.values(porMes).sort((a, b) => a.data - b.data);
+  const maxMes = Math.max(1, ...meses.map(m => m.n));
+  const fmtMes = (d) => d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
+
+  const porEmp = {};
+  base.forEach(p => {
+    const r = porEmp[p.empreendimento_id] = porEmp[p.empreendimento_id]
+      || { total: 0, credito: 0, contrato: 0, abertos: 0, concluidos: 0 };
+    r.total++;
+    if (p.esteira_tipo === 'analise_credito') r.credito++;
+    if (p.esteira_tipo === 'emissao_contrato') r.contrato++;
+    if (portalEmAberto(p)) r.abertos++; else if (p.status === 'CONCLUIDO') r.concluidos++;
+  });
+
+  const detalhe = portalRel.recorte
+    ? base.filter(recortes.find(([k]) => k === portalRel.recorte)?.[2] || (() => false))
+    : [];
+
+  portalShell(perfil, `
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+      <div style="flex:1;min-width:180px"><label>Empreendimento</label>
+        <select id="pfEmp" style="width:100%"><option value="">Todos</option>
+          ${ctx.emps.map(e => `<option value="${e.id}" ${portalFiltro.emp === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></div>
+      <div style="min-width:160px"><label>Período</label>
+        <select id="prMeses" style="width:100%">
+          ${[3, 6, 12, 24].map(m => `<option value="${m}" ${portalRel.meses === m ? 'selected' : ''}>Últimos ${m} meses</option>`).join('')}</select></div>
+    </div>
+
+    <div class="pkpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
+      ${recortes.map(([k, rotulo]) => `
+        <div class="pkpi prCard ${portalRel.recorte === k ? 'ok' : ''}" data-k="${k}" data-r="${esc(rotulo)}" style="cursor:pointer">
+          <div><div class="pkpi-v">${contagem[k]}</div><div class="pkpi-l">${esc(rotulo.toUpperCase())}</div></div>
+        </div>`).join('')}
+    </div>
+
+    <h2 style="font-size:15px;margin:22px 0 12px">Processos por mês</h2>
+    <div class="card">
+      ${meses.length ? `<div style="display:flex;align-items:flex-end;gap:10px;height:150px">
+        ${meses.map(m => `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%">
+          <span style="font-size:12px;font-weight:700">${m.n}</span>
+          <div style="width:100%;background:var(--accent);border-radius:5px 5px 0 0;height:${Math.round(m.n / maxMes * 100)}%;min-height:4px"></div>
+          <span style="font-size:11px;color:var(--muted)">${esc(fmtMes(m.data))}</span>
+        </div>`).join('')}</div>`
+        : '<p style="color:var(--muted);font-size:13px">Nenhum processo no período selecionado.</p>'}
+    </div>
+
+    <h2 style="font-size:15px;margin:22px 0 12px">Por empreendimento</h2>
+    <div class="card"><div class="table-scroll"><table class="users-table">
+      <thead><tr><th>Empreendimento</th><th>Processos</th><th>Análise de crédito</th><th>Emissão de contrato</th><th>Em andamento</th><th>Concluídos</th></tr></thead>
+      <tbody>${ctx.emps.filter(e => porEmp[e.id]).map(e => {
+        const r = porEmp[e.id];
+        return `<tr><td><b>${esc(e.nome)}</b></td><td>${r.total}</td><td>${r.credito}</td><td>${r.contrato}</td><td>${r.abertos}</td><td>${r.concluidos}</td></tr>`;
+      }).join('') || '<tr><td colspan="6" style="color:var(--muted)">Sem dados no período.</td></tr>'}</tbody></table></div></div>
+
+    ${portalRel.recorte ? `
+    <h2 style="font-size:15px;margin:22px 0 12px">${esc(portalRel.recorteRotulo)} — ${detalhe.length} processo(s)</h2>
+    <div class="card"><div class="table-scroll"><table class="users-table">
+      <thead><tr><th>Processo</th><th>Empreendimento</th><th>Unidade</th><th>Etapa atual</th><th>Situação</th><th></th></tr></thead>
+      <tbody>${detalhe.map(p => `<tr class="pcLinha" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}" style="cursor:pointer">
+        <td><b>${esc(p.titulo)}</b></td>
+        <td>${esc(ctx.nomeEmp[p.empreendimento_id] || '—')}</td>
+        <td>${esc(p.unidade || '—')}</td>
+        <td>${esc(ctx.etapaPorId[p.etapa_atual_id]?.nome || '—')}</td>
+        <td>${portalTagStatus(p)}</td>
+        <td style="text-align:right;color:var(--muted2)">→</td>
+      </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted)">Nenhum processo nesse recorte.</td></tr>'}</tbody></table></div></div>` : ''}`,
+    marca, { titulo: 'Relatórios', subtitulo: 'Clique em qualquer indicador para ver os processos que formam o número.' }, 'relatorios');
+
+  document.getElementById('pfEmp').onchange = (e) => { portalFiltro.emp = e.target.value; voltar(); };
+  document.getElementById('prMeses').onchange = (e) => { portalRel.meses = Number(e.target.value); voltar(); };
+  document.querySelectorAll('.prCard').forEach(c => c.onclick = () => {
+    const mesmo = portalRel.recorte === c.dataset.k;
+    portalRel.recorte = mesmo ? '' : c.dataset.k;
+    portalRel.recorteRotulo = mesmo ? '' : c.dataset.r;
+    voltar();
+  });
+  document.querySelectorAll('.pcLinha').forEach(tr => tr.onclick = () => renderPortalProcesso(perfil, tr.dataset.id, tr.dataset.emp, voltar));
+  portalRealtime(['esteira_processos'], voltar);
+}
+
+// ================= PORTAL — CENTRAL DE INTERAÇÕES =================
+// A conversa acontece sempre dentro de um processo. Esta tela é o outro caminho para chegar nela:
+// reúne todos os processos e mostra a última mensagem trocada com a equipe.
+let portalInteracoesSoComMensagem = false;
+async function renderPortalInteracoes(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalInteracoes(perfil);
+  const ids = ctx.processos.map(p => p.id);
+  const { data: msgs } = ids.length
+    ? await sb.from('processo_mensagens').select('*').in('processo_id', ids).order('criado_em')
+    : { data: [] };
+  const porProcesso = {};
+  (msgs || []).forEach(m => {
+    const r = porProcesso[m.processo_id] = porProcesso[m.processo_id] || { total: 0, daEquipe: 0, ultima: null };
+    r.total++;
+    if (m.autor_tipo === 'equipe') r.daEquipe++;
+    r.ultima = m;
+  });
+  let lista = portalAplicaFiltro(ctx.processos);
+  if (portalInteracoesSoComMensagem) lista = lista.filter(p => porProcesso[p.id]);
+  lista = lista.sort((a, b) => new Date(porProcesso[b.id]?.ultima?.criado_em || 0) - new Date(porProcesso[a.id]?.ultima?.criado_em || 0));
+  portalShell(perfil, `
+    ${portalFiltrosHtml(ctx, { status: false })}
+    <div class="card" style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" id="piSoMsg" ${portalInteracoesSoComMensagem ? 'checked' : ''}>
+      <label for="piSoMsg" style="margin:0;font-size:13px">Mostrar apenas processos com conversa iniciada</label>
+    </div>
+    ${lista.length ? lista.map(p => {
+      const r = porProcesso[p.id];
+      return `<div class="card pcAbrirProc" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}" style="margin-bottom:10px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <b>${esc(p.titulo)}</b>
+            <div style="color:var(--muted);font-size:12px">${esc(ctx.nomeEmp[p.empreendimento_id] || '—')}${p.unidade ? ' · Unidade ' + esc(p.unidade) : ''} · ${esc(PORTAL_TIPO_ROTULO[p.esteira_tipo] || '—')}</div>
+            ${r ? `<div style="margin-top:8px;font-size:13px;color:var(--muted)">
+              <b>${r.ultima.autor_tipo === 'cliente' ? 'Você' : 'Equipe'}:</b> ${esc(r.ultima.mensagem.slice(0, 140))}${r.ultima.mensagem.length > 140 ? '…' : ''}
+              <span style="color:var(--muted2);font-size:11.5px"> · ${fmtDt(r.ultima.criado_em)}</span></div>`
+              : '<div style="margin-top:8px;font-size:12.5px;color:var(--muted2)">Nenhuma mensagem ainda — clique para falar com a equipe.</div>'}
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            ${r ? `<span class="tag RECEBIDO">${r.total} mensagem(ns)</span>` : ''}
+            <span style="color:var(--muted2)">→</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('') : portalVazio(ctx.processos.length ? 'Nenhum processo corresponde a esses filtros.' : 'Nenhum processo cadastrado ainda.')}`,
+    marca, { titulo: 'Central de Interações', subtitulo: 'Converse com a equipe direto no processo que precisa de retorno.' }, 'interacoes');
+  portalLigarFiltros(voltar);
+  document.getElementById('piSoMsg').onchange = (e) => { portalInteracoesSoComMensagem = e.target.checked; voltar(); };
+  document.querySelectorAll('.pcAbrirProc').forEach(c => c.onclick = () => renderPortalProcesso(perfil, c.dataset.id, c.dataset.emp, voltar));
+  portalRealtime(['processo_mensagens', 'esteira_processos'], voltar);
+}
+
+// ================= PORTAL — DOCUMENTOS =================
+// Conteúdo publicado pelo admin em Administração → Portal do Cliente → Documentos.
+async function abrirDocumentoPortal(bucket, storagePath, url) {
+  if (storagePath) {
+    const { data, error } = await sb.storage.from(bucket).createSignedUrl(storagePath, 120);
+    if (error) { alert('Não foi possível abrir o arquivo: ' + error.message); return; }
+    window.open(data.signedUrl, '_blank');
+  } else if (url) window.open(url, '_blank');
+}
+
+async function renderPortalDocumentos(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalDocumentos(perfil);
+  const { data: docs } = await sb.from('empreendimento_documentos').select('*').order('categoria').order('titulo');
+  const visiveis = (docs || []).filter(d => !portalFiltro.emp || d.empreendimento_id === portalFiltro.emp);
+  const porEmp = {};
+  visiveis.forEach(d => { (porEmp[d.empreendimento_id] = porEmp[d.empreendimento_id] || []).push(d); });
+  portalShell(perfil, `
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+      <div style="flex:1;min-width:200px"><label>Empreendimento</label>
+        <select id="pfEmp" style="width:100%"><option value="">Todos</option>
+          ${ctx.emps.map(e => `<option value="${e.id}" ${portalFiltro.emp === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></div>
+    </div>
+    ${Object.keys(porEmp).length ? Object.entries(porEmp).map(([empId, itens]) => `
+      <h2 style="font-size:15px;margin:18px 0 10px">🏗️ ${esc(ctx.nomeEmp[empId] || 'Empreendimento')}</h2>
+      <div class="card"><div class="table-scroll"><table class="users-table">
+        <thead><tr><th>Documento</th><th>Categoria</th><th>Publicado em</th><th></th></tr></thead>
+        <tbody>${itens.map(d => `<tr>
+          <td><b>${esc(d.titulo)}</b>${d.descricao ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(d.descricao)}</span>` : ''}</td>
+          <td>${esc(d.categoria)}</td>
+          <td style="color:var(--muted);white-space:nowrap">${fmtDt(d.criado_em)}</td>
+          <td style="text-align:right"><button class="ghost pcDoc" data-path="${esc(d.storage_path || '')}" data-url="${esc(d.url || '')}">${d.tipo === 'link' ? '🔗 Abrir' : '⬇ Baixar'}</button></td>
+        </tr>`).join('')}</tbody></table></div></div>`).join('')
+      : portalVazio('Nenhum documento publicado para os seus empreendimentos ainda.')}`,
+    marca, { titulo: 'Documentos', subtitulo: 'Arquivos e links publicados pela equipe para cada empreendimento.' }, 'documentos');
+  document.getElementById('pfEmp').onchange = (e) => { portalFiltro.emp = e.target.value; voltar(); };
+  document.querySelectorAll('.pcDoc').forEach(b => b.onclick = () => abrirDocumentoPortal('portal-documentos', b.dataset.path, b.dataset.url));
+}
+
+// ================= PORTAL — BASE DE CONHECIMENTO =================
+async function renderPortalConhecimento(perfil) {
+  const [ctx, marca] = await Promise.all([portalCarregar(), marcaDoCliente(perfil)]);
+  const voltar = () => renderPortalConhecimento(perfil);
+  const { data: artigos } = await sb.from('conhecimento_artigos').select('*').order('categoria').order('titulo');
+  const visiveis = (artigos || []).filter(a => !portalFiltro.emp || !a.empreendimento_id || a.empreendimento_id === portalFiltro.emp);
+  const porCategoria = {};
+  visiveis.forEach(a => { (porCategoria[a.categoria || 'Geral'] = porCategoria[a.categoria || 'Geral'] || []).push(a); });
+  const icone = { artigo: '📄', pdf: '📕', link: '🔗', modelo: '🧾', video: '🎬' };
+  portalShell(perfil, `
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+      <div style="flex:1;min-width:200px"><label>Empreendimento</label>
+        <select id="pfEmp" style="width:100%"><option value="">Todos</option>
+          ${ctx.emps.map(e => `<option value="${e.id}" ${portalFiltro.emp === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></div>
+    </div>
+    ${Object.keys(porCategoria).length ? Object.entries(porCategoria).map(([cat, itens]) => `
+      <h2 style="font-size:15px;margin:18px 0 10px">${esc(cat)}</h2>
+      ${itens.map(a => `<div class="card" style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start">
+          <div style="flex:1;min-width:200px">
+            <b>${icone[a.tipo] || '📄'} ${esc(a.titulo)}</b>
+            ${a.empreendimento_id ? `<div style="color:var(--muted2);font-size:11.5px;margin-top:2px">${esc(ctx.nomeEmp[a.empreendimento_id] || '')}</div>` : ''}
+            ${a.conteudo ? `<p style="color:var(--muted);font-size:13px;margin-top:8px;white-space:pre-wrap">${esc(a.conteudo)}</p>` : ''}
+          </div>
+          ${a.url ? `<button class="ghost pcArtigo" data-url="${esc(a.url)}">Abrir →</button>` : ''}
+        </div>
+      </div>`).join('')}`).join('')
+      : portalVazio('Nenhum material publicado na base de conhecimento ainda.')}`,
+    marca, { titulo: 'Base de Conhecimento', subtitulo: 'Guias, modelos e materiais de apoio publicados pela equipe.' }, 'conhecimento');
+  document.getElementById('pfEmp').onchange = (e) => { portalFiltro.emp = e.target.value; voltar(); };
+  document.querySelectorAll('.pcArtigo').forEach(b => b.onclick = () => window.open(b.dataset.url, '_blank'));
 }
 
 init();
