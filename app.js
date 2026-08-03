@@ -501,7 +501,7 @@ function renderStub(titulo, texto, itens) {
 
 async function loadLookups() {
   const [an, emp, ativ, empr, cli] = await Promise.all([
-    sb.from('analistas').select('id,nome,status,cargo').order('nome'),
+    sb.from('analistas').select('id,nome,status,cargo,entra_no_painel').order('nome'),
     sb.from('empreendedoras').select('id,nome').order('nome'),
     sb.from('atividades').select('id,nome,ativa').order('nome'),
     sb.from('empreendimentos').select('id,nome,empreendedora_id').order('nome'),
@@ -1337,15 +1337,69 @@ function execBlocoAlertas(ctx, calc) {
 }
 
 // Agrega por analista: volume, SLA, tempo, retrabalho e eficiência.
+// Colaboradores que a gestão escolheu exibir na Produtividade/Ranking do Executivo.
+// Quem está Inativo/Desligado nunca entra, mesmo que esteja marcado.
+function execColaboradoresDoPainel() {
+  return (state.lookups.analistas || [])
+    .filter(a => a.entra_no_painel !== false && ['Ativo', 'Em licença'].includes(a.status));
+}
+
+// Modal para ligar/desligar cada colaborador do painel. A escolha fica no banco
+// (analistas.entra_no_painel), então vale para todo mundo que abrir o Executivo.
+function abrirSelecaoColaboradoresPainel() {
+  const todos = (state.lookups.analistas || []).filter(a => !['Inativo', 'Desligado'].includes(a.status));
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:460px">
+    <h2>👥 Quem entra no painel</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
+      Marque quem deve aparecer na Produtividade por analista e no Ranking de performance.
+      Vale para todo mundo que abrir o Dashboard Executivo.</p>
+    <div class="cad-list" style="max-height:340px;overflow:auto">
+      ${todos.map(a => `<div class="cad-item">
+        <label style="flex:1;display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" class="qpItem" data-id="${a.id}" ${a.entra_no_painel !== false ? 'checked' : ''}>
+          <span><b>${esc(a.nome)}</b> <span style="color:var(--muted);font-size:11.5px">${esc(a.cargo || '—')}${a.status === 'Em licença' ? ' · em licença' : ''}</span></span>
+        </label>
+      </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum colaborador ativo cadastrado.</p>'}
+    </div>
+    <div class="msg" id="qpMsg" style="margin-top:6px"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="qpCancelar" class="ghost">Cancelar</button>
+      <button id="qpSalvar">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  document.getElementById('qpCancelar').onclick = () => div.remove();
+  document.getElementById('qpSalvar').onclick = async () => {
+    const btn = document.getElementById('qpSalvar');
+    const msg = document.getElementById('qpMsg');
+    const marcados = [...div.querySelectorAll('.qpItem')];
+    // Só grava quem mudou, para não gerar linha de auditoria à toa.
+    const mudou = marcados.filter(c => {
+      const a = todos.find(x => x.id === c.dataset.id);
+      return a && (a.entra_no_painel !== false) !== c.checked;
+    });
+    if (!mudou.length) { div.remove(); return; }
+    btn.disabled = true; msg.textContent = 'Salvando...';
+    for (const c of mudou) {
+      const { error } = await sb.from('analistas').update({ entra_no_painel: c.checked }).eq('id', c.dataset.id);
+      if (error) { msg.textContent = error.message; msg.style.color = 'var(--err)'; btn.disabled = false; return; }
+    }
+    div.remove();
+    await loadLookups();
+    renderExecutivo();
+  };
+}
+
 function execPorAnalista(ctx, calc) {
   const mapa = {};
   const garante = (nome) => mapa[nome] = mapa[nome] || {
     nome, total: 0, concluidos: 0, pendentes: 0, atrasados: 0, dentroSla: 0, tempos: [], retrabalho: 0,
   };
-  // Analistas ativos entram mesmo zerados, para a gestão enxergar quem não produziu.
-  (state.lookups.analistas || [])
-    .filter(a => a.cargo === 'analista' && ['Ativo', 'Em licença'].includes(a.status))
-    .forEach(a => garante(a.nome));
+  // Quem entra é escolhido pela gestão (botão "Quem entra no painel"), não pelo cargo.
+  // Entram mesmo zerados, para dar para enxergar quem não produziu no período.
+  execColaboradoresDoPainel().forEach(a => garante(a.nome));
   calc.met.forEach(({ d, m }) => {
     const r = garante(d.analistas?.nome || 'Sem analista');
     r.total++;
@@ -1397,9 +1451,12 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
             ${[['processos','Processos'],['concluidos','Concluídos'],['sla','SLA'],['eficiencia','Eficiência'],['retrabalho','Menor retrabalho'],['tempo','Menor tempo']]
               .map(([k,l]) => `<option value="${k}" ${execState.ordemAnalista===k?'selected':''}>${l}</option>`).join('')}
           </select>
+          ${state.role !== 'leitura' ? '<button id="exQuemEntra" class="ghost">👥 Quem entra no painel</button>' : ''}
           <button id="exExportEquipe" class="ghost">⬇ CSV</button>
         </div>
       </div>
+      <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 10px">
+        Exibindo ${execColaboradoresDoPainel().length} colaborador(es) escolhido(s) pela gestão.</p>
       <div class="table-scroll"><table class="users-table">
         <thead><tr><th>Analista</th><th>Processos</th><th>Concluídos</th><th>Pendentes</th><th>Em atraso</th>
           <th>Tempo médio</th><th>SLA</th><th>Taxa conclusão</th><th>Retrabalho</th><th>Eficiência</th></tr></thead>
@@ -1461,6 +1518,8 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
     </div>`;
 
   document.getElementById('exOrdem').onchange = (e) => { execState.ordemAnalista = e.target.value; rerender(); };
+  const btnQuemEntra = document.getElementById('exQuemEntra');
+  if (btnQuemEntra) btnQuemEntra.onclick = () => abrirSelecaoColaboradoresPainel();
   document.getElementById('exExportEquipe').onclick = () => execBaixarCsv('produtividade-analistas', ordenadas.map(r => ({
     Analista: r.nome, Processos: r.total, Concluidos: r.concluidos, Pendentes: r.pendentes, Em_atraso: r.atrasados,
     Tempo_medio_h: r.tempoMedio == null ? '' : r.tempoMedio.toFixed(1),
