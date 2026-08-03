@@ -600,7 +600,7 @@ async function renderDashboard() {
   if (state.dashAnalista) rkFiltrado = rkFiltrado.filter(r => r.nome === state.dashAnalista);
   const porAnalistaRk = {};
   // analistas ativos ou em licença sempre aparecem, mesmo zerados (ex.: Yara em licença "conta" com zero)
-  (state.lookups.analistas || []).filter(a => a.cargo === 'analista' && ['Ativo','Em licença'].includes(a.status))
+  execColaboradoresDoPainel()
     .forEach(a => { if (!state.dashAnalista || state.dashAnalista === a.nome) porAnalistaRk[a.nome] = { nome: a.nome, total: 0, concluidas: 0, pendentes: 0, tempos: [] }; });
   rkFiltrado.forEach(r => {
     const a = porAnalistaRk[r.nome] = porAnalistaRk[r.nome] || { nome: r.nome, total: 0, concluidas: 0, pendentes: 0, tempos: [] };
@@ -3829,7 +3829,7 @@ async function renderMetas() {
     a.linhas.push(r);
   });
   // colaboradores ativos/em licença aparecem mesmo sem lançamento (ex.: Yara em licença conta zerada)
-  (state.lookups.analistas||[]).filter(a => a.cargo === 'analista' && ['Ativo','Em licença'].includes(a.status))
+  execColaboradoresDoPainel()
     .forEach(a => { if (!porAnalista[a.nome]) porAnalista[a.nome] = { nome: a.nome, status: a.status, linhas: [] }; });
 
   // nota ponderada de um mês = Σ (atingimento_final do indicador × peso)
