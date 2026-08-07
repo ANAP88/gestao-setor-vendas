@@ -3818,8 +3818,13 @@ async function openApontamento() {
       <div><label>Analista responsável</label><select id="apAnalista"><option value="">—</option>
         ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
       <div style="grid-column:1/-1"><label>Indicador afetado (opcional)</label><select id="apIndicador"><option value="">— nenhum / não se aplica —</option>
-        ${(indicadores||[]).map(i=>`<option value="${i.id}">${esc(i.nome)}</option>`).join('')}</select>
-        <p style="color:var(--muted);font-size:11px;margin-top:3px">Quando marcado, esse apontamento entra automaticamente na contagem de erros da meta desse indicador.</p></div>
+        ${(indicadores||[]).map(i=>`<option value="${i.id}">${esc(i.nome)}</option>`).join('')}
+        ${state.role === 'admin' ? '<option value="__novo__">+ Criar novo indicador…</option>' : ''}</select>
+        <p style="color:var(--muted);font-size:11px;margin-top:3px">Quando marcado, esse apontamento entra automaticamente na contagem de erros da meta desse indicador.</p>
+        <div id="apIndicadorNovoWrap" style="display:none;margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:2;min-width:180px"><label>Nome do novo indicador</label><input id="apIndicadorNovoNome" placeholder="Ex.: Atendimento pós-venda sem erro"></div>
+          <div style="flex:1;min-width:100px"><label>Meta %</label><input id="apIndicadorNovoMeta" type="number" min="0" max="100" step="1" value="95"></div>
+        </div></div>
       <div><label>Categoria do erro</label><select id="apCat">
         ${Object.keys(CATEGORIAS_ERRO).map(c=>`<option>${c}</option>`).join('')}
         <option value="__custom__">Digitar categoria manualmente…</option></select></div>
@@ -3850,8 +3855,24 @@ async function openApontamento() {
   subs();
   div.querySelector('#apCat').onchange = subs;
   div.querySelector('#apSub').onchange = subSub;
+  const apInd = div.querySelector('#apIndicador');
+  if (apInd) apInd.onchange = () => {
+    div.querySelector('#apIndicadorNovoWrap').style.display = apInd.value === '__novo__' ? 'flex' : 'none';
+  };
   div.querySelector('#apCancel').onclick = () => div.remove();
   div.querySelector('#apSalvar').onclick = async () => {
+    let indicadorId = div.querySelector('#apIndicador')?.value || null;
+    if (indicadorId === '__novo__') {
+      const nomeInd = div.querySelector('#apIndicadorNovoNome').value.trim();
+      if (!nomeInd) { div.querySelector('#apMsg').textContent = 'Digite o nome do novo indicador.'; return; }
+      const metaInd = Number(div.querySelector('#apIndicadorNovoMeta').value || 95) / 100;
+      const { data: maxOrd } = await sb.from('indicadores_kpi').select('ordem').order('ordem', { ascending: false }).limit(1).maybeSingle();
+      const { data: novoInd, error: errInd } = await sb.from('indicadores_kpi')
+        .insert({ nome: nomeInd, meta_percentual: metaInd, ordem: (maxOrd?.ordem || 0) + 1, ativo: true })
+        .select('id').single();
+      if (errInd) { div.querySelector('#apMsg').textContent = errInd.message; return; }
+      indicadorId = novoInd.id;
+    }
     const num = div.querySelector('#apProc').value.trim();
     let demandaId = null;
     if (num) {
@@ -3874,7 +3895,7 @@ async function openApontamento() {
       demanda_id: demandaId,
       categoria, subcategoria,
       analista_id: div.querySelector('#apAnalista').value || null,
-      indicador_id: div.querySelector('#apIndicador').value || null,
+      indicador_id: indicadorId,
       origem: div.querySelector('#apOrigem').value,
       descricao: div.querySelector('#apDesc').value || null,
       registrado_por: state.session?.user?.id,
