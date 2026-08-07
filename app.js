@@ -488,9 +488,6 @@ const FUNDO_NEOSERVICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1
     <path d="M210 190 L210 60"/>
     <path d="M120 275 L300 275"/>
   </g>
-  <text x="1180" y="360" text-anchor="end" font-family="Inter,sans-serif" font-size="26" letter-spacing="1" fill="#ffffff" opacity=".85">
-    <tspan font-weight="800">NEO</tspan><tspan font-weight="300">SERVICE</tspan>
-  </text>
 </svg>`;
 const FUNDO_NEOSERVICE_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(FUNDO_NEOSERVICE);
 
@@ -500,8 +497,8 @@ async function renderInicio() {
   const saudacao = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
   const atalhos = PILARES.flatMap(([grp, itens]) => itens.filter(([v]) => podeVer(v) && v !== 'inicio').map(([v, ic, l]) => ({ v, ic, l, grp })));
   shell(`
-    <div class="card" style="margin-bottom:16px;background-image:url('${FUNDO_NEOSERVICE_URL}');background-size:cover;background-position:center;border:1px solid var(--border)">
-      <h2 style="margin:0 0 4px;font-size:20px;color:#fff">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}!</h2>
+    <div class="card" style="margin-bottom:16px;min-height:130px;display:flex;flex-direction:column;justify-content:center;background-image:url('${FUNDO_NEOSERVICE_URL}');background-size:cover;background-position:center;border:1px solid var(--border)">
+      <h2 style="margin:0 0 4px;font-size:21px;color:#fff">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}!</h2>
       <p style="color:rgba(255,255,255,.75);font-size:13px;margin:0">Por onde você quer começar hoje?</p>
     </div>
     ${[...new Set(atalhos.map(a=>a.grp))].map(grp => `
