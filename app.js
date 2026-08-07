@@ -155,7 +155,7 @@ function renderLogin(msg = '', tipo = 'erro') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <div class="hero-badge"><span class="hero-badge-ic">${ICONE_CADEADO_MINI}</span>SISTEMA INTERNO</div>
+      <div class="hero-mark">NEO SERVICE</div>
       <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
       <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
       <div class="hero-features">
@@ -164,8 +164,7 @@ function renderLogin(msg = '', tipo = 'erro') {
     </div>
     <div class="login-panel">
       <div class="card" id="login-card">
-        <div class="login-icon">${ICONE_PREDIO}</div>
-        <h2>Gestão Operacional</h2>
+        <h2><span class="login-icon">${ICONE_PREDIO}</span>Gestão Operacional</h2>
         <div class="login-brandline">Secretaria de Vendas</div>
         <div class="sub">Painel interno da equipe</div>
         <label>E-mail corporativo</label>
