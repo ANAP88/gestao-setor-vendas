@@ -298,7 +298,7 @@ async function renderLoginPortal(msg = '', tipo = 'erro') {
           <img src="assets/logo-neoservice.png" alt="Neo Service">
           <span class="pl-cobrand-x">×</span>
           ${marcaLogoUrl ? `<img src="${marcaLogoUrl}" alt="${esc(marca.nome)}">` : `<b>${esc(marca.nome)}</b>`}
-        </div>` : `<span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO INCORPORADOR</span>`}
+        </div>` : `<img class="pl-mark" src="assets/logo-neoservice.png" alt="Neo Service">`}
         <h1>Acompanhe seus processos<br><span>em tempo real.</span></h1>
         <p class="pl-left-sub">Tenha acesso a todas as etapas da Secretaria de Vendas em um único lugar, desde o recebimento da venda até a conclusão da operação.</p>
         <div class="pl-features">
@@ -317,8 +317,7 @@ async function renderLoginPortal(msg = '', tipo = 'erro') {
     </div>
     <div class="pl-right">
       <div class="pl-card">
-        <div class="pl-card-icon">${ICONE_CADEADO}</div>
-        <h2>${marca ? esc(marca.nome) : 'Portal do Incorporador'}</h2>
+        <h2><span class="pl-card-icon">${ICONE_CADEADO}</span>${marca ? esc(marca.nome) : 'Portal do Incorporador'}</h2>
         <div class="pl-sub">${marca ? 'Portal do Incorporador · em parceria com Neo Service' : 'Acompanhamento Operacional'}</div>
         <label>E-mail</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="plEmail" type="email" autocomplete="username" placeholder="seu.email@incorporadora.com.br"></div>
