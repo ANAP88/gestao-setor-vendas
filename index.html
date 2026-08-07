@@ -272,6 +272,8 @@ body:has(#pl-page){overflow-x:hidden}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .grid2 input,.grid2 select{width:100%}
 .msg{font-size:13px;margin-top:10px;color:var(--warn);font-weight:500}
+.msg.ok{color:var(--ok)}
+.msg.erro{color:var(--err)}
 .pag{display:flex;gap:10px;align-items:center;justify-content:end;margin-top:14px;font-size:12.5px;color:var(--muted)}
 h2{font-size:15px;font-weight:700;margin-bottom:14px;letter-spacing:.1px}
 .hidden{display:none}
@@ -331,7 +333,7 @@ table.escala td:first-child,table.escala th:first-child{text-align:left;white-sp
 .portal-nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
 .portal-nav-item.active{background:rgba(255,255,255,.16);color:#fff}
 .portal-sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid rgba(255,255,255,.15)}
-.portal-sidebar-foot .who{font-size:12.5px;color:rgba(255,255,255,.75);margin-bottom:10px;word-break:break-word}
+.portal-sidebar-foot .who{display:flex;align-items:center;gap:8px;font-size:12.5px;color:rgba(255,255,255,.75);margin-bottom:10px;word-break:break-word}
 .portal-sidebar-foot button{width:100%;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)}
 .portal-sidebar-foot button:hover{background:rgba(255,255,255,.18)}
 .portal-main{flex:1;min-width:0}
@@ -443,6 +445,8 @@ button.side-item span{font-size:14px;width:20px;text-align:center}
 .side-ic svg{width:16px;height:16px}
 .inicio-ic{display:flex;align-items:center;justify-content:center;color:var(--accent)}
 .inicio-ic svg{width:26px;height:26px}
+.btn-ic{display:inline-flex!important;align-items:center;justify-content:center;gap:7px}
+.btn-ic svg{width:15px;height:15px;flex-shrink:0}
 button.side-item:hover{background:rgba(255,255,255,.1);color:#fff}
 button.side-item.active{background:rgba(255,255,255,.92);color:#0d3d3d}
 .side-footer{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.18);display:flex;flex-direction:column;gap:8px}
