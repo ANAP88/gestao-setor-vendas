@@ -224,9 +224,12 @@ body:has(#pl-page){overflow-x:hidden}
 .pl-feat small{color:#69767e;font-size:11.5px;line-height:1.4;display:block}
 .pl-stepper{display:flex;align-items:flex-start;gap:0;background:#fff;border:1px solid #e4e9ec;border-radius:14px;padding:20px 18px}
 .pl-step{display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;position:relative}
-.pl-step-line{position:absolute;top:14px;left:-50%;width:100%;height:2px;background:#dde3e6;z-index:0}
+.pl-step-line{position:absolute;top:14px;left:-50%;width:100%;height:2px;background:#dde3e6;z-index:0;overflow:hidden}
 .pl-step:first-child .pl-step-line{display:none}
 .pl-step-line.on{background:#1d7a76}
+.pl-step-line.on::after{content:'';position:absolute;top:0;left:-40%;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent);animation:plFluxo 2.6s ease-in-out infinite}
+@keyframes plFluxo{0%{left:-40%}100%{left:100%}}
+@media (prefers-reduced-motion: reduce){.pl-step-line.on::after,.pl-step.now .pl-step-dot{animation:none}}
 .pl-step-dot{
   width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   font-size:13px;font-weight:800;z-index:1;background:#eef2f3;color:#98a4ab;border:2px solid #eef2f3;
