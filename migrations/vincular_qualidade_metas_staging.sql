@@ -2,7 +2,7 @@
 -- Metas & Indicadores, por analista e por indicador — em vez de digitar quantidade_processos e
 -- quantidade_erros manualmente todo mês em meta_colaborador_mensal.
 --
--- Aplicado primeiro só no schema STAGING para validação. Depois de aprovado, replicar em `public`.
+-- Aplicado primeiro no schema STAGING para validação, replicado em `public` em 2026-08-07.
 --
 -- Escopo (revisado): quantidade_erros é SEMPRE automática, para qualquer um dos 6 indicadores —
 -- basta o admin marcar o indicador ao registrar o apontamento (cliente ou validação interna) que

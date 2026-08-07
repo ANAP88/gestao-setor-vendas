@@ -1,6 +1,8 @@
 -- Link exclusivo por incorporadora pro Portal do Cliente (/portal/<slug>), pra tela de login já
 -- mostrar a identidade visual dela (logo + cor) misturada com a da Neo Service, antes mesmo do
--- login. Aplicado por enquanto só no schema STAGING. Depois de aprovado, replicar em `public`.
+-- login. Aplicado em staging e replicado em public em 2026-08-07 (a parte de colunas/view — os
+-- grants de service_role abaixo são específicos de staging, schema customizado; public já vem
+-- com esses grants automáticos do próprio Supabase).
 
 alter table staging.empreendedoras add column if not exists slug text unique;
 alter table staging.empreendedoras add column if not exists site text;

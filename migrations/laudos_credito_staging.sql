@@ -1,5 +1,5 @@
--- Laudo de Crédito (análise de crédito) — aplicado só em schema staging, replicar em public
--- depois de validado.
+-- Laudo de Crédito (análise de crédito) — aplicado em staging e replicado em public em
+-- 2026-08-07 (produção estava sem dados nas tabelas afetadas nesse momento).
 --
 -- Contexto: cada incorporadora (empreendedora) tem seu próprio modelo/padrão de laudo de
 -- crédito (campos diferentes). Por isso o desenho não usa colunas fixas — usa um "modelo" de

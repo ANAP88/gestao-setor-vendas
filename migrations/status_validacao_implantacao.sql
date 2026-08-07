@@ -1,5 +1,7 @@
 -- Adiciona status detalhado (Pendente / Em validação / Recebido) às pendências de implantação
--- Rodar no schema staging primeiro, depois no public quando validado.
+-- Aplicado em staging quando escrito; o bloco de produção abaixo ficou sem rodar até 2026-08-07
+-- (achado ao auditar staging vs public antes de publicar em produção — nesse meio-tempo o código
+-- do main já esperava essa coluna existir em public).
 
 ALTER TABLE staging.implantacao_pendencias
 ADD COLUMN IF NOT EXISTS status_validacao text NOT NULL DEFAULT 'Pendente'
