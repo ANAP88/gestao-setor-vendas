@@ -4610,17 +4610,27 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
   };
 }
 
+// Baseado na planilha real de referência (sheet "Cadastro") — cobre o laudo em si (topo) e o
+// checklist de documentos dos dois proponentes. O fluxo de pagamento (Fluxo 1..6 na planilha,
+// cada um com Tipo/Quantidade/Valor de parcela e Comprometimento) não entra aqui: é a tabela
+// dinâmica "Fluxo de pagamento" já embutida no laudo, não um campo avulso.
 const CAMPOS_LAUDO_REFERENCIA = [
+  ['Nº da análise', 'texto'],
   ['CPF/CNPJ do 1º proponente', 'texto'], ['Nome do 1º proponente', 'texto'],
   ['CPF/CNPJ do 2º proponente', 'texto'], ['Nome do 2º proponente', 'texto'],
-  ['Imobiliária', 'texto'], ['Unidade', 'texto'],
+  ['Imobiliária', 'texto'],
   ['Renda apurada', 'numero'], ['Tipo de renda', 'texto'],
   ['Score do 1º proponente', 'numero'], ['Score do 2º proponente', 'numero'],
   ['Apontamentos', 'area'],
   ['VGV de venda', 'numero'], ['VGV de contrato', 'numero'], ['Comissão (%)', 'numero'],
-  ['Entrada', 'numero'], ['Comprometimento', 'numero'],
-  ['Parecer NEO', 'texto'], ['Parecer Comitê', 'texto'], ['Analista responsável', 'texto'],
-  ['Observações', 'area'],
+  ['Entrada', 'numero'], ['Valor da proposta', 'numero'], ['Parcela', 'numero'],
+  ['Data da análise', 'data'],
+  ['Parecer NEO', 'texto'], ['Parecer Comitê', 'texto'], ['Observações', 'area'],
+  ['RG/CPF ou CNH do 2º proponente', 'texto'],
+  ['Certidão de estado civil — 1º proponente', 'texto'], ['Certidão de estado civil — 2º proponente', 'texto'],
+  ['Comprovante de endereço — 1º proponente', 'texto'], ['Comprovante de endereço — 2º proponente', 'texto'],
+  ['Documentos da análise de crédito — 1º proponente', 'texto'], ['Documentos da análise de crédito — 2º proponente', 'texto'],
+  ['Observação/pendência', 'area'],
 ];
 
 async function openIdentidadeEmpreendedora(id, nome) {
@@ -4638,6 +4648,7 @@ async function openIdentidadeEmpreendedora(id, nome) {
     <select class="lcTipo" style="width:112px;font-size:12.5px;padding:6px 4px">
       <option value="texto" ${(!c.tipo || c.tipo === 'texto') ? 'selected' : ''}>Texto</option>
       <option value="numero" ${c.tipo === 'numero' ? 'selected' : ''}>Número</option>
+      <option value="data" ${c.tipo === 'data' ? 'selected' : ''}>Data</option>
       <option value="area" ${c.tipo === 'area' ? 'selected' : ''}>Texto longo</option>
     </select>
     <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap"><input type="checkbox" class="lcObrig" ${c.obrigatorio ? 'checked' : ''}>obrig.</label>
@@ -6036,10 +6047,10 @@ function gerarPdfLaudo(dados) {
   const win = window.open('', '_blank');
   if (!win) { alert('Não foi possível abrir a janela de impressão — verifique se o navegador bloqueou pop-ups.'); return; }
   const linhaFluxoTr = (f) => `<tr>
-    <td>${esc(f.descricao || '—')}</td>
-    <td>${f.saldo != null ? f.saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td>
+    <td>${esc(f.tipo_parcela || '—')}</td>
     <td>${f.quantidade_parcela ?? '—'}</td>
     <td>${f.valor_parcela != null ? f.valor_parcela.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td>
+    <td>${f.comprometimento != null ? f.comprometimento + '%' : '—'}</td>
   </tr>`;
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laudo de crédito — ${esc(dados.titulo || '')}</title>
     <style>
@@ -6068,7 +6079,7 @@ function gerarPdfLaudo(dados) {
       ${dados.campos.map(c => `<div class="campo"><b>${esc(c.rotulo)}</b>${esc(c.valor || '—')}</div>`).join('')}
     </div>
     ${dados.temFluxo ? `<h2>Fluxo de pagamento</h2>
-    <table><thead><tr><th>Descrição</th><th>Saldo</th><th>Qtd. parcelas</th><th>Valor da parcela</th></tr></thead>
+    <table><thead><tr><th>Tipo de parcela</th><th>Qtd. parcelas</th><th>Valor da parcela</th><th>Comprometimento</th></tr></thead>
     <tbody>${dados.fluxo.length ? dados.fluxo.map(linhaFluxoTr).join('') : '<tr><td colspan="4">Sem linhas informadas.</td></tr>'}</tbody></table>` : ''}
   </body></html>`);
   win.document.close();
@@ -6153,10 +6164,10 @@ async function openProcessoEsteira(id, etapas) {
   </div>`;
   const urlIdent = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
   const linhaFluxoHtml = (f = {}) => `<div class="epFluxoLinha" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
-    <input class="efDescricao" placeholder="Descrição (ex.: Entrada, Parcela mensal...)" value="${esc(f.descricao || '')}" style="flex:2;min-width:160px">
-    <input class="efSaldo" type="number" step="any" placeholder="Saldo" value="${f.saldo ?? ''}" style="flex:1;min-width:90px">
+    <input class="efTipo" placeholder="Tipo de parcela (ex.: Entrada, Mensal, Chaves...)" value="${esc(f.tipo_parcela || '')}" style="flex:2;min-width:160px">
     <input class="efQtd" type="number" placeholder="Qtd. parcelas" value="${f.quantidade_parcela ?? ''}" style="flex:1;min-width:90px">
     <input class="efValor" type="number" step="any" placeholder="Valor parcela" value="${f.valor_parcela ?? ''}" style="flex:1;min-width:90px">
+    <input class="efComprometimento" type="number" step="any" placeholder="Comprometimento %" value="${f.comprometimento ?? ''}" style="flex:1;min-width:90px">
     <button type="button" class="ghost efRemover" style="padding:5px 9px">${ICONE_LIXEIRA}</button>
   </div>`;
   const div = document.createElement('div');
@@ -6250,9 +6261,10 @@ async function openProcessoEsteira(id, etapas) {
       <div id="epLaudoCampos" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px">
         ${laudoInfo.campos.map(c => {
           const v = esc((laudoInfo.valores.find(x => x.campo_id === c.id) || {}).valor || '');
+          const tipoInput = c.tipo === 'numero' ? 'number' : c.tipo === 'data' ? 'date' : 'text';
           const inputHtml = c.tipo === 'area'
             ? `<textarea class="epLaudoCampo" data-campo="${c.id}" rows="2" ${ro ? 'disabled' : ''}>${v}</textarea>`
-            : `<input class="epLaudoCampo" data-campo="${c.id}" type="${c.tipo === 'numero' ? 'number' : 'text'}" step="any" value="${v}" ${ro ? 'disabled' : ''}>`;
+            : `<input class="epLaudoCampo" data-campo="${c.id}" type="${tipoInput}" ${c.tipo === 'numero' ? 'step="any"' : ''} value="${v}" ${ro ? 'disabled' : ''}>`;
           return `<div><label>${esc(c.rotulo)}${c.obrigatorio ? ' *' : ''}</label>${inputHtml}</div>`;
         }).join('') || '<p style="color:var(--muted);font-size:12px">Nenhum campo configurado nesse modelo ainda — configure em Cadastros → Identidade visual da incorporadora.</p>'}
       </div>
@@ -6415,11 +6427,11 @@ async function openProcessoEsteira(id, etapas) {
     });
     const coletarFluxo = () => fluxoLista ? [...fluxoLista.querySelectorAll('.epFluxoLinha')].map((linha, i) => ({
       ordem: i,
-      descricao: linha.querySelector('.efDescricao').value.trim() || null,
-      saldo: linha.querySelector('.efSaldo').value === '' ? null : Number(linha.querySelector('.efSaldo').value),
+      tipo_parcela: linha.querySelector('.efTipo').value.trim() || null,
       quantidade_parcela: linha.querySelector('.efQtd').value === '' ? null : Number(linha.querySelector('.efQtd').value),
       valor_parcela: linha.querySelector('.efValor').value === '' ? null : Number(linha.querySelector('.efValor').value),
-    })).filter(l => l.descricao || l.saldo != null || l.quantidade_parcela != null || l.valor_parcela != null) : [];
+      comprometimento: linha.querySelector('.efComprometimento').value === '' ? null : Number(linha.querySelector('.efComprometimento').value),
+    })).filter(l => l.tipo_parcela || l.quantidade_parcela != null || l.valor_parcela != null || l.comprometimento != null) : [];
     const coletarCampos = () => [...div.querySelectorAll('.epLaudoCampo')].map(el => ({ campo_id: el.dataset.campo, valor: el.value.trim() }));
     const montarDadosPdf = () => {
       const valoresAtuais = coletarCampos();

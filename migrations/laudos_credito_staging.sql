@@ -27,7 +27,7 @@ create table if not exists staging.laudos_credito_campos (
   modelo_id uuid not null references staging.laudos_credito_modelos(id) on delete cascade,
   ordem int not null default 0,
   rotulo text not null,
-  tipo text not null default 'texto' check (tipo in ('texto','numero','area')),
+  tipo text not null default 'texto' check (tipo in ('texto','numero','area','data')),
   obrigatorio boolean not null default false
 );
 
@@ -49,14 +49,18 @@ create table if not exists staging.laudos_credito_valores (
   unique (laudo_id, campo_id)
 );
 
+-- Cada linha é uma parcela do fluxo de pagamento ("Fluxo 1", "Fluxo 2"... na planilha de
+-- referência): tipo (ex.: Entrada, Mensal, Anual, Chaves), quantidade, valor e o
+-- comprometimento (%) da renda naquela parcela — sem coluna de "saldo", que não existe na
+-- planilha real que serviu de referência.
 create table if not exists staging.laudos_credito_fluxo (
   id uuid primary key default gen_random_uuid(),
   laudo_id uuid not null references staging.laudos_credito(id) on delete cascade,
   ordem int not null default 0,
-  descricao text,
-  saldo numeric,
+  tipo_parcela text,
   quantidade_parcela int,
-  valor_parcela numeric
+  valor_parcela numeric,
+  comprometimento numeric
 );
 
 alter table staging.laudos_credito_modelos enable row level security;
