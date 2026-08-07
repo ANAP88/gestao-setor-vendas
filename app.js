@@ -4521,11 +4521,8 @@ async function openIdentidadeEmpreendedora(id, nome) {
       <p style="color:var(--muted);font-size:11px;margin-top:3px">Preenchendo, a tela de login (antes mesmo de entrar) já mostra a logo e a cor desta incorporadora. Link: <code>${esc(linkPortal)}</code></p>
     </div>
     <div style="margin-top:10px"><label>Site da incorporadora</label>
-      <div style="display:flex;gap:8px">
-        <input id="idSite" value="${esc(e?.site || '')}" placeholder="https://www.exemplo.com.br" style="flex:1">
-        <button id="idBuscarSite" class="ghost" type="button" style="white-space:nowrap">Buscar identidade</button>
-      </div>
-      <p style="color:var(--muted);font-size:11px;margin-top:3px">Cola o link do site, clica em "Buscar identidade" e o sistema tenta puxar sozinho a logo e a cor de lá (dá pra ajustar manualmente depois se não vier perfeito).</p>
+      <input id="idSite" value="${esc(e?.site || '')}" placeholder="https://www.exemplo.com.br">
+      <p style="color:var(--muted);font-size:11px;margin-top:3px">Cola o link e clica em Salvar — o sistema puxa sozinho a logo e a cor de lá. A cor acima é só pra ajuste manual, se o resultado automático vier feio.</p>
     </div>
     <div class="msg" id="idMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
@@ -4534,29 +4531,37 @@ async function openIdentidadeEmpreendedora(id, nome) {
   </div>`;
   document.body.appendChild(div);
   const $ = (i) => div.querySelector('#' + i);
+  const siteOriginal = e?.site || '';
   $('idCancel').onclick = () => div.remove();
-  $('idBuscarSite').onclick = async () => {
-    const site = $('idSite').value.trim();
-    if (!site) { $('idMsg').textContent = 'Cole o link do site primeiro.'; return; }
-    $('idBuscarSite').disabled = true; $('idMsg').style.color = ''; $('idMsg').textContent = 'Lendo o site, aguarde...';
-    const { data, error } = await sb.functions.invoke('extrair-identidade-site', {
-      body: { url: site, empreendedoraId: id, schema: EH_STAGING ? 'staging' : 'public' },
-    });
-    if (error || data?.error) { $('idMsg').style.color = 'var(--err)'; $('idMsg').textContent = data?.error || error.message; $('idBuscarSite').disabled = false; return; }
-    div.remove();
-    await openIdentidadeEmpreendedora(id, nome);
-    const msgEl = document.querySelector('.modal-bg #idMsg');
-    if (msgEl) {
-      msgEl.style.color = 'var(--ok)';
-      msgEl.textContent = data.encontrado.logo && data.encontrado.cor ? 'Logo e cor encontradas e aplicadas!'
-        : data.encontrado.logo ? 'Logo encontrada e aplicada. Não achei uma cor — pode escolher manualmente.'
-        : data.encontrado.cor ? 'Cor encontrada e aplicada. Não achei uma logo — pode subir manualmente.'
-        : 'Não consegui identificar logo nem cor nesse site. Pode subir/ajustar manualmente.';
-    }
-  };
   $('idSalvar').onclick = async () => {
-    $('idSalvar').disabled = true; $('idMsg').textContent = 'Salvando...';
-    const rec = { cor_secundaria: $('idCor').value, slug: $('idSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || null, site: $('idSite').value.trim() || null };
+    $('idSalvar').disabled = true; $('idMsg').style.color = ''; $('idMsg').textContent = 'Salvando...';
+    const siteAtual = $('idSite').value.trim();
+    // Site novo ou trocado: busca a identidade sozinho antes de salvar o resto. Se o site nao
+    // mudou, nao mexe de novo — preserva ajuste manual que a pessoa tenha feito na cor/logo.
+    if (siteAtual && siteAtual !== siteOriginal) {
+      $('idMsg').textContent = 'Lendo o site, aguarde...';
+      const { data: achou, error: errBusca } = await sb.functions.invoke('extrair-identidade-site', {
+        body: { url: siteAtual, empreendedoraId: id, schema: EH_STAGING ? 'staging' : 'public' },
+      });
+      if (errBusca || achou?.error) {
+        $('idMsg').style.color = 'var(--err)';
+        $('idMsg').textContent = (achou?.error || errBusca.message) + ' Você pode preencher logo/cor manualmente abaixo.';
+        $('idSalvar').disabled = false;
+      } else {
+        div.remove();
+        await openIdentidadeEmpreendedora(id, nome);
+        const msgEl = document.querySelector('.modal-bg #idMsg');
+        if (msgEl) {
+          msgEl.style.color = 'var(--ok)';
+          msgEl.textContent = achou.encontrado.logo && achou.encontrado.cor ? 'Salvo — logo e cor encontradas automaticamente!'
+            : achou.encontrado.logo ? 'Salvo — logo encontrada. Não achei uma cor de marca; ajuste manualmente se quiser.'
+            : achou.encontrado.cor ? 'Salvo — cor encontrada. Não achei uma logo; suba manualmente se quiser.'
+            : 'Salvo, mas não consegui identificar logo nem cor nesse site. Ajuste manualmente abaixo.';
+        }
+        return;
+      }
+    }
+    const rec = { cor_secundaria: $('idCor').value, slug: $('idSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || null, site: siteAtual || null };
     try {
       const logoFile = $('idLogo').files[0];
       if (logoFile) {
