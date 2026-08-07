@@ -6990,7 +6990,7 @@ function portalShell(perfil, inner, marca, topo, viewAtiva) {
     <aside class="portal-sidebar">
       <div class="portal-sidebar-brand">
         ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<img src="assets/logo-neoservice-branco.png" alt="Neo Service" style="height:22px;width:auto">`}
-        <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b><small>NEO SERVICE</small></div>
+        <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b></div>
       </div>
       ${PORTAL_NAV.filter(([v]) => v !== 'repasse' || portalTemRepasse)
         .map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${esc(label)}</button>`).join('')}
