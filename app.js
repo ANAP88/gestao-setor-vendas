@@ -3661,6 +3661,7 @@ async function renderQualidade() {
     reg.cats[a.categoria] = (reg.cats[a.categoria]||0) + 1;
   });
   const maxCat = Math.max(1, ...Object.values(porCat));
+  const maxAnalistaCat = Math.max(1, ...Object.values(porAnalista).flatMap(r => Object.values(r.cats)));
   const abertos = visiveis.filter(a => !a.resolvido).length;
   const porOrigem = { cliente: visiveis.filter(a=>a.origem==='cliente').length,
                       validacao_interna: visiveis.filter(a=>a.origem==='validacao_interna').length };
@@ -3713,7 +3714,7 @@ async function renderQualidade() {
             ${Object.entries(reg.cats).sort((a,b)=>b[1]-a[1]).map(([cat,q])=>`
               <div class="hbar-row" style="padding-left:10px">
                 <span class="hbar-lbl" style="font-size:11.5px;color:var(--muted)">${esc(cat)}</span>
-                <div class="hbar"><div style="width:${Math.round(100*q/reg.total)}%"></div></div><b style="font-size:12px">${q}</b>
+                <div class="hbar"><div style="width:${Math.round(100*q/maxAnalistaCat)}%"></div></div><b style="font-size:12px">${q}</b>
               </div>`).join('')}
           </div>`).join('')
           || '<p style="color:var(--muted);font-size:12.5px">Sem registros.</p>'}
