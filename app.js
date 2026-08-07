@@ -4252,15 +4252,15 @@ async function openLancarIndividual(kpis, colab) {
     const ativos = (cfgs||[]).map(c => ({ ...c, ...(kpis.find(k=>k.id===c.indicador_id)||{}), indicador_id: c.indicador_id, alvo: c.alvo, peso: c.peso }));
     div.querySelector('#liCampos').innerHTML = ativos.length ? ativos.map(c => {
       const r = porInd[c.indicador_id] || {};
-      const auto = !!c.esteira_tipo;
+      const procAuto = !!c.esteira_tipo;
       return `<div style="border-top:1px solid var(--border);padding:10px 0">
         <div style="font-size:12.5px;margin-bottom:6px"><b>${esc(c.nome)}</b> <span style="color:var(--muted)">· alvo ${(c.alvo*100).toFixed(0)}% · peso ${(c.peso*100).toFixed(0)}%</span></div>
-        ${auto ? `<p style="color:var(--muted);font-size:11.5px;margin-bottom:6px">Calculado automaticamente a partir da Esteira (processos) e de Qualidade/Retrabalho (erros) — não precisa lançar aqui.</p>` : ''}
+        <p style="color:var(--muted);font-size:11.5px;margin-bottom:6px">Erros: contados automaticamente a partir dos apontamentos de Qualidade/Retrabalho marcados com este indicador.${procAuto ? ' Processos: contados automaticamente pela Esteira.' : ' Processos: lance manualmente o volume do mês.'}</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}" ${auto?'disabled':''}></div>
-          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}" ${auto?'disabled':''}></div>
+          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}" ${procAuto?'disabled':''}></div>
+          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}" disabled></div>
         </div>
-        <div style="margin-top:6px"><label>Descrição / observação</label><textarea class="li-desc" data-id="${c.indicador_id}" rows="2" ${auto?'disabled':''}>${esc(r.descricao)}</textarea></div>
+        <div style="margin-top:6px"><label>Descrição / observação</label><textarea class="li-desc" data-id="${c.indicador_id}" rows="2">${esc(r.descricao)}</textarea></div>
       </div>`;
     }).join('') : '<p style="color:var(--warn);font-size:12.5px">Nenhum indicador configurado para este colaborador neste trimestre. Use "Configurar indicadores e pesos" primeiro.</p>';
   };
@@ -4271,11 +4271,13 @@ async function openLancarIndividual(kpis, colab) {
     const mes = div.querySelector('#liMes').value + '-01';
     const linhas = [];
     div.querySelectorAll('.li-qtd').forEach(inp => {
-      if (inp.disabled) return;
       const id = inp.dataset.id;
       const err = div.querySelector(`.li-err[data-id="${id}"]`);
       const desc = div.querySelector(`.li-desc[data-id="${id}"]`);
       if (inp.value === '' && err.value === '') return;
+      // Processos/Erros calculados automaticamente ficam desabilitados no formulário, mas o valor
+      // exibido já é o correto (vindo do banco) — reenviar não sobrescreve nada, só a Descrição
+      // realmente muda aqui quando o campo está travado.
       linhas.push({ analista_id: analista.id, indicador_id: id, mes,
         quantidade_processos: Number(inp.value||0), quantidade_erros: Number(err.value||0),
         descricao: desc.value || null, atualizado_em: new Date().toISOString() });

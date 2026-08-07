@@ -4,11 +4,14 @@
 --
 -- Aplicado primeiro só no schema STAGING para validação. Depois de aprovado, replicar em `public`.
 --
--- Escopo: só os indicadores que já têm uma fonte de dado real e inequívoca no sistema hoje viram
--- automáticos (por ora, "Emissão de contrato sem erro" e "Emissão de contrato no prazo (1 dia)",
--- ligados a esteira_tipo = 'emissao_contrato'). Os outros 4 indicadores (SLA de respostas,
--- Pós-Assinatura, Mapeamento de processos, Reclamações) não têm hoje uma tabela de origem no
--- sistema — continuam lançados manualmente em "Lançar resultado individual", como sempre foram.
+-- Escopo (revisado): quantidade_erros é SEMPRE automática, para qualquer um dos 6 indicadores —
+-- basta o admin marcar o indicador ao registrar o apontamento (cliente ou validação interna) que
+-- ele já conta na meta. quantidade_processos só é automática para os indicadores que têm uma
+-- fonte de dado real e inequívoca no sistema hoje (por ora, "Emissão de contrato sem erro" e
+-- "Emissão de contrato no prazo (1 dia)", ligados a esteira_tipo = 'emissao_contrato'); nos outros
+-- 4 indicadores (SLA de respostas, Pós-Assinatura, Mapeamento de processos, Reclamações), a
+-- quantidade de processos continua sendo lançada manualmente em "Lançar resultado individual" —
+-- não existe hoje uma tabela de origem no sistema para contar isso sozinho.
 
 -- 1) indicadores_kpi ganha um vínculo opcional com o tipo de esteira que alimenta sua contagem
 --    automática de processos. NULL = indicador sem fonte automática, continua 100% manual.
@@ -36,28 +39,33 @@ where ae.demanda_id = d.id
 
 -- 3) Função central: recalcula quantidade_processos/quantidade_erros de UM analista + UM
 --    indicador + UM mês, a partir dos dados reais, e grava (upsert) em meta_colaborador_mensal.
---    Só grava quando o indicador tem esteira_tipo (fonte automática definida) — preserva o
---    lançamento manual dos demais indicadores intocado.
+--    Erros: sempre automático, pra qualquer indicador. Processos: automático só quando o
+--    indicador tem esteira_tipo; nos demais, preserva o valor já lançado manualmente (não zera).
 create or replace function staging.recalcular_meta_colaborador_mensal(
   p_analista_id uuid, p_indicador_id uuid, p_mes date
 ) returns void language plpgsql as $$
 declare
   v_esteira_tipo text;
-  v_processos int := 0;
+  v_processos int;
   v_erros int := 0;
 begin
   if p_analista_id is null or p_indicador_id is null or p_mes is null then return; end if;
 
   select esteira_tipo into v_esteira_tipo from staging.indicadores_kpi where id = p_indicador_id;
-  if v_esteira_tipo is null then return; end if;
-
-  select count(*) into v_processos from staging.esteira_processos
-  where esteira_tipo = v_esteira_tipo and analista_atual_id = p_analista_id
-    and status = 'CONCLUIDO' and concluido_em >= p_mes and concluido_em < (p_mes + interval '1 month');
 
   select count(*) into v_erros from staging.apontamentos_erro
   where analista_id = p_analista_id and indicador_id = p_indicador_id
     and criado_em >= p_mes and criado_em < (p_mes + interval '1 month');
+
+  if v_esteira_tipo is not null then
+    select count(*) into v_processos from staging.esteira_processos
+    where esteira_tipo = v_esteira_tipo and analista_atual_id = p_analista_id
+      and status = 'CONCLUIDO' and concluido_em >= p_mes and concluido_em < (p_mes + interval '1 month');
+  else
+    select quantidade_processos into v_processos from staging.meta_colaborador_mensal
+    where analista_id = p_analista_id and indicador_id = p_indicador_id and mes = p_mes;
+    v_processos := coalesce(v_processos, 0);
+  end if;
 
   insert into staging.meta_colaborador_mensal (analista_id, indicador_id, mes, quantidade_processos, quantidade_erros)
   values (p_analista_id, p_indicador_id, p_mes, v_processos, v_erros)
