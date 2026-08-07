@@ -151,15 +151,30 @@ const ICONE_LINK = ic('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0
 const ICONE_SININHO = ic('<path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 0 0 4 0"/>');
 const ICONE_SETA_CIMA = ic('<path d="m18 15-6-6-6 6"/>');
 const ICONE_SETA_BAIXO = ic('<path d="m6 9 6 6 6-6"/>');
+// Fundo do hero de login: arcos sobrepostos (tons de verde da marca) + esboço de prédio bem discreto,
+// no mesmo espírito do fundo já usado no login do Portal do Incorporador (PL_SKYLINE_BG).
+const HERO_BG = `<svg viewBox="0 0 700 900" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+  <circle cx="760" cy="120" r="480" fill="#1d7a76" opacity=".35"/>
+  <circle cx="640" cy="520" r="400" fill="#2a9490" opacity=".28"/>
+  <circle cx="540" cy="880" r="260" fill="#6be0d3" opacity=".16"/>
+  <g fill="none" stroke="#fff" stroke-width="1.2" opacity=".14">
+    <path d="M40 780 40 620 120 560 200 620 200 780Z"/>
+    <path d="M70 560 120 500 170 560"/>
+    <path d="M0 780 260 780"/>
+  </g>
+</svg>`;
 function renderLogin(msg = '', tipo = 'erro') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <img class="hero-mark" src="assets/logo-neoservice-branco.png" alt="Neo Service">
-      <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
-      <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
-      <div class="hero-features">
-        ${FEATURES.map(([v,t,d]) => `<div class="hf"><div class="hf-ic">${ICONES[v]}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+      <div class="login-hero-bg">${HERO_BG}</div>
+      <div class="login-hero-content">
+        <img class="hero-mark" src="assets/logo-neoservice-branco.png" alt="Neo Service">
+        <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
+        <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
+        <div class="hero-features">
+          ${FEATURES.map(([v,t,d]) => `<div class="hf"><div class="hf-ic">${ICONES[v]}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+        </div>
       </div>
     </div>
     <div class="login-panel">

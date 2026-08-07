@@ -127,8 +127,11 @@ body:has(#login-page){overflow-x:hidden}
 .login-hero{
   position:relative; padding:60px 56px; display:flex; flex-direction:column; justify-content:center;
   background:linear-gradient(160deg, #0d3d3d 0%, #1d7a76 100%);
-  border-right:1px solid var(--border);
+  border-right:1px solid var(--border); overflow:hidden;
 }
+.login-hero-bg{position:absolute;inset:0}
+.login-hero-bg svg{width:100%;height:100%}
+.login-hero-content{position:relative;display:flex;flex-direction:column}
 .login-hero, .login-hero h1, .login-hero .hf b{color:#fff}
 .hero-mark{height:30px;width:auto;align-self:flex-start;margin-bottom:32px}
 .footer-ic{display:inline-flex;width:12px;height:12px;vertical-align:-1px;margin-right:5px}
