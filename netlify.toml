@@ -52,8 +52,17 @@
   [headers.values]
     Cache-Control = "no-cache, must-revalidate"
 
-# Cache agressivo pra assets (CSS, JS, imagens com hash no nome)
+# Sem caching pro JS do app (app.js/config.js não têm hash no nome — o projeto é sem build step
+# de propósito — então "cache agressivo" faz o navegador nunca buscar a versão nova depois de um
+# deploy, a não ser que a pessoa limpe o cache manualmente. Já causou confusão real de "publiquei
+# mas não mudou nada". HTML já era assim; JS tinha ficado de fora por engano.)
 [[headers]]
-  for = "*.{js,css,png,jpg,jpeg,gif,svg,webp,woff,woff2}"
+  for = "*.js"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+# Cache agressivo só pra imagens de fato estáticas (logos, etc. — mudam de nome quando trocam)
+[[headers]]
+  for = "*.{png,jpg,jpeg,gif,svg,webp,woff,woff2}"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"

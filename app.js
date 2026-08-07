@@ -6,7 +6,11 @@ import { CONFIG } from './config.js';
 // (mesmo banco, dados copiados, isolado do que a equipe usa de verdade).
 const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
 // Porta de entrada exclusiva para incorporadoras: /portal na URL (ou ?portal, por compatibilidade com links já enviados)
-const EH_PORTAL_LOGIN = location.pathname.replace(/\/$/, '') === '/portal' || new URLSearchParams(location.search).has('portal');
+const PORTAL_PATH = location.pathname.replace(/\/$/, '');
+const EH_PORTAL_LOGIN = PORTAL_PATH === '/portal' || PORTAL_PATH.startsWith('/portal/') || new URLSearchParams(location.search).has('portal');
+// Link exclusivo por incorporadora (/portal/<slug>) — antes mesmo do login, a tela já veste a
+// identidade visual dela (logo + cor) misturada com a da Neo Service. Sem slug, é o portal genérico.
+const PORTAL_SLUG = PORTAL_PATH.startsWith('/portal/') ? PORTAL_PATH.slice('/portal/'.length) : (new URLSearchParams(location.search).get('empresa') || null);
 // A sessão do sistema interno e a do Portal ficam em chaves separadas no navegador. Sem isso, abrir
 // o Portal numa aba derrubava a sessão da equipe na outra (as chamadas passavam a sair sem login e
 // o Postgres respondia "permission denied for table ...").
@@ -30,6 +34,11 @@ function voltarParaLoginSeSessaoPerdida(erro) {
 
 function svgIcon(path) {
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">${path}</svg>`;
+}
+// Ícone solto dentro de texto corrido/botão (não numa div/flex dedicada) — fica alinhado com a linha,
+// ao contrário do svgIcon() puro, que é display:block (pensado pra ir dentro de um wrapper flex).
+function ic(path) {
+  return `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-3px;margin-right:5px">${path}</svg>`;
 }
 const ICONES = {
   inicio: svgIcon('<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/>'),
@@ -55,6 +64,19 @@ const ICONES = {
   bibliotecaRepasse: svgIcon('<path d="M4 5.5A2 2 0 0 1 6 3.5h6v17H6a2 2 0 0 0-2 2Z"/><path d="M20 5.5A2 2 0 0 0 18 3.5h-6v17h6a2 2 0 0 1 2 2Z"/>'),
   arquivos: svgIcon('<path d="M4 4h6l2 2h8v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 12h8M8 16h5"/>'),
   fluxosEsteira: svgIcon('<path d="M12 2 3 6.5 12 11l9-4.5Z"/><path d="M3 12 12 16.5 21 12"/><path d="M3 17 12 21.5 21 17"/>'),
+  usuariosEquipe: svgIcon('<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+  cadastroOperacional: svgIcon('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>'),
+  auditoria: svgIcon('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>'),
+  portalUsuarios: svgIcon('<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/>'),
+  portalEmpreendimentos: svgIcon('<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M3 21h18M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"/>'),
+  portalDocumentos: svgIcon('<path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
+  portalFluxo: svgIcon('<path d="M12 2 3 6.5 12 11l9-4.5Z"/><path d="M3 12 12 16.5 21 12"/><path d="M3 17 12 21.5 21 17"/>'),
+  processos: svgIcon('<rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="10" rx="1"/>'),
+  pendencias: svgIcon('<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><path d="M9 12h6M9 16h4"/>'),
+  boletos: svgIcon('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>'),
+  relatorios: svgIcon('<path d="M3 17 9 11l4 4 8-8"/><path d="M15 7h6v6"/>'),
+  interacoes: svgIcon('<path d="M8 10h8M8 14h5"/><path d="M21 12a8.5 8.5 0 0 1-11.8 7.8L4 21l1.3-4.9A8.5 8.5 0 1 1 21 12Z"/>'),
+  conhecimento: svgIcon('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.3 1.1 2.2h5c0-.9.5-1.7 1.1-2.2A6 6 0 0 0 12 3Z"/>'),
 };
 
 const app = document.getElementById('app');
@@ -71,6 +93,30 @@ let state = {
 
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDt(d){ return d ? new Date(d).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''; }
+
+// Bolinha de status colorida — substitui os emojis de farol () por um indicador visual real.
+const DOT_COR = { '🟢': 'var(--ok)', '🟡': 'var(--warn)', '🟠': '#e67e22', '🔴': 'var(--err)', '🔵': 'var(--accent)', '⚫': 'var(--muted)' };
+function dot(emoji) { return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${DOT_COR[emoji] || 'var(--muted)'};margin-right:6px;vertical-align:1px"></span>`; }
+// Alguns campos vêm do banco já com um emoji de farol prefixado (ex.: "Risco crítico"). Usado só para
+// EXIBIÇÃO — o valor original (com emoji) continua intacto para comparações/filtros existentes.
+function dotLabel(s) {
+  const t = String(s ?? '');
+  const e = [...t][0];
+  return DOT_COR[e] ? `${dot(e)}${esc(t.slice(e.length).trim())}` : esc(t);
+}
+
+// Liga o botão de "mostrar senha" de qualquer campo de senha renderizado (login, portal, trocar senha).
+function wirePwdToggles(escopo = document) {
+  escopo.querySelectorAll('.pwd-toggle').forEach(btn => {
+    btn.onclick = () => {
+      const inp = document.getElementById(btn.dataset.target);
+      if (!inp) return;
+      const mostrar = inp.type === 'password';
+      inp.type = mostrar ? 'text' : 'password';
+      btn.innerHTML = mostrar ? ICONE_OLHO_FECHADO_MINI : ICONE_OLHO_MINI;
+    };
+  });
+}
 
 // P0-1: Sanitizar strings para PostgREST (escape de caracteres perigosos)
 function escaparBuscaPostgREST(termo) {
@@ -104,27 +150,62 @@ const ICONE_PREDIO = svgIcon('<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17
 const ICONE_EMAIL = svgIcon('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 6.5 8 6 8-6"/>');
 const ICONE_CADEADO_MINI = svgIcon('<rect x="5" y="11" width="14" height="8" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>');
 const ICONE_ESCUDO = svgIcon('<path d="M12 3 4 6v6c0 4.5 3.4 7.7 8 9 4.6-1.3 8-4.5 8-9V6Z"/>');
+const ICONE_CHAVE = ic('<circle cx="7" cy="15" r="4"/><path d="M10 12 20 2M17 5l2 2M14 8l2 2"/>');
+const ICONE_OLHO = ic('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>');
+const ICONE_OLHO_MINI = svgIcon('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>').replace('width="18" height="18"', 'width="15" height="15"');
+const ICONE_OLHO_FECHADO_MINI = svgIcon('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/><path d="M2 2l20 20"/>').replace('width="18" height="18"', 'width="15" height="15"');
+const ICONE_APRESENTACAO = ic('<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>');
+const ICONE_DOWNLOAD = ic('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>');
+const ICONE_UPLOAD = ic('<path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/>');
+const ICONE_FECHAR = ic('<path d="M18 6 6 18M6 6l12 12"/>');
+const ICONE_LIXEIRA = ic('<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>');
+const ICONE_EDITAR = ic('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>');
+const ICONE_PALETA = ic('<path d="M12 2a10 10 0 1 0 10 10c0-1-1-2-3-2h-2a2 2 0 0 1 0-4h1a3 3 0 0 0 0-6 8 8 0 0 0-6 2Z"/><circle cx="7" cy="11" r="1"/><circle cx="8" cy="16" r="1"/><circle cx="13" cy="18" r="1"/>');
+const ICONE_TROCAR = ic('<path d="M4 12a8 8 0 0 1 14.5-4.6M20 4v4.4h-4.4"/><path d="M20 12a8 8 0 0 1-14.5 4.6M4 20v-4.4h4.4"/>');
+const ICONE_PAUSA = ic('<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>');
+const ICONE_CHECK = ic('<path d="M20 6 9 17l-5-5"/>');
+const ICONE_ALERTA = ic('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>');
+const ICONE_ERRO = ic('<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>');
+const ICONE_LINK = ic('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/>');
+const ICONE_SININHO = ic('<path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 0 0 4 0"/>');
+const ICONE_SETA_CIMA = ic('<path d="m18 15-6-6-6 6"/>');
+const ICONE_SETA_BAIXO = ic('<path d="m6 9 6 6 6-6"/>');
+// Fundo do hero de login: arcos sobrepostos (tons de verde da marca) + esboço de prédio bem discreto,
+// no mesmo espírito do fundo já usado no login do Portal do Incorporador (PL_SKYLINE_BG).
+const HERO_BG = `<svg viewBox="0 0 700 900" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+  <circle class="hb-c1" cx="760" cy="120" r="480" fill="#1d7a76" opacity=".35"/>
+  <circle class="hb-c2" cx="640" cy="520" r="400" fill="#2a9490" opacity=".28"/>
+  <circle class="hb-c3" cx="540" cy="880" r="260" fill="#6be0d3" opacity=".16"/>
+  <g fill="none" stroke="#fff" stroke-width="1.2" opacity=".14">
+    <path d="M40 780 40 620 120 560 200 620 200 780Z"/>
+    <path d="M70 560 120 500 170 560"/>
+    <path d="M0 780 260 780"/>
+  </g>
+</svg>`;
 function renderLogin(msg = '', tipo = 'erro') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <div class="hero-badge"><span class="hero-badge-ic">${ICONE_CADEADO_MINI}</span>SISTEMA INTERNO</div>
-      <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
-      <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
-      <div class="hero-features">
-        ${FEATURES.map(([v,t,d]) => `<div class="hf"><div class="hf-ic">${ICONES[v]}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+      <div class="login-hero-bg">${HERO_BG}</div>
+      <div class="login-hero-content">
+        <img class="hero-mark" src="assets/logo-neoservice-branco.png" alt="Neo Service">
+        <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
+        <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
+        <div class="hero-features">
+          ${FEATURES.map(([v,t,d]) => `<div class="hf"><div class="hf-ic">${ICONES[v]}</div><div><b>${t}</b><small>${d}</small></div></div>`).join('')}
+        </div>
       </div>
     </div>
     <div class="login-panel">
       <div class="card" id="login-card">
-        <div class="login-icon">${ICONE_PREDIO}</div>
+        <img class="login-mark" src="assets/logo-neoservice.png" alt="Neo Service">
         <h2>Gestão Operacional</h2>
         <div class="login-brandline">Secretaria de Vendas</div>
         <div class="sub">Painel interno da equipe</div>
         <label>E-mail corporativo</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="email" type="email" autocomplete="username" placeholder="seu.email@neoservice.com.br"></div>
         <label>Senha</label>
-        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"><button type="button" class="pwd-toggle" data-target="senha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <div class="login-row">
           <label class="chk-inline"><input type="checkbox" id="manterConectado" checked> Manter conectado</label>
           <a href="#" id="linkEsqueci">Esqueci minha senha</a>
@@ -137,6 +218,7 @@ function renderLogin(msg = '', tipo = 'erro') {
     </div>
     <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
   </div>`;
+  wirePwdToggles();
   const valida = () => {
     if (!email.value.trim() || !senha.value) { renderLogin('Preencha e-mail e senha.'); return false; }
     if (senha.value.length < 6) { renderLogin('A senha precisa ter pelo menos 6 caracteres.'); return false; }
@@ -184,6 +266,9 @@ const PL_ESTEIRA = [
 ];
 const ICONE_CHECK_MINI = svgIcon('<path d="M20 6 9 17l-5-5"/>');
 const PL_SKYLINE_BG = `<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice">
+  <circle class="hb-c1" cx="680" cy="80" r="260" fill="#1d7a76" opacity=".08"/>
+  <circle class="hb-c2" cx="120" cy="500" r="220" fill="#2a9490" opacity=".07"/>
+  <circle class="hb-c3" cx="720" cy="520" r="140" fill="#6be0d3" opacity=".08"/>
   <g fill="none" stroke="#0d3d3d" stroke-width="1.2" opacity=".18">
     <rect x="70" y="260" width="90" height="300"/><rect x="180" y="180" width="70" height="380"/>
     <rect x="270" y="320" width="60" height="240"/><rect x="600" y="220" width="80" height="340"/>
@@ -193,13 +278,30 @@ const PL_SKYLINE_BG = `<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/
     <path d="M0 560 800 560"/>
   </g>
 </svg>`;
-function renderLoginPortal(msg = '', tipo = 'erro') {
+let PORTAL_MARCA = null, PORTAL_MARCA_CARREGADA = false;
+// Link exclusivo por incorporadora (/portal/<slug>): busca logo + cor antes mesmo do login, pra
+// tela já vestir a identidade dela. View pública restrita a 4 colunas não sensíveis — ver migration.
+async function carregarMarcaPortal() {
+  if (PORTAL_MARCA_CARREGADA) return;
+  PORTAL_MARCA_CARREGADA = true;
+  if (!PORTAL_SLUG) return;
+  const { data } = await sb.from('empreendedoras_marca').select('*').eq('slug', PORTAL_SLUG).maybeSingle();
+  PORTAL_MARCA = data || null;
+}
+async function renderLoginPortal(msg = '', tipo = 'erro') {
+  await carregarMarcaPortal();
+  const marca = PORTAL_MARCA;
+  const marcaLogoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
   app.innerHTML = `
-  <div id="pl-page">
+  <div id="pl-page"${marca?.cor_secundaria ? ` style="--accent:${esc(marca.cor_secundaria)}"` : ''}>
     <div class="pl-left">
       <div class="pl-left-bg">${PL_SKYLINE_BG}</div>
       <div class="pl-left-content">
-        <span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO INCORPORADOR</span>
+        ${marca ? `<div class="pl-cobrand">
+          <img src="assets/logo-neoservice.png" alt="Neo Service">
+          <span class="pl-cobrand-x">×</span>
+          ${marcaLogoUrl ? `<img src="${marcaLogoUrl}" alt="${esc(marca.nome)}">` : `<b>${esc(marca.nome)}</b>`}
+        </div>` : `<img class="pl-mark" src="assets/logo-neoservice.png" alt="Neo Service">`}
         <h1>Acompanhe seus processos<br><span>em tempo real.</span></h1>
         <p class="pl-left-sub">Tenha acesso a todas as etapas da Secretaria de Vendas em um único lugar, desde o recebimento da venda até a conclusão da operação.</p>
         <div class="pl-features">
@@ -209,7 +311,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
           ${PL_ESTEIRA.map(([l,st,cls]) => `
             <div class="pl-step ${cls}">
               <div class="pl-step-line ${cls==='done'?'on':''}"></div>
-              <div class="pl-step-dot">${cls==='done'?ICONE_CHECK_MINI:cls==='now'?'⏳':'○'}</div>
+              <div class="pl-step-dot">${cls==='done'?ICONE_CHECK_MINI:cls==='now'?'':'○'}</div>
               <div class="pl-step-lbl">${l}</div>
               <div class="pl-step-st">${st}</div>
             </div>`).join('')}
@@ -218,13 +320,12 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
     </div>
     <div class="pl-right">
       <div class="pl-card">
-        <div class="pl-card-icon">${ICONE_CADEADO}</div>
-        <h2>Portal do Incorporador</h2>
-        <div class="pl-sub">Acompanhamento Operacional</div>
+        <h2><span class="pl-card-icon">${ICONE_CADEADO}</span>${marca ? esc(marca.nome) : 'Portal do Incorporador'}</h2>
+        <div class="pl-sub">${marca ? 'Portal do Incorporador · em parceria com Neo Service' : 'Acompanhamento Operacional'}</div>
         <label>E-mail</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="plEmail" type="email" autocomplete="username" placeholder="seu.email@incorporadora.com.br"></div>
         <label>Senha</label>
-        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="plSenha" type="password" autocomplete="current-password" placeholder="Sua senha"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="plSenha" type="password" autocomplete="current-password" placeholder="Sua senha"><button type="button" class="pwd-toggle" data-target="plSenha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <div class="pl-row">
           <label class="chk-inline"><input type="checkbox" id="plManter" checked> Manter conectado</label>
           <a href="#" id="plEsqueci">Esqueci minha senha</a>
@@ -244,6 +345,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
       </div>
     </div>
   </div>`;
+  wirePwdToggles();
   const valida = () => {
     if (!plEmail.value.trim() || !plSenha.value) { renderLoginPortal('Preencha e-mail e senha.'); return false; }
     return true;
@@ -273,43 +375,43 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
 
 // ---------- SHELL (4 pilares) ----------
 const PILARES = [
-  ['🏠 Início', [
-    ['inicio', '🏠', 'Início'],
+  ['Início', [
+    ['inicio', '', 'Início'],
   ]],
-  ['⚙️ Operação', [
-    ['pipeline', '📅', 'Produção'],
-    ['esteira', '⛓️', 'Esteira'],
-    ['qualidade', '🔁', 'Qualidade / Retrabalho'],
-    ['chamados', '📨', 'Chamados entre Áreas'],
-    ['operacoes', '🗂️', 'Operações'],
-    ['repasse', '🏦', 'Repasse'],
-    ['bibliotecaRepasse', '📚', 'Biblioteca do Repasse'],
-    ['fluxogramas', '🗺️', 'Fluxograma dos Empreendimentos'],
-    ['followup', '💬', 'Follow-up'],
+  ['Operação', [
+    ['pipeline', '', 'Produção'],
+    ['esteira', '', 'Esteira'],
+    ['qualidade', '', 'Qualidade / Retrabalho'],
+    ['chamados', '', 'Chamados entre Áreas'],
+    ['operacoes', '', 'Operações'],
+    ['repasse', '', 'Repasse'],
+    ['bibliotecaRepasse', '', 'Biblioteca do Repasse'],
+    ['fluxogramas', '', 'Fluxograma dos Empreendimentos'],
+    ['followup', '', 'Follow-up'],
   ]],
-  ['🤖 Plataforma', [
-    ['integracoes', '🔌', 'Integrações'],
-    ['automacoes', '⚡', 'Automações'],
-    ['documentos', '📄', 'Documentos'],
+  ['Plataforma', [
+    ['integracoes', '', 'Integrações'],
+    ['automacoes', '', 'Automações'],
+    ['documentos', '', 'Documentos'],
   ]],
-  ['🏢 Gestão', [
-    ['dashboard', '📈', 'Dashboard'],
-    ['metas', '🎯', 'Metas & Indicadores'],
-    ['implantacao', '🚀', 'Produtos em Implantação'],
-    ['fechamento', '💰', 'Fechamento'],
-    ['escala', '📅', 'Escala'],
-    ['arquivos', '📁', 'Arquivos'],
+  ['Gestão', [
+    ['dashboard', '', 'Dashboard'],
+    ['metas', '', 'Metas & Indicadores'],
+    ['implantacao', '', 'Produtos em Implantação'],
+    ['fechamento', '', 'Fechamento'],
+    ['escala', '', 'Escala'],
+    ['arquivos', '', 'Arquivos'],
   ]],
-  ['🛠️ Administração', [
-    ['usuariosEquipe', '👤', 'Usuários'],
-    ['cadastroOperacional', '🗂️', 'Cadastro operacional'],
-    ['auditoria', '🕵️', 'Auditoria'],
+  ['Administração', [
+    ['usuariosEquipe', '', 'Usuários'],
+    ['cadastroOperacional', '', 'Cadastro operacional'],
+    ['auditoria', '', 'Auditoria'],
   ]],
-  ['🌐 Portal do Cliente', [
-    ['portalUsuarios', '👤', 'Usuários do portal'],
-    ['portalEmpreendimentos', '🏗️', 'Empreendimentos'],
-    ['portalDocumentos', '📁', 'Documentos & Conhecimento'],
-    ['portalFluxo', '⛓️', 'Fluxo do portal'],
+  ['Portal do Cliente', [
+    ['portalUsuarios', '', 'Usuários do portal'],
+    ['portalEmpreendimentos', '', 'Empreendimentos'],
+    ['portalDocumentos', '', 'Documentos & Conhecimento'],
+    ['portalFluxo', '', 'Fluxo do portal'],
   ]],
 ];
 // Telas restritas a gestão
@@ -324,18 +426,18 @@ function shell(inner) {
     .filter(([, items]) => items.length);
   app.innerHTML = `
   ${EH_STAGING ? `<div style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#f59e0b;color:#1a1200;text-align:center;font-weight:700;font-size:12.5px;padding:5px">
-    🧪 AMBIENTE DE TESTE — nada aqui afeta o sistema real da equipe</div>` : ''}
+    AMBIENTE DE TESTE — nada aqui afeta o sistema real da equipe</div>` : ''}
   <div class="layout" style="${EH_STAGING ? 'margin-top:26px' : ''}">
     <aside>
-      <div class="side-brand"><span class="logo">${ICONE_PREDIO}</span><div><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b><small>Neo Service</small></div></div>
+      <div class="side-brand"><img src="assets/logo-neoservice-branco.png" alt="Neo Service"><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b></div>
       ${pilaresVisiveis.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${l}</button>`).join('')}
       `).join('')}
       <div class="side-footer">
-        <button id="btnTrocarSenha" class="ghost">🔑 Trocar minha senha</button>
-        <button id="btnApresentacao" class="ghost">${state.modoApresentacao ? '👁️ Modo Normal' : '📺 Modo Apresentação'}</button>
-        <button id="btnExportAll" class="ghost">⬇ Exportar planilha</button>
+        <button id="btnTrocarSenha" class="ghost btn-ic">${ICONE_CHAVE}<span>Trocar minha senha</span></button>
+        <button id="btnApresentacao" class="ghost btn-ic">${state.modoApresentacao ? ICONE_OLHO : ICONE_APRESENTACAO}<span>${state.modoApresentacao ? 'Modo Normal' : 'Modo Apresentação'}</span></button>
+        <button id="btnExportAll" class="ghost btn-ic">${ICONE_DOWNLOAD}<span>Exportar planilha</span></button>
         <button id="btnSair" class="ghost">Sair</button>
       </div>
     </aside>
@@ -355,7 +457,7 @@ async function atualizarAlertaMensagensCliente() {
   if (!count) return;
   const div = document.createElement('div');
   div.className = 'alerta-msg-cliente';
-  div.innerHTML = `💬 ${count} ${count===1?'nova mensagem':'novas mensagens'} de cliente${count===1?'':'s'} no Portal — clique para ver`;
+  div.innerHTML = `${count} ${count===1?'nova mensagem':'novas mensagens'} de cliente${count===1?'':'s'} no Portal — clique para ver`;
   document.body.appendChild(div);
   div.onclick = () => { state.view = 'esteira'; render(); };
 }
@@ -364,9 +466,9 @@ function abrirTrocarSenha() {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:400px">
-    <h2>🔑 Trocar minha senha</h2>
-    <div><label>Nova senha</label><input id="tsSenha1" type="password" placeholder="Mínimo 6 caracteres"></div>
-    <div style="margin-top:10px"><label>Confirmar nova senha</label><input id="tsSenha2" type="password"></div>
+    <h2>Trocar minha senha</h2>
+    <div><label>Nova senha</label><div class="input-ic"><span>${ICONE_CADEADO}</span><input id="tsSenha1" type="password" placeholder="Mínimo 6 caracteres"><button type="button" class="pwd-toggle" data-target="tsSenha1" tabindex="-1">${ICONE_OLHO_MINI}</button></div></div>
+    <div style="margin-top:10px"><label>Confirmar nova senha</label><div class="input-ic"><span>${ICONE_CADEADO}</span><input id="tsSenha2" type="password"><button type="button" class="pwd-toggle" data-target="tsSenha2" tabindex="-1">${ICONE_OLHO_MINI}</button></div></div>
     <div class="msg" id="tsMsg" style="margin-top:8px"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
       <button id="tsCancel" class="ghost">Fechar</button>
@@ -374,6 +476,7 @@ function abrirTrocarSenha() {
     </div>
   </div>`;
   document.body.appendChild(div);
+  wirePwdToggles(div);
   div.querySelector('#tsCancel').onclick = () => div.remove();
   div.querySelector('#tsSalvar').onclick = async () => {
     const s1 = div.querySelector('#tsSenha1').value, s2 = div.querySelector('#tsSenha2').value;
@@ -382,7 +485,7 @@ function abrirTrocarSenha() {
     if (s1 !== s2) { msg.textContent = 'As senhas não coincidem.'; return; }
     const { error } = await sb.auth.updateUser({ password: s1 });
     if (error) { msg.textContent = error.message; return; }
-    msg.style.color = 'var(--ok)'; msg.textContent = '✅ Senha alterada com sucesso.';
+    msg.style.color = 'var(--ok)'; msg.textContent = 'Senha alterada com sucesso.';
     setTimeout(() => div.remove(), 1400);
   };
 }
@@ -394,9 +497,9 @@ function render() {
   ({ inicio: renderInicio, dashboard: renderDashboard, analytics: renderAnalytics, insights: renderInsights,
      executivo: renderExecutivo,
      pipeline: renderDemandas, esteira: renderEsteira, operacoes: renderOperacoes, repasse: renderRepasse, fluxogramas: renderFluxogramas,
-     followup: renderFollowup, integracoes: () => renderStub('🔌 Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
+     followup: renderFollowup, integracoes: () => renderStub('Integrações', 'Conecte Anapro, Mega, Sienge, bancos e assinatura digital. Cada integração aparecerá aqui com status de conexão e última sincronização.', ['Anapro — entrada automática de propostas', 'Mega / Sienge — ERP', 'Bancos — status de análise de crédito', 'Assinatura digital — acompanhamento de envelopes']),
      automacoes: renderAutomacoes,
-     documentos: () => renderStub('📄 Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
+     documentos: () => renderStub('Documentos', 'Repositório de contratos, minutas, anexos e modelos vinculados a cada processo.', ['Upload de anexos por processo', 'Modelos de contrato por empreendedora', 'Histórico de versões']),
      chamados: renderChamados, fechamento: renderFechamento, escala: renderEscala,
      metas: renderMetas, qualidade: renderQualidade, implantacao: renderImplantacao,
      usuariosEquipe: renderUsuariosEquipe, cadastroOperacional: renderCadastroOperacional, auditoria: () => renderAuditoria(''),
@@ -426,9 +529,6 @@ const FUNDO_NEOSERVICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1
     <path d="M210 190 L210 60"/>
     <path d="M120 275 L300 275"/>
   </g>
-  <text x="1180" y="360" text-anchor="end" font-family="Inter,sans-serif" font-size="26" letter-spacing="1" fill="#ffffff" opacity=".85">
-    <tspan font-weight="800">NEO</tspan><tspan font-weight="300">SERVICE</tspan>
-  </text>
 </svg>`;
 const FUNDO_NEOSERVICE_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(FUNDO_NEOSERVICE);
 
@@ -438,8 +538,8 @@ async function renderInicio() {
   const saudacao = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
   const atalhos = PILARES.flatMap(([grp, itens]) => itens.filter(([v]) => podeVer(v) && v !== 'inicio').map(([v, ic, l]) => ({ v, ic, l, grp })));
   shell(`
-    <div class="card" style="margin-bottom:16px;background-image:url('${FUNDO_NEOSERVICE_URL}');background-size:cover;background-position:center;border:1px solid var(--border)">
-      <h2 style="margin:0 0 4px;font-size:20px;color:#fff">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}! 👋</h2>
+    <div class="card" style="margin-bottom:16px;min-height:130px;display:flex;flex-direction:column;justify-content:center;background-image:url('${FUNDO_NEOSERVICE_URL}');background-size:cover;background-position:center;border:1px solid var(--border)">
+      <h2 style="margin:0 0 4px;font-size:21px;color:#fff">${saudacao}${primeiroNome ? ', ' + esc(primeiroNome.charAt(0).toUpperCase()+primeiroNome.slice(1)) : ''}!</h2>
       <p style="color:rgba(255,255,255,.75);font-size:13px;margin:0">Por onde você quer começar hoje?</p>
     </div>
     ${[...new Set(atalhos.map(a=>a.grp))].map(grp => `
@@ -461,10 +561,10 @@ async function renderAutomacoes() {
   shell(`
     <div class="card" style="max-width:820px;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 style="margin:0">⚡ Automações</h2>
+        <h2 style="margin:0">Automações</h2>
         <span style="color:var(--muted);font-size:12.5px">O lembrete de plantão roda sozinho às 12h e 17h — cada disparo fica registrado abaixo.</span>
         <div class="spacer"></div>
-        ${state.role === 'admin' ? '<button id="btnDispararManual" class="ghost">🔔 Enviar lembrete agora</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnDispararManual" class="ghost">Enviar lembrete agora</button>' : ''}
       </div>
       <div class="msg" id="autoMsg" style="margin-top:8px"></div>
     </div>
@@ -484,7 +584,7 @@ async function renderAutomacoes() {
     const msgEl = document.getElementById('autoMsg');
     msgEl.textContent = 'Enviando...';
     const { data, error } = await sb.functions.invoke('disparar-lembrete-manual', { method: 'POST' });
-    msgEl.textContent = error ? `Erro: ${error.message}` : '✅ Lembrete enviado ao Teams.';
+    msgEl.textContent = error ? `Erro: ${error.message}` : 'Lembrete enviado ao Teams.';
     renderAutomacoes();
   };
 }
@@ -495,7 +595,7 @@ function renderStub(titulo, texto, itens) {
       <h2>${titulo}</h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:14px">${texto}</p>
       ${itens.map(i => `<div class="chk"><span style="color:var(--accent)">◦</span> ${i}</div>`).join('')}
-      <div class="msg" style="margin-top:16px">🚧 Módulo em evolução — estrutura pronta para receber estas funcionalidades.</div>
+      <div class="msg" style="margin-top:16px">Módulo em evolução — estrutura pronta para receber estas funcionalidades.</div>
     </div>`);
 }
 
@@ -513,10 +613,10 @@ async function loadLookups() {
 
 function dashSubTabs(ativo) {
   return `<div class="admin-tabs" style="margin-bottom:16px">
-    <button class="admin-tab dash-subtab ${ativo==='executivo'?'active':''}" data-v="executivo">🎯 Executivo</button>
-    <button class="admin-tab dash-subtab ${ativo==='dashboard'?'active':''}" data-v="dashboard">📈 Visão Geral</button>
-    <button class="admin-tab dash-subtab ${ativo==='analytics'?'active':''}" data-v="analytics">📉 Analytics</button>
-    <button class="admin-tab dash-subtab ${ativo==='insights'?'active':''}" data-v="insights">💡 Insights</button>
+    <button class="admin-tab dash-subtab ${ativo==='executivo'?'active':''}" data-v="executivo">Executivo</button>
+    <button class="admin-tab dash-subtab ${ativo==='dashboard'?'active':''}" data-v="dashboard">Visão Geral</button>
+    <button class="admin-tab dash-subtab ${ativo==='analytics'?'active':''}" data-v="analytics">Analytics</button>
+    <button class="admin-tab dash-subtab ${ativo==='insights'?'active':''}" data-v="insights">Insights</button>
   </div>`;
 }
 // ---------- DASHBOARD (executivo: KPIs + produção + ranking, tudo numa tela) ----------
@@ -687,7 +787,7 @@ async function renderDashboard() {
   const metaFdsEfetiva = cfgMap.fds_esperada ?? meta.meta_esperada ?? 0;
   const metaDia = ehFds ? metaFdsEfetiva : (cfgMap.diaria || 0);
   const pctDia = metaDia ? Math.round(100 * prodHoje / metaDia) : null;
-  const farol = (p) => p === null ? '—' : p >= 100 ? '🟢 Dentro da meta' : p >= 70 ? '🟡 Atenção' : '🔴 Fora da meta';
+  const farol = (p) => p === null ? '—' : p >= 100 ? `${dot('🟢')}Dentro da meta` : p >= 70 ? `${dot('🟡')}Atenção` : `${dot('🔴')}Fora da meta`;
 
   // Chamados entre áreas: agrupados por quem abriu e por área destino, com indicador de tempo — segue o mesmo período do topo
   const chamadosAbertos = (chamadosTodos||[]).filter(c => c.status !== 'RESOLVIDO');
@@ -709,10 +809,10 @@ async function renderDashboard() {
   shell(`
     ${dashSubTabs('dashboard')}
     <div class="kpis">
-      <div class="kpi kpi-clicavel" data-ir="__todos__"><div class="v">${totAll}</div><div class="l">📋 Total de processos</div></div>
-      <div class="kpi kpi-clicavel" data-ir="CONCLUIDO"><div class="v" style="color:var(--ok)">${concAll}</div><div class="l">✅ Concluídos</div></div>
-      <div class="kpi kpi-clicavel" data-ir="__pendente__"><div class="v" style="color:var(--warn)">${totAll-concAll}</div><div class="l">⚠️ Pendentes</div></div>
-      <div class="kpi"><div class="v" style="color:var(--accent)">${pctFmt(concAll, totAll)}</div><div class="l">📊 % conclusão</div></div>
+      <div class="kpi kpi-clicavel" data-ir="__todos__"><div class="v">${totAll}</div><div class="l">Total de processos</div></div>
+      <div class="kpi kpi-clicavel" data-ir="CONCLUIDO"><div class="v" style="color:var(--ok)">${concAll}</div><div class="l">Concluídos</div></div>
+      <div class="kpi kpi-clicavel" data-ir="__pendente__"><div class="v" style="color:var(--warn)">${totAll-concAll}</div><div class="l">Pendentes</div></div>
+      <div class="kpi"><div class="v" style="color:var(--accent)">${pctFmt(concAll, totAll)}</div><div class="l">% conclusão</div></div>
     </div>
     <div class="card filters" style="align-items:end">
       <div><label>Período</label><select id="perPreset">
@@ -728,7 +828,7 @@ async function renderDashboard() {
         ${[['automatico','Automático'],['dia','Dia'],['semana','Semana'],['mes','Mês'],['ano','Ano']].map(([k,l])=>
           `<option value="${k}" ${state.periodoAgrupamento===k?'selected':''}>${l}</option>`).join('')}</select></div>
       <div class="spacer"></div>
-      ${state.role === 'admin' ? '<button id="btnMarcarLanc" class="ghost">🚀 Marcar dia de lançamento</button>' : ''}
+      ${state.role === 'admin' ? '<button id="btnMarcarLanc" class="ghost">Marcar dia de lançamento</button>' : ''}
     </div>
     <div class="card filters" style="align-items:center">
       <div><label>Analista (ranking)</label><select id="dashAnalista"><option value="">Todos</option>
@@ -746,25 +846,25 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${prodHoje}</div><div class="l">📥 Produção hoje ${metaDia ? '/ meta ' + metaDia + (ehFds ? ' (fds)' : '') : ''}</div></div>
+      <div class="kpi"><div class="v">${prodHoje}</div><div class="l">Produção hoje ${metaDia ? '/ meta ' + metaDia + (ehFds ? ' (fds)' : '') : ''}</div></div>
       <div class="kpi"><div class="v">${pctDia !== null ? pctDia + '%' : '—'}</div><div class="l">${farol(pctDia)}</div></div>
       <div class="kpi"><div class="v" style="color:${tend >= 0 ? 'var(--ok)' : 'var(--err)'}">${tend >= 0 ? '▲' : '▼'} ${Math.abs(tend)}</div><div class="l">Tendência semanal</div></div>
-      <div class="kpi"><div class="v">${totalGeral ? Math.round(100 * totalFds / totalGeral) : 0}%</div><div class="l">🗓️ Peso do fim de semana (no período)</div></div>
+      <div class="kpi"><div class="v">${totalGeral ? Math.round(100 * totalFds / totalGeral) : 0}%</div><div class="l">Peso do fim de semana (no período)</div></div>
     </div>
     ${lancNoPeriodo.length ? `
     <div class="card" style="border-color:var(--warn);background:var(--warn-soft);margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <b style="font-size:13px">⚠️ ${lancNoPeriodo.length} dia(s) de lançamento neste período</b>
+        <b style="font-size:13px">${lancNoPeriodo.length} dia(s) de lançamento neste período</b>
         <span style="font-size:12.5px;color:var(--muted)">
           ${lancNoPeriodo.slice(0,4).map(d=>`${fmtDia(d.dia)} (${d.total})`).join(' · ')}${lancNoPeriodo.length>4?' …':''}
           — volume atípico com equipe reforçada. Isso distorce médias e metas.
         </span>
         <div class="spacer"></div>
-        <button id="btnToggleLanc" class="ghost">${state.excluirLancamentos ? '↩️ Incluir de volta nas médias' : '🚫 Excluir das médias'}</button>
+        <button id="btnToggleLanc" class="ghost">${state.excluirLancamentos ? '↩ Incluir de volta nas médias' : 'Excluir das médias'}</button>
       </div>
     </div>` : ''}
     <div class="card">
-      <h2 style="margin:0 0 6px">📈 Produção diária — ${fmtDia(deEfetivo)} a ${fmtDia(ateEfetivo)}</h2>
+      <h2 style="margin:0 0 6px">Produção diária — ${fmtDia(deEfetivo)} a ${fmtDia(ateEfetivo)}</h2>
       <p style="color:var(--muted);font-size:12px;margin-bottom:6px">Total por dia (topo) e <b>produção média por analista ativo naquele dia</b> (embaixo) — essa segunda linha não distorce quando um fim de semana teve mais gente escalada que o normal.</p>
       <svg viewBox="0 0 700 100" style="width:100%;height:100px">
         ${svgLine(serieDias.map(d => d.total), 700, 100, '#6d8bff', false)}
@@ -777,14 +877,14 @@ async function renderDashboard() {
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>📊 Acumulado semanal (dentro do período escolhido acima)</h2>
+        <h2>Acumulado semanal (dentro do período escolhido acima)</h2>
         ${semKeys.map(k => { const v = semanas[k]; const maxS = Math.max(...semKeys.map(x => semanas[x].total), 1);
           return `<div class="hbar-row"><span class="hbar-lbl">${new Date(k+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</span>
           <div class="hbar"><div style="width:${Math.round(100*v.total/maxS)}%"></div></div><b>${v.total}</b>
           <span style="color:var(--muted);font-size:11px">(fds: ${v.fds})</span></div>`; }).join('') || '<p style="color:var(--muted);font-size:12.5px">Sem semanas completas no período.</p>'}
       </div>
       <div class="card">
-        <h2>📆 Média por dia da semana (no período escolhido)${state.excluirLancamentos ? ' — sem lançamentos' : ''}</h2>
+        <h2>Média por dia da semana (no período escolhido)${state.excluirLancamentos ? ' — sem lançamentos' : ''}</h2>
         ${dowNames.map((n, i) => `<div class="hbar-row"><span class="hbar-lbl">${n}</span>
           <div class="hbar"><div style="width:${Math.round(100*porDow[i]/maxDow)}%"></div></div><b>${porDow[i]}</b></div>`).join('')}
         <p style="color:var(--muted);font-size:12px;margin-top:8px">Melhor dia: <b>${dowNames[porDow.indexOf(Math.max(...porDow))]}</b> · Menor: <b>${dowNames[porDow.indexOf(Math.min(...porDow.filter(x=>x>0)))]}</b></p>
@@ -792,7 +892,7 @@ async function renderDashboard() {
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>🧍 Capacidade real — fim de semana com 1 analista</h2>
+        <h2>Capacidade real — fim de semana com 1 analista</h2>
         <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Considera <b>todo o histórico</b> (não segue os filtros acima) — dias de sáb/dom em que um único analista produziu: ${(solo||[]).length} dias, de ${soloPeriodo}.</p>
         ${Object.keys(soloPorAnalista).length ? `<table><thead><tr><th>Analista</th><th>Dias solo</th><th>Média/dia</th></tr></thead>
         <tbody>${Object.entries(soloPorAnalista).sort((a,b)=>b[1].tot/b[1].n-a[1].tot/a[1].n).map(([n,x]) =>
@@ -800,7 +900,7 @@ async function renderDashboard() {
         : '<div class="msg">Sem fins de semana com analista único no histórico.</div>'}
       </div>
       <div class="card">
-        <h2>🎯 Meta de fim de semana</h2>
+        <h2>Meta de fim de semana</h2>
         <p style="color:var(--muted);font-size:12.5px;margin-bottom:6px">Sugestão automática (média histórica de ${meta.amostras || 0} fins de semana solo) — usada só como referência:</p>
         <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
           <div class="kpi"><div class="v" style="color:var(--warn)">${meta.meta_minima ?? '—'}</div><div class="l">Sugestão mínima</div></div>
@@ -808,12 +908,12 @@ async function renderDashboard() {
           <div class="kpi"><div class="v" style="color:var(--ok)">${meta.meta_excelente ?? '—'}</div><div class="l">Sugestão excelente</div></div>
         </div>
         ${state.role === 'admin' ? `
-        <h2 style="margin-top:14px">✏️ Meta oficial (definida por você — vale mais que a sugestão)</h2>
+        <h2 style="margin-top:14px">Meta oficial (definida por você — vale mais que a sugestão)</h2>
         <div class="filters">
           ${[['fds_minima','Mínima'],['fds_esperada','Esperada'],['fds_excelente','Excelente']].map(([k,l]) =>
             `<div><label>${l}</label><input id="meta_${k}" type="number" value="${cfgMap[k] ?? ''}" placeholder="${meta['meta_'+k.split('_')[1]] ?? ''}" style="min-width:100px"></div>`).join('')}
         </div>
-        <h2 style="margin-top:14px">⚙️ Outras metas configuráveis</h2>
+        <h2 style="margin-top:14px">Outras metas configuráveis</h2>
         <div class="filters">
           ${['diaria','semanal','mensal'].map(k => `<div><label>Meta ${k}</label><input id="meta_${k}" type="number" value="${cfgMap[k] ?? ''}" style="min-width:100px"></div>`).join('')}
           <button id="btnSalvarMetas">Salvar todas</button>
@@ -821,11 +921,11 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="card">
-      <h2 style="margin:0">🏆 Ranking de produtividade — ${PERIODO_LABELS[state.periodoPreset]}${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
+      <h2 style="margin:0">Ranking de produtividade — ${PERIODO_LABELS[state.periodoPreset]}${state.dashAnalista ? ' — ' + esc(state.dashAnalista) : ''}</h2>
       <p style="color:var(--muted);font-size:12px;margin:2px 0 8px">Segue o mesmo filtro "Período" do topo da página.</p>
       <table><thead><tr><th>#</th><th>Analista</th><th>Total</th><th>Concluídos</th><th>Pendentes</th><th>% Concl.</th><th>Tempo médio (h)</th><th>Score</th><th>Classe</th></tr></thead>
       <tbody>${rk.map((r,i) => `<tr>
-        <td>${['🥇','🥈','🥉'][i] ?? (i+1)}</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
+        <td>${i+1}º</td><td>${esc(nomeExib(r.nome, i+1))}</td><td>${r.total}</td>
         <td style="color:var(--ok)">${r.concluidas}</td><td style="color:var(--warn)">${r.pendentes}</td>
         <td>${r.pct_concl}%</td><td>${r.tempo_medio_h ?? '—'}</td>
         <td><b>${r.score ?? '—'}</b></td>
@@ -834,7 +934,7 @@ async function renderDashboard() {
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>📝 Todas as atividades (todo o histórico)</h2>
+        <h2>Todas as atividades (todo o histórico)</h2>
         <div style="max-height:420px;overflow-y:auto">
         ${(ativs||[]).map(a => `<div class="hbar-row"><span class="hbar-lbl">${esc(a.nome)}</span>
           <div class="hbar"><div style="width:${Math.round(100*a.total/Math.max(...(ativs||[]).map(x=>x.total),1))}%"></div></div>
@@ -842,17 +942,17 @@ async function renderDashboard() {
         </div>
       </div>
       <div class="card">
-        <h2>🏢 Todas as empreendedoras (todo o histórico)</h2>
+        <h2>Todas as empreendedoras (todo o histórico)</h2>
         <div style="max-height:420px;overflow-y:auto">
         <table><thead><tr><th>Empreendedora</th><th>Total</th><th>Pendentes</th></tr></thead>
         <tbody>${(tops||[]).map(t => `<tr><td>${esc(t.nome)}</td><td>${t.total}</td><td>${t.pendentes}</td></tr>`).join('')}</tbody></table>
         </div>
       </div>
       <div class="card kpi-clicavel" id="cardChamadosAnalista">
-        <h2>📨 Chamados em aberto por quem abriu — ${PERIODO_LABELS[state.periodoPreset]}</h2>
+        <h2>Chamados em aberto por quem abriu — ${PERIODO_LABELS[state.periodoPreset]}</h2>
         <div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px;color:var(--muted)">
-          <span>⏳ Tempo médio aberto: <b style="color:var(--text)">${mediaHorasAberto}h</b></span>
-          <span>✅ Tempo médio de resolução: <b style="color:var(--text)">${mediaHorasResolucao}h</b></span>
+          <span>Tempo médio aberto: <b style="color:var(--text)">${mediaHorasAberto}h</b></span>
+          <span>Tempo médio de resolução: <b style="color:var(--text)">${mediaHorasResolucao}h</b></span>
         </div>
         <div style="max-height:340px;overflow-y:auto">
         ${chamadosRanking.length ? chamadosRanking.map(([nome,n]) => `<div class="hbar-row"><span class="hbar-lbl">${esc(nome)}</span>
@@ -861,7 +961,7 @@ async function renderDashboard() {
         </div>
       </div>
       <div class="card kpi-clicavel" id="cardChamadosArea">
-        <h2>🏢 Chamados em aberto por área — ${PERIODO_LABELS[state.periodoPreset]}</h2>
+        <h2>Chamados em aberto por área — ${PERIODO_LABELS[state.periodoPreset]}</h2>
         <div style="max-height:420px;overflow-y:auto">
         ${areaRanking.length ? areaRanking.map(([area,n]) => `<div class="hbar-row"><span class="hbar-lbl">${esc(area)}</span>
           <div class="hbar"><div style="width:${Math.round(100*n/maxArea)}%"></div></div>
@@ -924,8 +1024,8 @@ const execState = {
   ordemAnalista: 'processos', compA: '', compB: '',
 };
 const EXEC_SECOES = [
-  ['geral', '📊 Visão Geral'], ['equipe', '👥 Equipe'], ['sla', '⏱️ SLA & Gargalos'],
-  ['portfolio', '🏢 Portfólio'], ['metas', '🎯 Metas & Forecast'], ['operacao', '🗓️ Operação'],
+  ['geral', 'Visão Geral'], ['equipe', 'Equipe'], ['sla', 'SLA & Gargalos'],
+  ['portfolio', 'Portfólio'], ['metas', 'Metas & Forecast'], ['operacao', 'Operação'],
 ];
 const SLA_PADRAO_H = 24;
 
@@ -1074,7 +1174,7 @@ function execCardIGP(igp) {
     </div>
     <div style="flex:1;min-width:260px">
       <div style="font-size:12px;color:var(--muted);letter-spacing:.4px">ÍNDICE GERAL DE PERFORMANCE</div>
-      <div style="font-size:19px;font-weight:800;margin:2px 0 12px;color:${cor}">${emoji} ${rotulo}</div>
+      <div style="font-size:19px;font-weight:800;margin:2px 0 12px;color:${cor}">${dot(emoji)}${rotulo}</div>
       ${execBarras(partes.map(p => ({ rotulo: `${p.nome} (${Math.round(p.peso * 100)}%)`, valor: p.valor, casas: 1 })), { max: 100, sufixo: '%' })}
     </div>
   </div>`;
@@ -1179,8 +1279,8 @@ async function renderExecutivo() {
       </select></div>
       <div class="spacer"></div>
       <button id="exLimpar" class="ghost">Limpar filtros</button>
-      <button id="exExportar" class="ghost">⬇ Exportar</button>
-      <button id="exImprimir" class="ghost">🖨️ Imprimir</button>
+      <button id="exExportar" class="ghost">${ICONE_DOWNLOAD}Exportar</button>
+      <button id="exImprimir" class="ghost">Imprimir</button>
     </div>
     <p style="color:var(--muted);font-size:12px;margin:-4px 0 12px">
       ${fmtD(de)} a ${fmtD(ate)} · ${ctx.dias} dia(s) · comparado com ${fmtD(ctx.antDe)} a ${fmtD(ctx.antAte)}
@@ -1233,24 +1333,24 @@ function execSecaoGeral(el, ctx, calc, rerender) {
   el.innerHTML = `
     ${execCardIGP(calc.igp)}
     <div class="kpis">
-      ${execKpi('📋 Total de processos', r.total, a.total)}
-      ${execKpi('✅ Concluídos', r.concluidos, a.concluidos)}
-      ${execKpi('🔄 Em andamento', r.andamento, a.andamento, { maiorEhMelhor: false })}
-      ${execKpi('⏳ Pendentes', r.pendentes, a.pendentes, { maiorEhMelhor: false })}
-      ${execKpi('🚨 Atrasados', r.atrasados, a.atrasados, { maiorEhMelhor: false })}
-      ${execKpi('🎯 Dentro do SLA', r.dentroSla, a.dentroSla)}
-      ${execKpi('❌ Fora do SLA', r.foraSla, a.foraSla, { maiorEhMelhor: false })}
-      ${execKpi('⏱️ Tempo médio de conclusão', r.tempoMedio, a.tempoMedio, { maiorEhMelhor: false, formato: 'horas' })}
+      ${execKpi('Total de processos', r.total, a.total)}
+      ${execKpi('Concluídos', r.concluidos, a.concluidos)}
+      ${execKpi('Em andamento', r.andamento, a.andamento, { maiorEhMelhor: false })}
+      ${execKpi('Pendentes', r.pendentes, a.pendentes, { maiorEhMelhor: false })}
+      ${execKpi('Atrasados', r.atrasados, a.atrasados, { maiorEhMelhor: false })}
+      ${execKpi('Dentro do SLA', r.dentroSla, a.dentroSla)}
+      ${execKpi('Fora do SLA', r.foraSla, a.foraSla, { maiorEhMelhor: false })}
+      ${execKpi('Tempo médio de conclusão', r.tempoMedio, a.tempoMedio, { maiorEhMelhor: false, formato: 'horas' })}
     </div>
     <div class="kpis">
-      ${execKpi('📥 Produtividade do dia', r.prodDia, null)}
-      ${execKpi('📆 Produtividade da semana', r.prodSemana, null)}
-      ${execKpi('🗓️ Produtividade do mês', r.prodMes, null)}
-      ${execKpi('📅 Produtividade do ano', r.prodAno, null)}
-      ${execKpi('📊 Média diária', r.mediaDiaria, a.mediaDiaria, { formato: 'dec' })}
-      ${execKpi('📈 Média semanal', r.mediaSemanal, null, { formato: 'dec' })}
-      ${execKpi('📉 Média mensal', r.mediaMensal, null, { formato: 'dec' })}
-      ${execKpi('🔁 Taxa de retrabalho', r.taxaRetrabalho, null, { maiorEhMelhor: false, formato: 'pct' })}
+      ${execKpi('Produtividade do dia', r.prodDia, null)}
+      ${execKpi('Produtividade da semana', r.prodSemana, null)}
+      ${execKpi('Produtividade do mês', r.prodMes, null)}
+      ${execKpi('Produtividade do ano', r.prodAno, null)}
+      ${execKpi('Média diária', r.mediaDiaria, a.mediaDiaria, { formato: 'dec' })}
+      ${execKpi('Média semanal', r.mediaSemanal, null, { formato: 'dec' })}
+      ${execKpi('Média mensal', r.mediaMensal, null, { formato: 'dec' })}
+      ${execKpi('Taxa de retrabalho', r.taxaRetrabalho, null, { maiorEhMelhor: false, formato: 'pct' })}
     </div>
     <div class="card">
       <h2 style="margin:0 0 12px">Evolução da produção no período</h2>
@@ -1301,7 +1401,7 @@ function execBlocoInsights(ctx, calc) {
   if (topPend && calc.abertos.length) linhas.push(`O empreendimento <b>${esc(topPend[0])}</b> concentra <b>${execFmt(100 * topPend[1] / calc.abertos.length, 1)}%</b> das pendências.`);
   if (!linhas.length) return '';
   return `<div class="card">
-    <h2 style="margin:0 0 10px">🤖 Insights automáticos</h2>
+    <h2 style="margin:0 0 10px">Insights automáticos</h2>
     <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted)">
       ${linhas.map(l => `<div>• ${l}</div>`).join('')}
     </div></div>`;
@@ -1326,13 +1426,13 @@ function execBlocoAlertas(ctx, calc) {
   const paradosDias = 7;
   const parados = calc.abertos.filter(({ m }) => m.horas > paradosDias * 24);
   if (parados.length) alertas.push(['warn', `${parados.length} processo(s) parados há mais de ${paradosDias} dias.`]);
-  if (!alertas.length) return '<div class="card"><h2 style="margin:0 0 8px">🔔 Alertas</h2><p style="color:var(--ok);font-size:13px">✅ Nenhum alerta no período. Operação dentro do esperado.</p></div>';
+  if (!alertas.length) return '<div class="card"><h2 style="margin:0 0 8px">Alertas</h2><p style="color:var(--ok);font-size:13px">Nenhum alerta no período. Operação dentro do esperado.</p></div>';
   return `<div class="card">
-    <h2 style="margin:0 0 10px">🔔 Alertas (${alertas.length})</h2>
+    <h2 style="margin:0 0 10px">Alertas (${alertas.length})</h2>
     <div style="display:flex;flex-direction:column;gap:8px">
       ${alertas.map(([tipo, txt]) => `<div style="font-size:13px;padding:8px 10px;border-radius:8px;
         background:${tipo === 'err' ? 'var(--err-soft, rgba(220,53,69,.08))' : 'var(--warn-soft, rgba(255,193,7,.10))'};
-        border-left:3px solid ${tipo === 'err' ? 'var(--err)' : 'var(--warn)'}">${tipo === 'err' ? '🚨' : '⚠️'} ${esc(txt)}</div>`).join('')}
+        border-left:3px solid ${tipo === 'err' ? 'var(--err)' : 'var(--warn)'}">${tipo === 'err' ? '' : ''} ${esc(txt)}</div>`).join('')}
     </div></div>`;
 }
 
@@ -1351,7 +1451,7 @@ function abrirSelecaoColaboradoresPainel() {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:460px">
-    <h2>👥 Quem entra no painel</h2>
+    <h2>Quem entra no painel</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
       Marque quem deve aparecer na Produtividade por analista e no Ranking de performance.
       Vale para todo mundo que abrir o Dashboard Executivo.</p>
@@ -1432,7 +1532,7 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
   const ordenadas = [...linhas].sort(ordens[execState.ordemAnalista] || ordens.processos);
   // Ranking de performance usa eficiência (que já combina entrega, prazo e qualidade).
   const ranking = [...linhas].filter(r => r.total > 0).sort((a, b) => b.eficiencia - a.eficiencia);
-  const medalha = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}º`;
+  const medalha = (i) => `${i + 1}º`;
 
   // Capacidade: a referência é a melhor média diária observada na própria equipe no período.
   const diasUteis = Math.max(1, Math.round(ctx.dias * 5 / 7));
@@ -1444,15 +1544,15 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
   el.innerHTML = `
     <div class="card">
       <div class="admin-head">
-        <h2 style="margin:0">👥 Produtividade por analista</h2>
+        <h2 style="margin:0">Produtividade por analista</h2>
         <div style="display:flex;gap:8px;align-items:center">
           <label style="margin:0;font-size:12px">Ordenar por</label>
           <select id="exOrdem">
             ${[['processos','Processos'],['concluidos','Concluídos'],['sla','SLA'],['eficiencia','Eficiência'],['retrabalho','Menor retrabalho'],['tempo','Menor tempo']]
               .map(([k,l]) => `<option value="${k}" ${execState.ordemAnalista===k?'selected':''}>${l}</option>`).join('')}
           </select>
-          ${state.role !== 'leitura' ? '<button id="exQuemEntra" class="ghost">👥 Quem entra no painel</button>' : ''}
-          <button id="exExportEquipe" class="ghost">⬇ CSV</button>
+          ${state.role !== 'leitura' ? '<button id="exQuemEntra" class="ghost">Quem entra no painel</button>' : ''}
+          <button id="exExportEquipe" class="ghost">${ICONE_DOWNLOAD}CSV</button>
         </div>
       </div>
       <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 10px">
@@ -1475,7 +1575,7 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 12px">🏆 Ranking de performance</h2>
+      <h2 style="margin:0 0 12px">Ranking de performance</h2>
       ${ranking.length ? `<div class="table-scroll"><table class="users-table">
         <thead><tr><th></th><th>Analista</th><th>Eficiência</th><th>Volume</th><th>SLA</th><th>Sem retrabalho</th><th>Velocidade</th></tr></thead>
         <tbody>${ranking.map((r, i) => `<tr>
@@ -1490,7 +1590,7 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">⚙️ Capacidade operacional</h2>
+      <h2 style="margin:0 0 6px">Capacidade operacional</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Referência de capacidade = melhor média diária observada na própria equipe no período (${execFmt(capacidadeDia, 1)}/dia útil em ${diasUteis} dia(s) úteis).</p>
       <div class="table-scroll"><table class="users-table">
         <thead><tr><th>Analista</th><th>Capacidade diária</th><th>Capacidade no período</th><th>Realizado</th><th>Utilização</th><th>Situação</th></tr></thead>
@@ -1510,7 +1610,7 @@ function execSecaoEquipe(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">⚖️ Distribuição de carga (processos em aberto)</h2>
+      <h2 style="margin:0 0 6px">Distribuição de carga (processos em aberto)</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Média da equipe: ${execFmt(mediaAberta, 1)} processo(s) em aberto por analista.</p>
       ${execBarras(Object.entries(cargaAberta).sort((a, b) => b[1] - a[1]).map(([nome, n]) => ({
         rotulo: nome, valor: n, cor: n > mediaAberta * 1.5 ? 'var(--err)' : n < mediaAberta * 0.5 ? 'var(--warn)' : 'var(--accent)',
@@ -1578,22 +1678,22 @@ function execSecaoSla(el, ctx, calc, rerender) {
 
   el.innerHTML = `
     <div class="kpis">
-      ${execKpi('⏱️ Tempo médio', media, calc.anterior.tempoMedio, { maiorEhMelhor: false, formato: 'horas' })}
-      ${execKpi('🔺 Tempo máximo', tempos.length ? Math.max(...tempos) : null, null, { maiorEhMelhor: false, formato: 'horas' })}
-      ${execKpi('🔻 Tempo mínimo', tempos.length ? Math.min(...tempos) : null, null, { formato: 'horas' })}
-      ${execKpi('🎯 % dentro do SLA', calc.resumo.pctDentroSla, null, { formato: 'pct' })}
-      ${execKpi('🚨 Processos vencidos', calc.resumo.atrasados, calc.anterior.atrasados, { maiorEhMelhor: false })}
-      ${execKpi('⚠️ Próximos do vencimento', vencendo.length, null, { maiorEhMelhor: false, dica: 'Acima de 80% do prazo e ainda em aberto' })}
+      ${execKpi('Tempo médio', media, calc.anterior.tempoMedio, { maiorEhMelhor: false, formato: 'horas' })}
+      ${execKpi('Tempo máximo', tempos.length ? Math.max(...tempos) : null, null, { maiorEhMelhor: false, formato: 'horas' })}
+      ${execKpi('Tempo mínimo', tempos.length ? Math.min(...tempos) : null, null, { formato: 'horas' })}
+      ${execKpi('% dentro do SLA', calc.resumo.pctDentroSla, null, { formato: 'pct' })}
+      ${execKpi('Processos vencidos', calc.resumo.atrasados, calc.anterior.atrasados, { maiorEhMelhor: false })}
+      ${execKpi('Próximos do vencimento', vencendo.length, null, { maiorEhMelhor: false, dica: 'Acima de 80% do prazo e ainda em aberto' })}
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">📅 Análise de envelhecimento (aging)</h2>
+      <h2 style="margin:0 0 6px">Análise de envelhecimento (aging)</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Idade dos ${execFmt(calc.abertos.length)} processo(s) em aberto.</p>
       ${execBarras(aging)}
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">🧱 Gargalos</h2>
+      <h2 style="margin:0 0 6px">Gargalos</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Onde a fila e o tempo se concentram hoje.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px">
         <div><b style="font-size:12.5px">Maior fila em aberto (por serviço)</b><div style="margin-top:8px">
@@ -1603,13 +1703,13 @@ function execSecaoSla(el, ctx, calc, rerender) {
       </div>
     </div>
 
-    ${tabelaSla('⏱️ SLA por tipo de serviço', porAtividade)}
-    ${tabelaSla('🏢 SLA por cliente (incorporadora)', agrupaSla(d => d.empreendedoras?.nome))}
-    ${tabelaSla('🏗️ SLA por empreendimento', agrupaSla(d => d.empreendimentos?.nome))}
-    ${tabelaSla('👤 SLA por analista', agrupaSla(d => d.analistas?.nome))}
+    ${tabelaSla('SLA por tipo de serviço', porAtividade)}
+    ${tabelaSla('SLA por cliente (incorporadora)', agrupaSla(d => d.empreendedoras?.nome))}
+    ${tabelaSla('SLA por empreendimento', agrupaSla(d => d.empreendimentos?.nome))}
+    ${tabelaSla('SLA por analista', agrupaSla(d => d.analistas?.nome))}
 
     <div class="card">
-      <h2 style="margin:0 0 12px">🔁 Retrabalho e qualidade</h2>
+      <h2 style="margin:0 0 12px">Retrabalho e qualidade</h2>
       <div class="kpis" style="margin-bottom:14px">
         ${execKpi('Apontamentos de erro', ctx.erros.length, null, { maiorEhMelhor: false })}
         ${execKpi('Taxa de retrabalho', calc.resumo.taxaRetrabalho, null, { maiorEhMelhor: false, formato: 'pct' })}
@@ -1662,7 +1762,7 @@ function execSecaoPortfolio(el, ctx, calc, rerender) {
   const maxTempo = Math.max(1, ...demandas.map(d => d.tempoMedio || 0));
 
   el.innerHTML = `
-    ${tabela('📌 Ranking de demandas (tipo de serviço)', demandas, [
+    ${tabela('Ranking de demandas (tipo de serviço)', demandas, [
       ['Serviço', i => `<b>${esc(i.nome)}</b>`],
       ['Quantidade', i => execFmt(i.total)],
       ['% do volume', i => execFmt(i.pct, 1) + '%'],
@@ -1671,7 +1771,7 @@ function execSecaoPortfolio(el, ctx, calc, rerender) {
     ])}
 
     <div class="card">
-      <h2 style="margin:0 0 6px">🧮 Matriz Volume × Tempo</h2>
+      <h2 style="margin:0 0 6px">Matriz Volume × Tempo</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Serviços no canto superior direito são os melhores candidatos a automação: muito volume e muito tempo.</p>
       ${demandas.length ? `<div style="position:relative;height:280px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);margin:0 10px 26px 46px">
         ${demandas.map(i => {
@@ -1687,7 +1787,7 @@ function execSecaoPortfolio(el, ctx, calc, rerender) {
       </div>` : '<p style="color:var(--muted);font-size:13px">Sem dados no período.</p>'}
     </div>
 
-    ${tabela('🏢 Principais clientes (incorporadoras)', clientes, [
+    ${tabela('Principais clientes (incorporadoras)', clientes, [
       ['Cliente', i => `<b>${esc(i.nome)}</b>`],
       ['Processos', i => execFmt(i.total)],
       ['% do volume', i => execFmt(i.pct, 1) + '%'],
@@ -1697,7 +1797,7 @@ function execSecaoPortfolio(el, ctx, calc, rerender) {
       ['Valor em proposta', i => i.valor ? 'R$ ' + execFmt(i.valor, 2) : '—'],
     ])}
 
-    ${tabela('🏗️ Principais empreendimentos', empreendimentos, [
+    ${tabela('Principais empreendimentos', empreendimentos, [
       ['Empreendimento', i => `<b>${esc(i.nome)}</b>`],
       ['Processos', i => execFmt(i.total)],
       ['% do volume', i => execFmt(i.pct, 1) + '%'],
@@ -1718,7 +1818,7 @@ function execBlocoChamados(ctx) {
   const porArea = {};
   ctx.chamados.forEach(c => { const a = c.area || '—'; porArea[a] = (porArea[a] || 0) + 1; });
   return `<div class="card">
-    <h2 style="margin:0 0 12px">📨 Chamados entre áreas</h2>
+    <h2 style="margin:0 0 12px">Chamados entre áreas</h2>
     <div class="kpis" style="margin-bottom:14px">
       ${execKpi('Abertos', abertos.length, null, { maiorEhMelhor: false })}
       ${execKpi('Concluídos', resolvidos.length, null)}
@@ -1767,7 +1867,7 @@ function execSecaoMetas(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 12px">🎯 Metas da equipe</h2>
+      <h2 style="margin:0 0 12px">Metas da equipe</h2>
       <div class="table-scroll"><table class="users-table">
         <thead><tr><th>Período</th><th>Realizado</th><th>Meta</th><th>%</th><th>Quanto falta</th></tr></thead>
         <tbody>
@@ -1780,7 +1880,7 @@ function execSecaoMetas(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">📈 Forecast de produtividade</h2>
+      <h2 style="margin:0 0 6px">Forecast de produtividade</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
         No ritmo atual de <b>${execFmt(ritmoDia, 1)}</b> processo(s)/dia, o mês fecha com aproximadamente
         <b>${execFmt(projecaoMes)}</b> processo(s)${metaMensal ? ` — ${projecaoMes >= metaMensal ? '<span style="color:var(--ok)">acima da meta</span>' : '<span style="color:var(--err)">abaixo da meta</span>'}` : ''}.
@@ -1793,7 +1893,7 @@ function execSecaoMetas(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">🧪 Simulador de capacidade</h2>
+      <h2 style="margin:0 0 6px">Simulador de capacidade</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Baseado na produtividade média real por analista no período (${execFmt(calc.proc.length / ativos, 1)} processo(s) por analista).</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
         <div><label>Volume extra de processos</label><input id="simVolume" type="number" min="0" value="300" style="width:150px"></div>
@@ -1804,7 +1904,7 @@ function execSecaoMetas(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 12px">👤 Metas individuais</h2>
+      <h2 style="margin:0 0 12px">Metas individuais</h2>
       <p style="color:var(--muted);font-size:12px;margin:-6px 0 12px">Meta individual = meta mensal da equipe dividida por ${ativos} analista(s) = <b>${metaIndividual || '—'}</b>.</p>
       <div class="table-scroll"><table class="users-table">
         <thead><tr><th>Analista</th><th>Realizado</th><th>Meta</th><th>%</th><th>Quanto falta</th></tr></thead>
@@ -1834,8 +1934,8 @@ function execSecaoMetas(el, ctx, calc, rerender) {
         ${execKpi('Faltam contratar/realocar', faltam, null, { maiorEhMelhor: false })}
       </div>
       <p style="font-size:13px;color:${faltam ? 'var(--err)' : 'var(--ok)'};font-weight:600">
-        ${faltam ? `⚠️ Com ${disponiveis} analista(s) disponível(is), faltariam ${faltam} para absorver ${execFmt(demanda)} processos.`
-                 : `✅ Os ${disponiveis} analista(s) disponíveis absorvem ${execFmt(demanda)} processos no mesmo ritmo.`}
+        ${faltam ? `Com ${disponiveis} analista(s) disponível(is), faltariam ${faltam} para absorver ${execFmt(demanda)} processos.`
+                 : `Os ${disponiveis} analista(s) disponíveis absorvem ${execFmt(demanda)} processos no mesmo ritmo.`}
       </p>`;
   };
 }
@@ -1881,7 +1981,7 @@ function execSecaoOperacao(el, ctx, calc, rerender) {
 
   el.innerHTML = `
     <div class="card">
-      <h2 style="margin:0 0 6px">🔥 Heatmap operacional</h2>
+      <h2 style="margin:0 0 6px">Heatmap operacional</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Volume de entrada por dia da semana e faixa de horário.</p>
       <div class="table-scroll"><table style="border-collapse:separate;border-spacing:4px">
         <thead><tr><th></th>${faixas.map(f => `<th style="font-size:11px;color:var(--muted);font-weight:600">${f[2]}</th>`).join('')}</tr></thead>
@@ -1896,7 +1996,7 @@ function execSecaoOperacao(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 6px">🗓️ Calendário operacional — ${primeiro.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</h2>
+      <h2 style="margin:0 0 6px">Calendário operacional — ${primeiro.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</h2>
       <p style="color:var(--muted);font-size:12px;margin:0 0 12px">Intensidade = volume recebido. Ponto vermelho = há pendências daquele dia.</p>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;max-width:560px">
         ${dows.map(d => `<div style="text-align:center;font-size:11px;color:var(--muted);font-weight:600">${d}</div>`).join('')}
@@ -1918,7 +2018,7 @@ function execSecaoOperacao(el, ctx, calc, rerender) {
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 12px">⚖️ Comparativo entre analistas</h2>
+      <h2 style="margin:0 0 12px">Comparativo entre analistas</h2>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <div><label>Analista A</label><select id="compA"><option value="">—</option>
           ${analistasLista.map(a => `<option value="${esc(a.nome)}" ${execState.compA === a.nome ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div>
@@ -2001,7 +2101,7 @@ async function renderDemandas() {
   const L = state.lookups, f = state.filtros;
   const pages = Math.max(1, Math.ceil(state.total / PAGE));
   shell(`
-    ${erroConsulta ? `<div class="alert-box" style="margin-bottom:14px">⚠️ <b>Não foi possível carregar a lista.</b> ${esc(erroConsulta.message)}<br>
+    ${erroConsulta ? `<div class="alert-box" style="margin-bottom:14px"><b>Não foi possível carregar a lista.</b> ${esc(erroConsulta.message)}<br>
       <span style="font-size:12px">Se isso está acontecendo no ambiente de teste, provavelmente faltam chaves estrangeiras no schema <code>staging</code> — ver <code>migrations/corrigir_ambiente_staging.sql</code>.</span></div>` : ''}
     <div class="card filters">
       <div><label>Busca (nome / unidade / processo)</label><input id="fBusca" value="${esc(f.busca)}"></div>
@@ -2014,7 +2114,7 @@ async function renderDemandas() {
       <button id="btnFiltrar">Filtrar</button>
       <button id="btnLimpar" class="ghost">Limpar</button>
       <div class="spacer"></div>
-      ${state.role !== 'leitura' ? '<button id="btnImportarPlanilha" class="ghost">⬆ Importar planilha</button><button id="btnNova">+ Novo processo</button>' : ''}
+      ${state.role !== 'leitura' ? `<button id="btnImportarPlanilha" class="ghost">${ICONE_UPLOAD}Importar planilha</button><button id="btnNova">+ Novo processo</button>` : ''}
     </div>
     <div class="card">
       <div class="table-scroll">
@@ -2139,7 +2239,7 @@ function abrirImportarPlanilha(aoTerminar) {
     const { error } = await sb.from('demandas').insert(registros);
     if (error) { msg.textContent = 'Erro ao importar: ' + error.message; return; }
     msg.style.color = 'var(--ok)';
-    msg.textContent = `✅ ${ok} processo(s) importado(s)${semProponente ? ` · ${semProponente} linha(s) ignorada(s) por falta do 1° Proponente` : ''}.`;
+    msg.textContent = `${ok} processo(s) importado(s)${semProponente ? ` · ${semProponente} linha(s) ignorada(s) por falta do 1° Proponente` : ''}.`;
     setTimeout(() => { div.remove(); aoTerminar(); }, 1600);
   };
 }
@@ -2183,7 +2283,7 @@ function ligarValidadorDocumento(inputEl, avisoEl, demandaIdAtual) {
     const v = inputEl.value.trim();
     if (!v) { avisoEl.textContent = ''; return; }
     if (!documentoValido(v)) {
-      avisoEl.textContent = '⚠️ CPF/CNPJ com dígito verificador inválido — confira se foi digitado certo.';
+      avisoEl.textContent = 'CPF/CNPJ com dígito verificador inválido — confira se foi digitado certo.';
       avisoEl.style.color = 'var(--err)';
       return;
     }
@@ -2195,10 +2295,10 @@ function ligarValidadorDocumento(inputEl, avisoEl, demandaIdAtual) {
       [d.proponente1_cpf, d.proponente2_cpf].some(c => c && c.replace(/\D/g,'') === somenteDigitos));
     if (outros.length) {
       const nums = outros.map(d => d.numero ?? '?').join(', ');
-      avisoEl.textContent = `ℹ️ Esse documento já aparece no(s) processo(s) nº ${nums}.`;
+      avisoEl.textContent = `ℹ Esse documento já aparece no(s) processo(s) nº ${nums}.`;
       avisoEl.style.color = 'var(--warn)';
     } else {
-      avisoEl.textContent = '✅ Documento válido.';
+      avisoEl.textContent = 'Documento válido.';
       avisoEl.style.color = 'var(--ok)';
     }
   });
@@ -2245,19 +2345,19 @@ async function openForm(id) {
       <div><label>Concluído em</label><input id="mConcl" type="datetime-local" value="${dtLocal(d.concluido_em)}"></div>
       <div><label>Valor da proposta</label><input id="mValor" type="number" step="0.01" value="${d.valor_proposta ?? ''}"></div>
       <div style="display:flex;align-items:end;gap:8px"><label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input id="mFatMensal" type="checkbox" ${d.fat_mensal?'checked':''}> <span>💰 Faturado (entra no Fechamento Mensal)</span></label></div>
+        <input id="mFatMensal" type="checkbox" ${d.fat_mensal?'checked':''}> <span>Faturado (entra no Fechamento Mensal)</span></label></div>
       <div style="grid-column:1/-1"><label>Obs</label><textarea id="mObs" rows="3">${esc(d.obs)}</textarea></div>
     </div>
     ${id ? `
-    <h2 style="margin-top:16px">✅ Checklist de validação</h2>
+    <h2 style="margin-top:16px">Checklist de validação</h2>
     <div id="mChecks">${checks.map(c => `
       <div class="chk"><input type="checkbox" data-cid="${c.id}" ${c.ok?'checked':''}> <span>${esc(c.item)}</span>
-      <button class="ghost del-chk" data-cid="${c.id}">✕</button></div>`).join('') || '<div class="msg">Nenhum item ainda.</div>'}</div>
+      <button class="ghost del-chk" data-cid="${c.id}">${ICONE_FECHAR}</button></div>`).join('') || '<div class="msg">Nenhum item ainda.</div>'}</div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <textarea id="mNewChk" placeholder="Novo item do checklist" rows="2" style="flex:1"></textarea>
       <button id="mAddChk" class="ghost">Adicionar</button>
     </div>
-    <h2 style="margin-top:16px">💬 Follow-ups</h2>
+    <h2 style="margin-top:16px">Follow-ups</h2>
     <div id="mFups">${fups.map(f => `<div class="fup"><b>${esc(f.autor||'')}</b> <span style="color:var(--muted)">${fmtDt(f.criado_em)}</span><br>${esc(f.texto)}</div>`).join('') || '<div class="msg">Nenhum follow-up ainda.</div>'}</div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <textarea id="mNewFup" placeholder="Registrar follow-up..." rows="3" style="flex:1"></textarea>
@@ -2265,7 +2365,7 @@ async function openForm(id) {
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
       <button id="mCancel" class="ghost">Cancelar</button>
-      ${id ? '<button id="mDelete" class="ghost" style="color:var(--err)">🗑️ Excluir processo</button>' : ''}
+      ${id ? `<button id="mDelete" class="ghost" style="color:var(--err)">${ICONE_LIXEIRA}Excluir processo</button>` : ''}
       <button id="mSave">Salvar</button>
     </div>
     <div class="msg" id="mMsg"></div>
@@ -2354,10 +2454,10 @@ async function renderEscala() {
     return { nome: a.nome, maxSeq };
   }).filter(x => x.maxSeq >= 7);
   shell(`
-    ${excessos7dias.length ? `<div class="alert-box" style="margin-bottom:14px">⚠️ <b>Atenção:</b> ${excessos7dias.map(x=>`${esc(x.nome)} (${x.maxSeq} dias seguidos)`).join(', ')} — verifique a escala, ninguém deveria trabalhar 7 dias seguidos sem folga.</div>` : ''}
+    ${excessos7dias.length ? `<div class="alert-box" style="margin-bottom:14px"><b>Atenção:</b> ${excessos7dias.map(x=>`${esc(x.nome)} (${x.maxSeq} dias seguidos)`).join(', ')} — verifique a escala, ninguém deveria trabalhar 7 dias seguidos sem folga.</div>` : ''}
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-        <h2 style="margin:0">📅 Escala de plantão</h2>
+        <h2 style="margin:0">Escala de plantão</h2>
         <input type="month" id="escMes" value="${state.escalaMes}">
         <span style="color:var(--muted);font-size:12px">Clique numa célula para marcar/desmarcar o plantão</span>
         <div class="spacer"></div>
@@ -2375,11 +2475,11 @@ async function renderEscala() {
           const dt = `${state.escalaMes}-${String(i+1).padStart(2,'0')}`;
           const on = byKey[a.id+'|'+dt]; if (on) { tot++; seq++; maxSeq = Math.max(maxSeq, seq); } else seq = 0;
           const dw = new Date(y,m-1,i+1).getDay();
-          return `<td class="esc-cell ${on?'on':''} ${dw===0||dw===6?'wend':''}" data-a="${a.id}" data-d="${dt}">${on?'✕':''}</td>`;
+          return `<td class="esc-cell ${on?'on':''} ${dw===0||dw===6?'wend':''}" data-a="${a.id}" data-d="${dt}">${on?ICONE_CHECK:''}</td>`;
         }).join('');
         return `<tr><td>${esc(a.nome)}${a.status==='Em licença' ? ' <span class="tag PENDENTE" style="font-size:10px">licença</span>' : ''}
-          ${maxSeq>=7 ? ` <span class="tag PENDENTE" style="font-size:10px" title="Sem folga">⚠️ ${maxSeq}d seguidos</span>` : ''}
-          ${tot===0 ? `<button class="ghost esc-remover" data-a="${a.id}" title="Tirar da escala deste mês" style="font-size:11px;padding:1px 5px;margin-left:4px">✕</button>` : ''}</td>${cells}<td><b>${tot}</b></td></tr>`;
+          ${maxSeq>=7 ? ` <span class="tag PENDENTE" style="font-size:10px" title="Sem folga">${maxSeq}d seguidos</span>` : ''}
+          ${tot===0 ? `<button class="ghost esc-remover" data-a="${a.id}" title="Tirar da escala deste mês" style="font-size:11px;padding:1px 5px;margin-left:4px">${ICONE_FECHAR}</button>` : ''}</td>${cells}<td><b>${tot}</b></td></tr>`;
       }).join('') || '<tr><td colspan="99" style="color:var(--muted)">Ninguém escalado neste mês. Use "+ Incluir colaborador" para montar a escala.</td></tr>'}
       <tr><td style="color:var(--muted)">Cobertura</td>${Array.from({length:ndays},(_,i)=>{
         const dt = `${state.escalaMes}-${String(i+1).padStart(2,'0')}`;
@@ -2430,24 +2530,24 @@ async function renderInsights() {
   shell(`
     ${dashSubTabs('insights')}
     <div class="kpis">
-      <div class="kpi"><div class="v" style="color:${disparar.length?'var(--err)':'var(--ok)'}">${disparar.length}</div><div class="l">🚨 Plantão sem atividade</div></div>
-      <div class="kpi"><div class="v" style="color:${(sla||[]).length?'var(--warn)':'var(--ok)'}">${(sla||[]).length}</div><div class="l">📥 Processos em aberto</div></div>
-      <div class="kpi"><div class="v" style="color:${estourados.length?'var(--err)':'var(--ok)'}">${estourados.length}</div><div class="l">⏰ SLA acima de 24h</div></div>
+      <div class="kpi"><div class="v" style="color:${disparar.length?'var(--err)':'var(--ok)'}">${disparar.length}</div><div class="l">Plantão sem atividade</div></div>
+      <div class="kpi"><div class="v" style="color:${(sla||[]).length?'var(--warn)':'var(--ok)'}">${(sla||[]).length}</div><div class="l">Processos em aberto</div></div>
+      <div class="kpi"><div class="v" style="color:${estourados.length?'var(--err)':'var(--ok)'}">${estourados.length}</div><div class="l">SLA acima de 24h</div></div>
     </div>
     <div class="card">
-      <h2>🚨 Plantão de hoje — ${esc(hoje)}</h2>
-      ${disparar.length ? `<div class="alert-box">⚠️ <b>${disparar.length} analista(s) escalado(s) sem atividade registrada:</b> ${disparar.map(a=>esc(a.nome)).join(', ')} — verifique às 12h e 17h.</div>` : `<div class="ok-box">✅ Todos os escalados de hoje já registraram atividade (ou não há escalados).</div>`}
+      <h2>Plantão de hoje — ${esc(hoje)}</h2>
+      ${disparar.length ? `<div class="alert-box"><b>${disparar.length} analista(s) escalado(s) sem atividade registrada:</b> ${disparar.map(a=>esc(a.nome)).join(', ')} — verifique às 12h e 17h.</div>` : `<div class="ok-box">Todos os escalados de hoje já registraram atividade (ou não há escalados).</div>`}
       ${(al||[]).length ? `<table style="margin-top:12px"><thead><tr><th>Analista</th><th>Atividades hoje</th><th>Situação</th></tr></thead>
       <tbody>${(al||[]).map(a => `<tr><td>${esc(a.nome)}</td><td>${a.atividades_hoje}</td>
         <td><span class="tag ${a.situacao==='PREENCHEU'?'CONCLUIDO':'PENDENTE'}">${esc(a.situacao)}</span></td></tr>`).join('')}</tbody></table>` : ''}
     </div>
     <div class="card">
-      <h2>⏰ Processos em aberto (mais antigos primeiro)</h2>
+      <h2>Processos em aberto (mais antigos primeiro)</h2>
       ${(sla||[]).length ? `<table><thead><tr><th>Nº</th><th>Proponente</th><th>Empreendedora</th><th>Analista</th><th>Recebido</th><th>Horas em aberto</th></tr></thead>
       <tbody>${(sla||[]).slice(0,15).map(s => `<tr>
         <td>${s.numero ?? ''}</td><td>${esc(s.proponente1_nome)}</td><td>${esc(s.empreendedora)}</td><td>${esc(s.analista)}</td>
         <td>${fmtDt(s.recebido_em)}</td>
-        <td style="color:${s.horas_aberto>24?'var(--err)':'var(--warn)'};font-weight:700">${s.horas_aberto}h</td></tr>`).join('')}</tbody></table>` : '<div class="ok-box">✅ Nenhum processo em aberto. Backlog zerado!</div>'}
+        <td style="color:${s.horas_aberto>24?'var(--err)':'var(--warn)'};font-weight:700">${s.horas_aberto}h</td></tr>`).join('')}</tbody></table>` : '<div class="ok-box">Nenhum processo em aberto. Backlog zerado!</div>'}
     </div>`);
   document.querySelectorAll('.dash-subtab').forEach(b => b.onclick = () => { state.view = b.dataset.v; render(); });
 }
@@ -2483,7 +2583,7 @@ async function renderAnalytics() {
   shell(`
     ${dashSubTabs('analytics')}
     <div class="card">
-      <h2>📈 Evolução por analista (últimos 6 meses)</h2>
+      <h2>Evolução por analista (últimos 6 meses)</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Mostra quem está crescendo ou caindo mês a mês — útil para conversas de performance.</p>
       <table><thead><tr><th>Analista</th>${ult6.map(m=>`<th>${mesLabel(m)}</th>`).join('')}<th>Tendência</th></tr></thead>
       <tbody>${analistas.map(a => {
@@ -2497,7 +2597,7 @@ async function renderAnalytics() {
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>🐢 Gargalos — atividades que mais demoram</h2>
+        <h2>Gargalos — atividades que mais demoram</h2>
         <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Tempo médio entre receber e concluir. Só atividades com 5+ casos. Onde atacar para ganhar velocidade.</p>
         ${lentas.map(a => `<div class="hbar-row"><span class="hbar-lbl">${esc(a.atividade)}</span>
           <div class="hbar"><div style="width:${Math.round(100*a.horas_medias/maxH)}%"></div></div>
@@ -2505,7 +2605,7 @@ async function renderAnalytics() {
           || '<p style="color:var(--muted);font-size:12.5px">Sem dados suficientes.</p>'}
       </div>
       <div class="card">
-        <h2>🎯 Concentração de clientes — ${ultMesEmp ? mesLabel(ultMesEmp) : '—'}</h2>
+        <h2>Concentração de clientes — ${ultMesEmp ? mesLabel(ultMesEmp) : '—'}</h2>
         <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">O quanto o volume depende de poucas empreendedoras (risco de concentração).</p>
         <div class="kpis" style="grid-template-columns:1fr 1fr;margin-bottom:10px">
           <div class="kpi"><div class="v" style="color:${top5share>70?'var(--warn)':'var(--accent)'}">${top5share}%</div><div class="l">Top 5 clientes</div></div>
@@ -2518,7 +2618,7 @@ async function renderAnalytics() {
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-        <h2 style="margin:0">🧩 Perfil de trabalho do analista</h2>
+        <h2 style="margin:0">Perfil de trabalho do analista</h2>
         <select id="anaAnalista"><option value="">Escolha um analista...</option>
           ${analistas.map(n=>`<option value="${esc(n)}" ${state.anaAnalista===n?'selected':''}>${esc(n)}</option>`).join('')}</select>
       </div>
@@ -2573,37 +2673,37 @@ async function renderOperacoes() {
 
   shell(`
     <div class="kpis">
-      <div class="kpi"><div class="v">${meusDoDia.length}</div><div class="l">📥 ${meuId ? 'Meus processos hoje' : 'Processos hoje'}</div></div>
-      <div class="kpi"><div class="v" style="color:${minhaEsteira.length?'var(--warn)':'var(--ok)'}">${minhaEsteira.length}</div><div class="l">⛓️ Comigo na esteira</div></div>
-      <div class="kpi"><div class="v" style="color:${esteiraSemDono.length?'var(--accent)':'var(--muted)'}">${esteiraSemDono.length}</div><div class="l">🙋 Na fila, sem responsável</div></div>
-      <div class="kpi"><div class="v" style="color:${meusApont.length?'var(--err)':'var(--ok)'}">${meusApont.length}</div><div class="l">🔁 Retrabalho em aberto</div></div>
+      <div class="kpi"><div class="v">${meusDoDia.length}</div><div class="l">${meuId ? 'Meus processos hoje' : 'Processos hoje'}</div></div>
+      <div class="kpi"><div class="v" style="color:${minhaEsteira.length?'var(--warn)':'var(--ok)'}">${minhaEsteira.length}</div><div class="l">Comigo na esteira</div></div>
+      <div class="kpi"><div class="v" style="color:${esteiraSemDono.length?'var(--accent)':'var(--muted)'}">${esteiraSemDono.length}</div><div class="l">Na fila, sem responsável</div></div>
+      <div class="kpi"><div class="v" style="color:${meusApont.length?'var(--err)':'var(--ok)'}">${meusApont.length}</div><div class="l">Retrabalho em aberto</div></div>
     </div>
 
     <div class="card">
-      <h2>⛓️ Comigo na esteira — precisa da minha ação</h2>
+      <h2>Comigo na esteira — precisa da minha ação</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Processos parados esperando você concluir a etapa.</p>
-      ${tabelaEsteira(minhaEsteira, meuId ? '✅ Nada parado com você. Tudo em dia!' : 'Seu usuário ainda não está vinculado a um colaborador — peça ao administrador em Administração → Usuários.')}
+      ${tabelaEsteira(minhaEsteira, meuId ? 'Nada parado com você. Tudo em dia!' : 'Seu usuário ainda não está vinculado a um colaborador — peça ao administrador em Administração → Usuários.')}
     </div>
 
     <div class="card">
-      <h2>🙋 Fila da equipe — disponível para pegar</h2>
+      <h2>Fila da equipe — disponível para pegar</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Processos na esteira sem responsável definido.</p>
       ${tabelaEsteira(esteiraSemDono, 'Nenhum processo esperando na fila.')}
     </div>
 
     <div class="grid-cad">
       <div class="card">
-        <h2>🔁 Retrabalho em aberto ${meuId ? '(meu)' : ''}</h2>
+        <h2>Retrabalho em aberto ${meuId ? '(meu)' : ''}</h2>
         ${meusApont.length ? meusApont.map(a => `
           <div class="cad-item"><span style="flex:1">
             <b>${esc(a.categoria)}</b>${a.subcategoria?` · ${esc(a.subcategoria)}`:''}
             ${a.demandas?.numero?`<span style="color:var(--muted);font-size:11px"> · proc. ${a.demandas.numero}</span>`:''}
             <br><span style="color:var(--muted);font-size:11.5px">${esc(a.descricao||'')}</span>
           </span></div>`).join('')
-          : '<div class="ok-box">Nenhum apontamento em aberto. 🎉</div>'}
+          : '<div class="ok-box">Nenhum apontamento em aberto. </div>'}
       </div>
       <div class="card">
-        <h2>📨 Meus chamados em aberto</h2>
+        <h2>Meus chamados em aberto</h2>
         ${meusChamados.length ? meusChamados.map(c => `
           <div class="cad-item"><span style="flex:1">
             <b>${esc(c.titulo)}</b> <span class="tag ${c.prioridade==='CRITICA'||c.prioridade==='ALTA'?'PENDENTE':'RECEBIDO'}">${esc(c.prioridade)}</span>
@@ -2615,7 +2715,7 @@ async function renderOperacoes() {
 
     ${(pendAntigas||[]).length ? `
     <div class="card">
-      <h2>⚠️ Processos de produção ainda não concluídos</h2>
+      <h2>Processos de produção ainda não concluídos</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Lançamentos que ficaram com status diferente de CONCLUÍDO.</p>
       <div class="table-scroll"><table><thead><tr><th>Nº</th><th>Recebido</th><th>Proponente</th><th>Unidade</th><th>Atividade</th><th>Analista</th><th>Status</th><th></th></tr></thead>
       <tbody>${pendAntigas.map(r => `<tr>
@@ -2627,7 +2727,7 @@ async function renderOperacoes() {
     </div>` : ''}
 
     <div class="card">
-      <h2>📥 ${meuId ? 'Meus lançamentos de hoje' : 'Lançamentos de hoje'} <span class="count-badge">${meusDoDia.length}</span></h2>
+      <h2>${meuId ? 'Meus lançamentos de hoje' : 'Lançamentos de hoje'} <span class="count-badge">${meusDoDia.length}</span></h2>
       ${meusDoDia.length ? `<div class="table-scroll"><table><thead><tr><th>Nº</th><th>Recebido</th><th>Proponente</th><th>Unidade</th><th>Atividade</th><th></th></tr></thead>
       <tbody>${meusDoDia.map(r => `<tr>
         <td style="white-space:nowrap">${r.numero ?? ''}</td><td style="white-space:nowrap">${fmtDt(r.recebido_em)}</td>
@@ -2689,7 +2789,7 @@ async function renderFluxogramas() {
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 style="margin:0">🗺️ Fluxograma dos Empreendimentos</h2>
+        <h2 style="margin:0">Fluxograma dos Empreendimentos</h2>
         <span style="color:var(--muted);font-size:12.5px">Um fluxo por empreendedora/grupo, conforme desenhado.</span>
         <div class="spacer"></div>
         <select id="fluxoSelect">
@@ -2702,7 +2802,7 @@ async function renderFluxogramas() {
         </select>
         ${state.role === 'admin' ? `
           <input type="file" id="fluxoUpload" accept=".drawio,.pdf,.png,.jpg,.jpeg,.webp" style="max-width:220px">
-          ${ehEnviado ? '<button id="btnExcluirFluxo" class="ghost" style="color:var(--err)">🗑 Excluir este</button>' : ''}
+          ${ehEnviado ? `<button id="btnExcluirFluxo" class="ghost" style="color:var(--err)">${ICONE_LIXEIRA}Excluir este</button>` : ''}
         ` : ''}
       </div>
       <div class="msg" id="fluxoMsg" style="margin-top:6px"></div>
@@ -2740,7 +2840,7 @@ async function renderValidacao() {
   const lista = Object.values(porDemanda).sort((a,b) => (a.ok/a.tot) - (b.ok/b.tot));
   shell(`
     <div class="card">
-      <h2>✅ Validação — checklists em andamento</h2>
+      <h2>Validação — checklists em andamento</h2>
       <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Cada processo pode ter um checklist (aberto pelo botão "Abrir" no Pipeline). Aqui você acompanha o avanço de todos.</p>
       ${lista.length ? `<table><thead><tr><th>Nº</th><th>Proponente</th><th>Analista</th><th>Status</th><th>Checklist</th><th>Progresso</th><th></th></tr></thead>
       <tbody>${lista.map(x => `<tr>
@@ -2782,7 +2882,7 @@ async function renderFollowup() {
   shell(`
     ${msgsCliente.length ? `
     <div class="card" style="border-color:var(--accent)">
-      <h2>💬 Mensagens do incorporador sem resposta (${msgsCliente.length})</h2>
+      <h2>Mensagens do incorporador sem resposta (${msgsCliente.length})</h2>
       ${msgsCliente.map(m => `
         <div class="fup">
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
@@ -2795,7 +2895,7 @@ async function renderFollowup() {
         </div>`).join('')}
     </div>` : ''}
     <div class="card filters" style="align-items:end">
-      <div style="flex:1"><label>🔎 Perfil do cliente (nome completo, unidade, esteira e linha do tempo)</label>
+      <div style="flex:1"><label>Perfil do cliente (nome completo, unidade, esteira e linha do tempo)</label>
         <input id="cliBusca" value="${esc(state.clienteBusca)}" placeholder="Digite o nome do cliente..."></div>
       ${state.clienteBusca ? '<button id="btnCliLimpar" class="ghost">Limpar</button>' : ''}
     </div>
@@ -2813,7 +2913,7 @@ async function renderFollowup() {
       ${state.followupBusca ? '<button id="btnFupLimpar" class="ghost">Limpar</button>' : ''}
     </div>
     <div class="card">
-      <h2>💬 Follow-ups ${termo ? `— ${fups.length} resultado(s)` : 'recentes'}</h2>
+      <h2>Follow-ups ${termo ? `— ${fups.length} resultado(s)` : 'recentes'}</h2>
       <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Registros feitos dentro de cada processo (Pipeline → Abrir → Follow-ups).</p>
       ${(fups||[]).length ? (fups||[]).map(f => `
         <div class="fup">
@@ -2864,7 +2964,7 @@ async function openPerfilCliente(clienteId) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:720px">
-    <h2>👤 ${esc(c?.nome)}</h2>
+    <h2>${esc(c?.nome)}</h2>
     <div class="grid2" style="margin-bottom:14px">
       <div><label>CPF</label><input value="${esc(c?.cpf)}" disabled></div>
       <div><label>RG</label><input value="${esc(c?.rg)}" disabled></div>
@@ -2882,7 +2982,7 @@ async function openPerfilCliente(clienteId) {
       <div><label>Status</label><input value="${esc(c?.status)}" disabled></div>
       ${c?.obs ? `<div style="grid-column:1/-1"><label>Observações</label><input value="${esc(c.obs)}" disabled></div>` : ''}
     </div>
-    <h2 style="margin-top:6px">🕓 Linha do tempo — tudo que já foi feito com este cliente</h2>
+    <h2 style="margin-top:6px">Linha do tempo — tudo que já foi feito com este cliente</h2>
     <div class="timeline" style="max-height:340px;overflow-y:auto">
       ${linha.length ? linha.map(l => `<div class="tl-item"><div class="tl-dot"></div>
         <div><b>${fmtDt(l.data)}</b> <span class="tag ${l.tipo==='Esteira'?'RECEBIDO':l.tipo==='Repasse'?'CONCLUIDO':'PENDENTE'}">${l.tipo}</span><br>${esc(l.texto)}</div></div>`).join('')
@@ -2908,24 +3008,24 @@ async function renderChamados() {
   shell(`
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-        <h2 style="margin:0">📨 Chamados entre Áreas</h2>
+        <h2 style="margin:0">Chamados entre Áreas</h2>
         <span style="color:var(--muted);font-size:12.5px">Chamados de toda a equipe — solicitação de boleto, documento, correção. Você edita apenas os seus.</span>
         <div class="spacer"></div>
         <button id="btnNovoCh">+ Novo chamado</button>
-        ${state.role === 'admin' ? '<button id="btnAreasContato" class="ghost">⚙️ Áreas e e-mails</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnAreasContato" class="ghost">Áreas e e-mails</button>' : ''}
       </div>
       ${(rows||[]).length ? `<div style="overflow-x:auto"><table style="min-width:900px"><thead><tr>
         <th>Aberto em</th><th>Título</th><th>Processo</th><th>Área destino</th><th>E-mail</th><th>Solicitante</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
       <tbody>${(rows||[]).map(c => `<tr>
         <td>${fmtDt(c.criado_em)}</td><td><b>${esc(c.titulo)}</b></td>
         <td>${esc(c.processo_ref || '—')}</td><td>${esc(c.area)}</td>
-        <td style="font-size:11.5px">${c.enviado_em ? `✉️ ${esc(c.email_destino||'')}<br><span style="color:var(--muted)">enviado ${fmtDt(c.enviado_em)}</span>` : `<span style="color:var(--muted)">não enviado</span>`}</td>
+        <td style="font-size:11.5px">${c.enviado_em ? `${esc(c.email_destino||'')}<br><span style="color:var(--muted)">enviado ${fmtDt(c.enviado_em)}</span>` : `<span style="color:var(--muted)">não enviado</span>`}</td>
         <td style="font-size:11.5px">${esc(c.solicitante)}</td>
         <td><span class="tag ${c.prioridade==='CRITICA'||c.prioridade==='ALTA'?'PENDENTE':'RECEBIDO'}">${esc(c.prioridade)}</span></td>
         <td><span class="tag ${c.status==='RESOLVIDO'?'CONCLUIDO':c.status==='ABERTO'?'PENDENTE':'RECEBIDO'}">${esc(c.status)}</span></td>
         <td style="white-space:nowrap">
           <button class="ghost btnVerCh" data-id="${c.id}">Abrir</button>
-          ${c.email_destino ? `<button class="ghost btnEmailCh" data-id="${c.id}">✉️</button>` : ''}
+          ${c.email_destino ? `<button class="ghost btnEmailCh" data-id="${c.id}"></button>` : ''}
           ${c.status!=='RESOLVIDO' ? `<button class="ghost btnResolver" data-id="${c.id}">Resolver</button>` : ''}
         </td></tr>`).join('')}</tbody></table></div>`
       : '<div class="ok-box">Nenhum chamado aberto.</div>'}
@@ -2956,8 +3056,8 @@ async function openChamado(c, areas, remetentePadrao) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:640px">
-    <h2>${novo ? '📨 Novo chamado entre áreas' : '📨 ' + esc(c.titulo)}</h2>
-    ${!souDono ? `<div class="msg" style="margin-bottom:10px">👀 Somente leitura — chamado aberto por <b>${esc(c.solicitante)}</b>.</div>` : ''}
+    <h2>${novo ? 'Novo chamado entre áreas' : '' + esc(c.titulo)}</h2>
+    ${!souDono ? `<div class="msg" style="margin-bottom:10px">Somente leitura — chamado aberto por <b>${esc(c.solicitante)}</b>.</div>` : ''}
     <div class="grid2">
       <div style="grid-column:1/-1"><label>Assunto / título</label>
         <input id="chTitulo" value="${esc(c?.titulo)}" placeholder="Ex.: Solicitação de boleto do ato — Unid. 1002" ${ro}></div>
@@ -2978,19 +3078,19 @@ async function openChamado(c, areas, remetentePadrao) {
         <textarea id="chDesc" rows="6" placeholder="Descreva o que precisa: valores, prazos, anexos..." ${ro}>${esc(c?.descricao)}</textarea></div>
     </div>
     ${!novo ? `
-    <h2 style="margin-top:16px;font-size:15px">📎 Anexos</h2>
+    <h2 style="margin-top:16px;font-size:15px">Anexos</h2>
     <div id="chAnexos" class="anexo-list"><p style="color:var(--muted);font-size:12.5px">Carregando...</p></div>
     ${souDono ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
       <input id="chArquivo" type="file" style="flex:1">
-      <button id="btnChUpload" class="ghost">⬆ Anexar</button>
+      <button id="btnChUpload" class="ghost">${ICONE_UPLOAD}Anexar</button>
     </div>` : ''}` : ''}
-    ${c?.enviado_em ? `<div class="ok-box" style="margin-top:10px">✉️ E-mail enviado em ${fmtDt(c.enviado_em)} por ${esc(c.enviado_por||'')}</div>` : ''}
+    ${c?.enviado_em ? `<div class="ok-box" style="margin-top:10px">E-mail enviado em ${fmtDt(c.enviado_em)} por ${esc(c.enviado_por||'')}</div>` : ''}
     <div class="msg" id="chMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px;flex-wrap:wrap">
       <button id="chCancel" class="ghost">Fechar</button>
-      ${!novo && state.role==='admin' ? '<button id="chExcluir" class="ghost" style="color:var(--err)">🗑️ Excluir</button>' : ''}
+      ${!novo && state.role==='admin' ? `<button id="chExcluir" class="ghost" style="color:var(--err)">${ICONE_LIXEIRA}Excluir</button>` : ''}
       ${souDono ? `<button id="chSalvar" class="ghost">${novo ? 'Só registrar' : 'Salvar'}</button>
-      <button id="chEnviar">✉️ ${c?.enviado_em ? 'Reenviar' : 'Registrar e enviar e-mail'}</button>` : ''}
+      <button id="chEnviar">${c?.enviado_em ? 'Reenviar' : 'Registrar e enviar e-mail'}</button>` : ''}
     </div>
   </div>`;
   document.body.appendChild(div);
@@ -3015,8 +3115,8 @@ async function openChamado(c, areas, remetentePadrao) {
       <div class="anexo-item">${iconeArquivo(a.nome)}
         <span style="flex:1">${esc(a.nome)}</span>
         <span style="color:var(--muted2);font-size:11px">${esc(a.criado_por||'')}</span>
-        <button class="ghost anexo-baixar" data-path="${esc(a.storage_path)}" data-nome="${esc(a.nome)}">⬇</button>
-        ${souDono ? `<button class="ghost anexo-excluir" data-id="${a.id}" data-path="${esc(a.storage_path)}">✕</button>` : ''}
+        <button class="ghost anexo-baixar" data-path="${esc(a.storage_path)}" data-nome="${esc(a.nome)}">${ICONE_DOWNLOAD}</button>
+        ${souDono ? `<button class="ghost anexo-excluir" data-id="${a.id}" data-path="${esc(a.storage_path)}">${ICONE_FECHAR}</button>` : ''}
       </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum anexo ainda.</p>';
     wrap.querySelectorAll('.anexo-baixar').forEach(b => b.onclick = async () => {
       const { data } = await sb.storage.from('chamados-anexos').createSignedUrl(b.dataset.path, 60);
@@ -3119,13 +3219,13 @@ function abrirEnvioAcessoEmail(email, nivel) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:620px">
-    <h2>✉️ Instruções de acesso enviadas</h2>
+    <h2>Instruções de acesso enviadas</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">O acesso foi criado com segurança (sem senha exposta). Um e-mail foi enviado com instruções para redefinir a senha:</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <button id="acOutlook">📧 Reenviar via Outlook Web</button>
-      <button id="acMailto" class="ghost">💻 Reenviar via app de e-mail</button>
+      <button id="acOutlook">Reenviar via Outlook Web</button>
+      <button id="acMailto" class="ghost">Reenviar via app de e-mail</button>
       <button id="acGmail" class="ghost">Reenviar via Gmail</button>
-      <button id="acCopiar" class="ghost">📋 Copiar instruções</button>
+      <button id="acCopiar" class="ghost">Copiar instruções</button>
     </div>
     <div class="grid2">
       <div style="grid-column:1/-1"><label>Para</label><input value="${esc(email)}" readonly></div>
@@ -3143,7 +3243,7 @@ function abrirEnvioAcessoEmail(email, nivel) {
   $('acMailto').onclick = () => { window.location.href = mailtoUrl; };
   $('acCopiar').onclick = async () => {
     const txt = `Para: ${email}\nAssunto: ${assunto}\n\n${corpo}`;
-    try { await navigator.clipboard.writeText(txt); $('acMsg').textContent = '✅ Copiado! Cole no seu e-mail.'; }
+    try { await navigator.clipboard.writeText(txt); $('acMsg').textContent = 'Copiado! Cole no seu e-mail.'; }
     catch { $('acCorpo').select(); $('acMsg').textContent = 'Selecione o texto e copie com Ctrl+C.'; }
   };
 }
@@ -3172,13 +3272,13 @@ async function abrirEnvioEmail(rec, chamadoId) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:620px">
-    <h2>✉️ Enviar chamado por e-mail</h2>
+    <h2>Enviar chamado por e-mail</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">O chamado já foi registrado no sistema. Escolha como enviar o e-mail:</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <button id="evOutlook">📧 Abrir no Outlook Web</button>
-      <button id="evMailto" class="ghost">💻 Abrir no app de e-mail</button>
+      <button id="evOutlook">Abrir no Outlook Web</button>
+      <button id="evMailto" class="ghost">Abrir no app de e-mail</button>
       <button id="evGmail" class="ghost">Abrir no Gmail</button>
-      <button id="evCopiar" class="ghost">📋 Copiar tudo</button>
+      <button id="evCopiar" class="ghost">Copiar tudo</button>
     </div>
     <div class="grid2">
       <div><label>Para</label><input id="evPara" value="${esc(rec.email_destino)}" readonly></div>
@@ -3197,7 +3297,7 @@ async function abrirEnvioEmail(rec, chamadoId) {
   $('evMailto').onclick = () => { window.location.href = mailtoUrl; };
   $('evCopiar').onclick = async () => {
     const txt = `Para: ${rec.email_destino}\n${rec.email_copia ? 'Cc: '+rec.email_copia+'\n' : ''}Assunto: ${rec.titulo}\n\n${corpo}`;
-    try { await navigator.clipboard.writeText(txt); $('evMsg').textContent = '✅ Copiado! Cole no seu e-mail.'; }
+    try { await navigator.clipboard.writeText(txt); $('evMsg').textContent = 'Copiado! Cole no seu e-mail.'; }
     catch { $('evCorpo').select(); $('evMsg').textContent = 'Selecione o texto e copie com Ctrl+C.'; }
   };
 }
@@ -3206,7 +3306,7 @@ async function openAreasContato(areas, remetentePadrao) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:560px">
-    <h2>⚙️ Áreas e e-mails</h2>
+    <h2>Áreas e e-mails</h2>
     <div style="margin-bottom:14px">
       <label>E-mail remetente padrão (aparece como "De" nos chamados)</label>
       <div style="display:flex;gap:8px">
@@ -3218,7 +3318,7 @@ async function openAreasContato(areas, remetentePadrao) {
     <div id="acLista">${areas.map(a => `
       <div class="cad-item" style="display:flex;gap:8px;align-items:center">
         <span style="flex:1"><b>${esc(a.area)}</b><br><span style="color:var(--muted);font-size:12px">${esc(a.email)}</span></span>
-        <button class="ghost ac-del" data-id="${a.id}">✕</button>
+        <button class="ghost ac-del" data-id="${a.id}">${ICONE_FECHAR}</button>
       </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhuma área cadastrada.</p>'}</div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <input id="acNovaArea" placeholder="Nome da área" style="flex:1;min-width:130px">
@@ -3233,7 +3333,7 @@ async function openAreasContato(areas, remetentePadrao) {
   div.querySelector('#acSalvarRemetente').onclick = async () => {
     const v = div.querySelector('#acRemetente').value.trim();
     const { error } = await sb.from('config_sistema').upsert({ id: 'email_remetente_padrao', valor: v, atualizado_em: new Date().toISOString() });
-    div.querySelector('#acMsg').textContent = error ? error.message : '✅ Remetente padrão salvo.';
+    div.querySelector('#acMsg').textContent = error ? error.message : 'Remetente padrão salvo.';
   };
   div.querySelector('#acAdd').onclick = async () => {
     const area = div.querySelector('#acNovaArea').value.trim();
@@ -3253,7 +3353,7 @@ async function openMarcarLancamento(eventos) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:480px">
-    <h2>🚀 Dias de lançamento</h2>
+    <h2>Dias de lançamento</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Marque os dias de lançamento para que o volume atípico não distorça médias, metas e a capacidade real da equipe.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <input id="mlData" type="date" style="flex:1;min-width:140px">
@@ -3262,7 +3362,7 @@ async function openMarcarLancamento(eventos) {
     </div>
     <div id="mlLista">${eventos.sort((a,b)=>b.data.localeCompare(a.data)).map(e=>`
       <div class="cad-item">${new Date(e.data+'T12:00').toLocaleDateString('pt-BR')} — ${esc(e.descricao||'Lançamento')}
-        <button class="ghost ml-del" data-id="${e.id}">✕</button></div>`).join('')
+        <button class="ghost ml-del" data-id="${e.id}">${ICONE_FECHAR}</button></div>`).join('')
       || '<p style="color:var(--muted);font-size:12.5px">Nenhum dia marcado ainda.</p>'}</div>
     <div class="msg" id="mlMsg"></div>
     <div style="display:flex;justify-content:end;margin-top:14px"><button id="mlFechar" class="ghost">Fechar</button></div>
@@ -3333,38 +3433,38 @@ async function renderImplantacao() {
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 style="margin:0">🚀 Produtos em Implantação — Lançamentos</h2>
+        <h2 style="margin:0">Produtos em Implantação — Lançamentos</h2>
         <span style="color:var(--muted);font-size:12.5px">Carteira de implantação: avanço, pendências e prazo de lançamento.</span>
         <div class="spacer"></div>
-        ${state.role !== 'leitura' ? '<button id="btnNovaImpl">+ Novo produto</button>' : ''}
+        ${state.role !== 'leitura' ? `<button id="btnImportarImpl" class="ghost">${ICONE_UPLOAD}Importar planilha</button><button id="btnNovaImpl">+ Novo produto</button>` : ''}
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi kpi-clicavel" data-filtro-tipo="" data-filtro-valor=""><div class="v">${total}</div><div class="l">🏗️ Total de produtos</div></div>
-      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Em andamento"><div class="v" style="color:var(--accent)">${emImpl}</div><div class="l">⚙️ Em implantação</div></div>
-      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Concluído"><div class="v" style="color:var(--ok)">${concl}</div><div class="l">✅ Concluídos</div></div>
-      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Não iniciado"><div class="v" style="color:var(--muted)">${naoIni}</div><div class="l">⏸️ Não iniciados</div></div>
-      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Com reprovação"><div class="v" style="color:${comReprov?'var(--err)':'var(--muted)'}">${comReprov}</div><div class="l">⛔ Com reprovação</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="" data-filtro-valor=""><div class="v">${total}</div><div class="l">Total de produtos</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Em andamento"><div class="v" style="color:var(--accent)">${emImpl}</div><div class="l">Em implantação</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Concluído"><div class="v" style="color:var(--ok)">${concl}</div><div class="l">Concluídos</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Não iniciado"><div class="v" style="color:var(--muted)">${naoIni}</div><div class="l">Não iniciados</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="status_auto" data-filtro-valor="Com reprovação"><div class="v" style="color:${comReprov?'var(--err)':'var(--muted)'}">${comReprov}</div><div class="l">Com reprovação</div></div>
     </div>
     <div class="kpis">
-      <div class="kpi kpi-clicavel" data-filtro-tipo="criticidade" data-filtro-valor="🔴 Risco crítico"><div class="v" style="color:${criticos?'var(--err)':'var(--ok)'}">${criticos}</div><div class="l">🔴 Em risco crítico</div></div>
-      <div class="kpi"><div class="v">${avancoMedio}%</div><div class="l">📊 Avanço médio</div></div>
-      <div class="kpi kpi-clicavel" data-filtro-tipo="pendencias" data-filtro-valor=""><div class="v" style="color:var(--warn)">${pendAbertas}</div><div class="l">⚠️ Pendências abertas</div></div>
-      <div class="kpi"><div class="v">${unidades.toLocaleString('pt-BR')}</div><div class="l">🏠 Total de unidades</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="criticidade" data-filtro-valor="🔴 Risco crítico"><div class="v" style="color:${criticos?'var(--err)':'var(--ok)'}">${criticos}</div><div class="l">${dot('🔴')}Em risco crítico</div></div>
+      <div class="kpi"><div class="v">${avancoMedio}%</div><div class="l">Avanço médio</div></div>
+      <div class="kpi kpi-clicavel" data-filtro-tipo="pendencias" data-filtro-valor=""><div class="v" style="color:var(--warn)">${pendAbertas}</div><div class="l">Pendências abertas</div></div>
+      <div class="kpi"><div class="v">${unidades.toLocaleString('pt-BR')}</div><div class="l">Total de unidades</div></div>
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>📊 Inteligência da carteira</h2>
+        <h2>Inteligência da carteira</h2>
         <table><tbody>
           <tr style="cursor:pointer" data-filtro-tipo="vencidos" data-filtro-valor=""><td>Lançamentos vencidos</td><td style="text-align:right"><b style="color:${vencidos?'var(--err)':'var(--ok)'}">${vencidos}</b></td></tr>
           <tr style="cursor:pointer" data-filtro-tipo="ate30" data-filtro-valor=""><td>Lançamentos em ≤ 30 dias</td><td style="text-align:right"><b style="color:${ate30?'var(--warn)':'var(--muted)'}">${ate30}</b></td></tr>
           <tr style="cursor:pointer" data-filtro-tipo="criticidade_in" data-filtro-valor='["🔴 Risco crítico","🟠 Risco de atraso"]'><td>Carteira em risco</td><td style="text-align:right"><b style="color:${emRisco>50?'var(--err)':emRisco>25?'var(--warn)':'var(--ok)'}">${emRisco}%</b></td></tr>
           <tr style="cursor:pointer" data-filtro-tipo="pendencias" data-filtro-valor=""><td>Pendências abertas</td><td style="text-align:right"><b>${pendAbertas}</b></td></tr>
         </tbody></table>
-        <p style="color:var(--muted);font-size:11.5px;margin-top:8px">Criticidade por semanas até o lançamento: 🟢 no prazo &gt;8 · 🟡 atenção 6–8 · 🟠 risco de atraso 4–6 · 🔴 crítico &lt;4</p>
+        <p style="color:var(--muted);font-size:11.5px;margin-top:8px">Criticidade por semanas até o lançamento: ${dot('🟢')}no prazo &gt;8 · ${dot('🟡')}atenção 6–8 · ${dot('🟠')}risco de atraso 4–6 · ${dot('🔴')}crítico &lt;4</p>
       </div>
       <div class="card">
-        <h2>🎯 Foco imediato</h2>
+        <h2>Foco imediato</h2>
         ${foco.map(i => `<div class="hbar-row btn-foco-impl" data-id="${i.id}" style="cursor:pointer">
           <span class="hbar-lbl" style="min-width:150px">${esc(i.empreendimento)}</span>
           <div class="hbar"><div style="width:${i.avanco_pct}%"></div></div>
@@ -3395,7 +3495,7 @@ async function renderImplantacao() {
         <td style="text-align:center;color:${i.pendencias_abertas>0?'var(--warn)':'var(--muted)'}">${i.pendencias_abertas}</td>
         <td style="text-align:right">${i.unidades}</td>
         <td>${i.previsao_lancamento ? new Date(i.previsao_lancamento+'T12:00').toLocaleDateString('pt-BR') : '—'}</td>
-        <td style="white-space:nowrap;font-size:12px">${esc(i.criticidade)}</td>
+        <td style="white-space:nowrap;font-size:12px">${dotLabel(i.criticidade)}</td>
         <td><button class="ghost btn-impl" data-id="${i.id}">Abrir</button></td>
       </tr>`).join('')}</tbody></table>
       </div>
@@ -3411,6 +3511,82 @@ async function renderImplantacao() {
   if (bLF) bLF.onclick = () => { state.implantacaoFiltro = null; renderImplantacao(); };
   const bN = document.getElementById('btnNovaImpl');
   if (bN) bN.onclick = () => openImplantacao(null);
+  const bImp = document.getElementById('btnImportarImpl');
+  if (bImp) bImp.onclick = () => abrirImportarImplantacao(renderImplantacao);
+}
+
+// Importa a carteira de Produtos em Implantação em lote a partir de uma planilha (nunca fica
+// gravada em nenhum arquivo do projeto — só lida no navegador e enviada direto pro banco).
+function abrirImportarImplantacao(aoTerminar) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:520px">
+    <h2>Importar planilha — Produtos em Implantação</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
+      Colunas aceitas (primeira linha = cabeçalho): <b>Empreendedora</b>, <b>Empreendimento</b>
+      (obrigatórios), Tipo, Fase, Sistemas, Link do sistema, Unidades, Previsão de lançamento,
+      Documentação recebida em, SLA (dias úteis), Observações.
+    </p>
+    <input id="impIArquivo" type="file" accept=".xlsx,.xls,.csv" style="width:100%;margin-bottom:10px">
+    <div class="msg" id="impIMsg"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:end">
+      <button id="impICancelar" class="ghost">Fechar</button>
+      <button id="impIConfirmar">Importar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#impICancelar').onclick = () => div.remove();
+  div.querySelector('#impIConfirmar').onclick = async () => {
+    const f = div.querySelector('#impIArquivo').files[0];
+    const msg = div.querySelector('#impIMsg');
+    if (!f) { msg.textContent = 'Selecione um arquivo primeiro.'; return; }
+    msg.style.color = ''; msg.textContent = 'Lendo planilha...';
+    const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const normKeys = (obj) => Object.fromEntries(Object.entries(obj).map(([k,v]) => [k.trim().replace(/\s+/g,' '), v]));
+    let linhas = [];
+    for (const nomeAba of wb.SheetNames) {
+      const tentativa = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { defval: '' }).map(normKeys);
+      if (tentativa.some(l => String(l['Empreendimento'] || '').trim())) { linhas = tentativa; break; }
+    }
+    if (!linhas.length) { msg.textContent = 'Não encontrei nenhuma aba com a coluna "Empreendimento" preenchida nesta planilha.'; return; }
+    const paraData = (v) => {
+      if (!v) return null;
+      if (v instanceof Date) return v.toISOString().slice(0,10);
+      const s = String(v).trim();
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (m) { const [,d,mo,y] = m; return `${(+y.length===2?'20'+y:y)}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+      const dt = new Date(s); return isNaN(dt) ? null : dt.toISOString().slice(0,10);
+    };
+    let ok = 0, semDados = 0;
+    const registros = [];
+    for (const l of linhas) {
+      const empreendedora = String(l['Empreendedora'] || '').trim();
+      const empreendimento = String(l['Empreendimento'] || '').trim();
+      if (!empreendedora || !empreendimento) { semDados++; continue; }
+      registros.push({
+        empreendedora, empreendimento,
+        tipo: String(l['Tipo'] || '').trim() || null,
+        fase: String(l['Fase'] || '').trim() || null,
+        sistemas: String(l['Sistemas'] || '').trim() || null,
+        link_sistema: String(l['Link do sistema'] || '').trim() || null,
+        unidades: Number(l['Unidades'] || 0) || 0,
+        previsao_lancamento: paraData(l['Previsão de lançamento']),
+        documentacao_recebida_em: paraData(l['Documentação recebida em']),
+        sla_dias_uteis: l['SLA (dias úteis)'] !== '' ? Number(l['SLA (dias úteis)']) || null : null,
+        observacoes: String(l['Observações'] || '').trim() || null,
+      });
+      ok++;
+    }
+    if (!registros.length) { msg.textContent = 'Nenhuma linha com Empreendedora e Empreendimento preenchidos — nada foi importado.'; return; }
+    msg.textContent = `Importando ${registros.length} linha(s)...`;
+    const { error } = await sb.from('implantacoes').insert(registros);
+    if (error) { msg.style.color = 'var(--err)'; msg.textContent = 'Erro ao importar: ' + error.message; return; }
+    msg.style.color = 'var(--ok)';
+    msg.textContent = `${ok} produto(s) importado(s)${semDados ? ` · ${semDados} linha(s) ignorada(s) por falta de Empreendedora/Empreendimento` : ''}.`;
+    setTimeout(() => { div.remove(); aoTerminar(); }, 1600);
+  };
 }
 
 async function openImplantacao(id) {
@@ -3428,7 +3604,7 @@ async function openImplantacao(id) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:720px">
-    <h2>${id ? '🚀 ' + esc(it.empreendimento) : '🚀 Novo produto em implantação'}</h2>
+    <h2>${id ? '' + esc(it.empreendimento) : 'Novo produto em implantação'}</h2>
     ${id ? `<div class="kpis" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
       <div class="kpi"><div class="v" style="font-size:20px">${it.avanco_pct}%</div><div class="l">Avanço</div></div>
       <div class="kpi"><div class="v" style="font-size:20px;color:${it.pendencias_abertas?'var(--warn)':'var(--ok)'}">${it.pendencias_abertas}</div><div class="l">Pendências</div></div>
@@ -3449,10 +3625,10 @@ async function openImplantacao(id) {
       <div style="grid-column:1/-1"><label>Observações</label><textarea id="imObs" rows="4" ${ro?'disabled':''}>${esc(it?.observacoes)}</textarea></div>
     </div>
     ${id ? `
-    <h2 style="margin-top:18px">📋 Checklist de implantação</h2>
+    <h2 style="margin-top:18px">Checklist de implantação</h2>
     ${it.checklist_total > 0 && it.checklist_feitos < it.checklist_total ? `
       <div class="msg" style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 10px;font-size:12.5px;margin-bottom:8px">
-        ⚠️ ${it.checklist_feitos} de ${it.checklist_total} item(ns) aprovado(s).
+        ${it.checklist_feitos} de ${it.checklist_total} item(ns) aprovado(s).
         ${it.checklist_reprovados > 0 ? `<b>${it.checklist_reprovados} reprovado(s).</b> ` : ''}
         O produto só chega a 100% e vira <b>Concluído</b> quando todos estiverem <b>Aprovados</b>.
       </div>` : ''}
@@ -3468,7 +3644,7 @@ async function openImplantacao(id) {
               </select>`}
           </div>`).join('')}
       </div>`).join('')}
-    <h2 style="margin-top:14px">⚠️ Pendências / alertas</h2>
+    <h2 style="margin-top:14px">Pendências / alertas</h2>
     <table><thead><tr><th>Pendência</th><th>Área</th><th>Status</th></tr></thead>
     <tbody>${pendencias.map(p=>`<tr>
       <td>${esc(p.pendencia)}</td><td>${esc(p.area||'—')}</td>
@@ -3584,14 +3760,21 @@ async function renderQualidade() {
     reg.cats[a.categoria] = (reg.cats[a.categoria]||0) + 1;
   });
   const maxCat = Math.max(1, ...Object.values(porCat));
+  const maxAnalistaCat = Math.max(1, ...Object.values(porAnalista).flatMap(r => Object.values(r.cats)));
   const abertos = visiveis.filter(a => !a.resolvido).length;
   const porOrigem = { cliente: visiveis.filter(a=>a.origem==='cliente').length,
                       validacao_interna: visiveis.filter(a=>a.origem==='validacao_interna').length };
+  const FILTROS_QUAL = {
+    aberto: a => !a.resolvido,
+    cliente: a => a.origem === 'cliente',
+    validacao_interna: a => a.origem === 'validacao_interna',
+  };
+  const tabelaFiltrada = state.qualFiltro ? visiveis.filter(FILTROS_QUAL[state.qualFiltro]) : visiveis;
 
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 style="margin:0">🔁 Qualidade / Retrabalho</h2>
+        <h2 style="margin:0">Qualidade / Retrabalho</h2>
         <span style="color:var(--muted);font-size:12.5px">${souGestao ? 'Apontamentos de erro de toda a equipe.' : 'Seus apontamentos do mês, em tempo real.'}</span>
         <div class="spacer"></div>
         <input id="qualMes" type="month" value="${state.qualMes}">
@@ -3599,35 +3782,35 @@ async function renderQualidade() {
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${visiveis.length}</div><div class="l">🔁 Apontamentos no mês</div></div>
-      <div class="kpi"><div class="v" style="color:${abertos?'var(--warn)':'var(--ok)'}">${abertos}</div><div class="l">⏳ Em aberto</div></div>
-      <div class="kpi"><div class="v" style="color:var(--err)">${porOrigem.cliente}</div><div class="l">👤 Apontados pelo cliente</div></div>
-      <div class="kpi"><div class="v">${porOrigem.validacao_interna}</div><div class="l">✅ Pegos na validação interna</div></div>
-      ${souGestao ? `<div class="kpi"><div class="v" style="color:${(solicitacoesPendentes||[]).length?'var(--err)':'var(--ok)'}">${(solicitacoesPendentes||[]).length}</div><div class="l">🗑️ Exclusões aguardando aprovação</div></div>` : ''}
+      <div class="kpi kpi-clicavel ${!state.qualFiltro?'active':''}" data-qfiltro=""><div class="v">${visiveis.length}</div><div class="l">Apontamentos no mês</div></div>
+      <div class="kpi kpi-clicavel ${state.qualFiltro==='aberto'?'active':''}" data-qfiltro="aberto"><div class="v" style="color:${abertos?'var(--warn)':'var(--ok)'}">${abertos}</div><div class="l">Em aberto</div></div>
+      <div class="kpi kpi-clicavel ${state.qualFiltro==='cliente'?'active':''}" data-qfiltro="cliente"><div class="v" style="color:var(--err)">${porOrigem.cliente}</div><div class="l">Apontados pelo cliente</div></div>
+      <div class="kpi kpi-clicavel ${state.qualFiltro==='validacao_interna'?'active':''}" data-qfiltro="validacao_interna"><div class="v">${porOrigem.validacao_interna}</div><div class="l">Pegos na validação interna</div></div>
+      ${souGestao ? `<div class="kpi"><div class="v" style="color:${(solicitacoesPendentes||[]).length?'var(--err)':'var(--ok)'}">${(solicitacoesPendentes||[]).length}</div><div class="l">Exclusões aguardando aprovação</div></div>` : ''}
     </div>
     ${souGestao && (solicitacoesPendentes||[]).length ? `<div class="card" style="margin-bottom:14px;border:1px solid var(--err)">
-      <h2>🗑️ Solicitações de exclusão pendentes</h2>
+      <h2>Solicitações de exclusão pendentes</h2>
       ${solicitacoesPendentes.map(s => `
         <div style="padding:10px 0;border-bottom:1px solid var(--border)">
           <div style="font-size:13px"><b>${esc(s.apontamentos_erro?.analistas?.nome || '—')}</b> pediu exclusão de: ${esc(s.apontamentos_erro?.categoria||'—')} ${s.apontamentos_erro?.subcategoria?'· '+esc(s.apontamentos_erro.subcategoria):''}</div>
           <div style="color:var(--muted);font-size:12px;margin:4px 0">${esc(s.apontamentos_erro?.descricao||'—')}</div>
           <div style="color:var(--text);font-size:12.5px;background:var(--panel2);padding:8px 10px;border-radius:6px;margin-bottom:8px"><b>Motivo alegado:</b> ${esc(s.motivo)}</div>
           <div style="display:flex;gap:8px">
-            <button class="btn-aprovar-excl" data-id="${s.id}" data-apt="${s.apontamento_id}">✔ Aprovar exclusão</button>
-            <button class="ghost btn-rejeitar-excl" data-id="${s.id}">✕ Rejeitar</button>
+            <button class="btn-aprovar-excl" data-id="${s.id}" data-apt="${s.apontamento_id}">Aprovar exclusão</button>
+            <button class="ghost btn-rejeitar-excl" data-id="${s.id}">${ICONE_FECHAR}Rejeitar</button>
           </div>
         </div>`).join('')}
     </div>` : ''}
     <div class="grid-cad">
       <div class="card">
-        <h2>📊 Por categoria (o "porquê")</h2>
+        <h2>Por categoria (o "porquê")</h2>
         ${Object.entries(porCat).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
           <div class="hbar-row"><span class="hbar-lbl">${esc(c)}</span>
           <div class="hbar"><div style="width:${Math.round(100*n/maxCat)}%"></div></div><b>${n}</b></div>`).join('')
-          || '<p style="color:var(--muted);font-size:12.5px">Nenhum apontamento neste mês. 🎉</p>'}
+          || '<p style="color:var(--muted);font-size:12.5px">Nenhum apontamento neste mês. </p>'}
       </div>
       ${souGestao ? `<div class="card">
-        <h2>👥 Por analista</h2>
+        <h2>Por analista</h2>
         ${Object.entries(porAnalista).sort((a,b)=>b[1].total-a[1].total).map(([n,reg],i)=>`
           <div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
@@ -3636,16 +3819,19 @@ async function renderQualidade() {
             ${Object.entries(reg.cats).sort((a,b)=>b[1]-a[1]).map(([cat,q])=>`
               <div class="hbar-row" style="padding-left:10px">
                 <span class="hbar-lbl" style="font-size:11.5px;color:var(--muted)">${esc(cat)}</span>
-                <div class="hbar"><div style="width:${Math.round(100*q/reg.total)}%"></div></div><b style="font-size:12px">${q}</b>
+                <div class="hbar"><div style="width:${Math.round(100*q/maxAnalistaCat)}%"></div></div><b style="font-size:12px">${q}</b>
               </div>`).join('')}
           </div>`).join('')
           || '<p style="color:var(--muted);font-size:12.5px">Sem registros.</p>'}
       </div>` : ''}
     </div>
     <div class="card">
-      <h2>Apontamentos de ${mesLabel(state.qualMes)}</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">Apontamentos de ${mesLabel(state.qualMes)}</h2>
+        ${state.qualFiltro ? `<span class="tag PENDENTE">Filtro ativo — ${tabelaFiltrada.length} de ${visiveis.length}</span><button id="btnLimparFiltroQual" class="ghost" style="padding:2px 10px">Limpar filtro</button>` : ''}
+      </div>
       <table><thead><tr><th>Data</th><th>Processo</th><th>Analista</th><th>Origem</th><th>Categoria</th><th>Detalhe</th><th>Descrição</th><th>Status</th><th></th></tr></thead>
-      <tbody>${visiveis.map((a,i) => `<tr>
+      <tbody>${tabelaFiltrada.map((a,i) => `<tr>
         <td>${fmtDt(a.criado_em)}</td>
         <td>${esc(a.demandas?.numero ?? '—')}${a.demandas?.proponente1_nome ? '<br><span style="color:var(--muted);font-size:11px">'+esc(a.demandas.proponente1_nome)+'</span>' : ''}</td>
         <td>${esc(nomeExib(a.analistas?.nome || '—', i+1))}</td>
@@ -3657,11 +3843,17 @@ async function renderQualidade() {
           ${state.role!=='leitura' && !a.resolvido ? `<button class="ghost btn-resolver" data-id="${a.id}">Resolver</button>` : ''}
           ${state.role!=='leitura' ? (statusSolicitacaoPorApontamento[a.id] === 'pendente'
             ? `<span class="tag PENDENTE" title="Aguardando aprovação do administrador">Exclusão pendente</span>`
-            : `<button class="ghost btn-excluir-apont" data-id="${a.id}" title="Solicitar exclusão (apontamento indevido)">✕</button>`) : ''}
+            : `<button class="ghost btn-excluir-apont" data-id="${a.id}" title="Solicitar exclusão (apontamento indevido)">${ICONE_FECHAR}</button>`) : ''}
         </td>
       </tr>`).join('') || '<tr><td colspan="9">Nenhum apontamento registrado neste mês.</td></tr>'}</tbody></table>
     </div>`);
-  document.getElementById('qualMes').onchange = (e) => { state.qualMes = e.target.value; renderQualidade(); };
+  document.getElementById('qualMes').onchange = (e) => { state.qualMes = e.target.value; state.qualFiltro = null; renderQualidade(); };
+  document.querySelectorAll('[data-qfiltro]').forEach(el => el.onclick = () => {
+    state.qualFiltro = el.dataset.qfiltro || null;
+    renderQualidade();
+  });
+  const bLF = document.getElementById('btnLimparFiltroQual');
+  if (bLF) bLF.onclick = () => { state.qualFiltro = null; renderQualidade(); };
   const bN = document.getElementById('btnNovoApont');
   if (bN) bN.onclick = () => openApontamento();
   document.querySelectorAll('.btn-resolver').forEach(b => b.onclick = async () => {
@@ -3685,7 +3877,7 @@ function openSolicitarExclusaoApontamento(apontamentoId) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:460px">
-    <h2>🗑️ Solicitar exclusão do apontamento</h2>
+    <h2>Solicitar exclusão do apontamento</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Use quando o apontamento foi registrado por engano, de forma indevida, ou o processo não deveria ter sido devolvido. Um administrador vai analisar e aprovar (ou não) essa exclusão.</p>
     <div><label>Por que esse apontamento deve ser excluído?</label><textarea id="seMotivo" rows="4" placeholder="Explique o motivo..."></textarea></div>
     <div class="msg" id="seMsg"></div>
@@ -3712,10 +3904,11 @@ function openSolicitarExclusaoApontamento(apontamentoId) {
 async function openApontamento() {
   const L = state.lookups;
   const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
+  const { data: indicadores } = await sb.from('indicadores_kpi').select('id,nome').eq('ativo', true).order('ordem');
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:560px">
-    <h2>🔁 Registrar apontamento de erro</h2>
+    <h2>Registrar apontamento de erro</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Padronizar o motivo é o que transforma o retrabalho em plano de ação e treinamento.</p>
     <div class="grid2">
       <div><label>Origem do apontamento</label><select id="apOrigem">
@@ -3723,9 +3916,17 @@ async function openApontamento() {
         <option value="cliente">Cliente apontou</option></select></div>
       <div><label>Analista responsável</label><select id="apAnalista"><option value="">—</option>
         ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div style="grid-column:1/-1"><label>Indicador afetado (opcional)</label><select id="apIndicador"><option value="">— nenhum / não se aplica —</option>
+        ${(indicadores||[]).map(i=>`<option value="${i.id}">${esc(i.nome)}</option>`).join('')}
+        ${state.role === 'admin' ? '<option value="__novo__">+ Criar novo indicador…</option>' : ''}</select>
+        <p style="color:var(--muted);font-size:11px;margin-top:3px">Quando marcado, esse apontamento entra automaticamente na contagem de erros da meta desse indicador.</p>
+        <div id="apIndicadorNovoWrap" style="display:none;margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:2;min-width:180px"><label>Nome do novo indicador</label><input id="apIndicadorNovoNome" placeholder="Ex.: Atendimento pós-venda sem erro"></div>
+          <div style="flex:1;min-width:100px"><label>Meta %</label><input id="apIndicadorNovoMeta" type="number" min="0" max="100" step="1" value="95"></div>
+        </div></div>
       <div><label>Categoria do erro</label><select id="apCat">
         ${Object.keys(CATEGORIAS_ERRO).map(c=>`<option>${c}</option>`).join('')}
-        <option value="__custom__">✏️ Digitar categoria manualmente…</option></select></div>
+        <option value="__custom__">Digitar categoria manualmente…</option></select></div>
       <div><label>Detalhe</label><select id="apSub"></select></div>
       <div id="apCatCustomWrap" style="display:none;grid-column:1/-1"><label>Categoria (digitada)</label><input id="apCatCustom" placeholder="Ex.: Falha de comunicação com imobiliária"></div>
       <div id="apSubCustomWrap" style="display:none;grid-column:1/-1"><label>Detalhe (digitado)</label><input id="apSubCustom" placeholder="Descreva o detalhe específico"></div>
@@ -3743,7 +3944,7 @@ async function openApontamento() {
     const custom = c === '__custom__';
     div.querySelector('#apCatCustomWrap').style.display = custom ? '' : 'none';
     div.querySelector('#apSub').style.display = custom ? 'none' : '';
-    div.querySelector('#apSub').innerHTML = custom ? '' : (CATEGORIAS_ERRO[c]||[]).map(s=>`<option>${s}</option>`).join('') + '<option value="__custom__">✏️ Digitar detalhe manualmente…</option>';
+    div.querySelector('#apSub').innerHTML = custom ? '' : (CATEGORIAS_ERRO[c]||[]).map(s=>`<option>${s}</option>`).join('') + '<option value="__custom__">Digitar detalhe manualmente…</option>';
     subSub();
   };
   const subSub = () => {
@@ -3753,8 +3954,24 @@ async function openApontamento() {
   subs();
   div.querySelector('#apCat').onchange = subs;
   div.querySelector('#apSub').onchange = subSub;
+  const apInd = div.querySelector('#apIndicador');
+  if (apInd) apInd.onchange = () => {
+    div.querySelector('#apIndicadorNovoWrap').style.display = apInd.value === '__novo__' ? 'flex' : 'none';
+  };
   div.querySelector('#apCancel').onclick = () => div.remove();
   div.querySelector('#apSalvar').onclick = async () => {
+    let indicadorId = div.querySelector('#apIndicador')?.value || null;
+    if (indicadorId === '__novo__') {
+      const nomeInd = div.querySelector('#apIndicadorNovoNome').value.trim();
+      if (!nomeInd) { div.querySelector('#apMsg').textContent = 'Digite o nome do novo indicador.'; return; }
+      const metaInd = Number(div.querySelector('#apIndicadorNovoMeta').value || 95) / 100;
+      const { data: maxOrd } = await sb.from('indicadores_kpi').select('ordem').order('ordem', { ascending: false }).limit(1).maybeSingle();
+      const { data: novoInd, error: errInd } = await sb.from('indicadores_kpi')
+        .insert({ nome: nomeInd, meta_percentual: metaInd, ordem: (maxOrd?.ordem || 0) + 1, ativo: true })
+        .select('id').single();
+      if (errInd) { div.querySelector('#apMsg').textContent = errInd.message; return; }
+      indicadorId = novoInd.id;
+    }
     const num = div.querySelector('#apProc').value.trim();
     let demandaId = null;
     if (num) {
@@ -3777,6 +3994,7 @@ async function openApontamento() {
       demanda_id: demandaId,
       categoria, subcategoria,
       analista_id: div.querySelector('#apAnalista').value || null,
+      indicador_id: indicadorId,
       origem: div.querySelector('#apOrigem').value,
       descricao: div.querySelector('#apDesc').value || null,
       registrado_por: state.session?.user?.id,
@@ -3851,8 +4069,8 @@ async function renderMetas() {
     const err = a.linhas.reduce((s,l)=>s+l.quantidade_erros,0);
     return { ...a, notas, media, ultimoPct, tend: (ultimoPct!==null&&penult!==null)?ultimoPct-penult:null, proc, err };
   }).sort((a,b) => (b.media??-1) - (a.media??-1));
-  const statusTag = (a) => a.status === 'Desligado' ? '⚫ Desligado' : a.status === 'Em licença' ? '🔵 Em licença'
-    : a.media === null ? '—' : a.media >= 1.02 ? '🟢 Excelente' : a.media >= 0.95 ? '🟢 Ótimo' : a.media >= 0.90 ? '🟡 Atenção' : '🔴 Abaixo da meta';
+  const statusTag = (a) => a.status === 'Desligado' ? `${dot('⚫')}Desligado` : a.status === 'Em licença' ? `${dot('🔵')}Em licença`
+    : a.media === null ? '—' : a.media >= 1.02 ? `${dot('🟢')}Excelente` : a.media >= 0.95 ? `${dot('🟢')}Ótimo` : a.media >= 0.90 ? `${dot('🟡')}Atenção` : `${dot('🔴')}Abaixo da meta`;
   const naMeta = ranking.filter(a => a.status === 'Ativo' && a.media !== null && a.media >= 0.95).length;
   const ativosComDado = ranking.filter(a => a.status === 'Ativo' && a.media !== null).length;
   if (!state.metaColaborador && ranking.length) state.metaColaborador = ranking[0].nome;
@@ -3887,27 +4105,27 @@ async function renderMetas() {
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 style="margin:0">🎯 Metas & Indicadores</h2>
+        <h2 style="margin:0">Metas & Indicadores</h2>
         <span style="color:var(--muted);font-size:12.5px">Indicadores fixos do setor — base das apresentações mensais.</span>
         <div class="spacer"></div>
         <select id="metaAno">${anos.map(a=>`<option ${a===state.metaAno?'selected':''}>${a}</option>`).join('')}</select>
-        ${state.role === 'admin' ? '<button id="btnEditarMetas" class="ghost">✏️ Lançar dados do mês</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnNovoIndicador" class="ghost">+ Cadastrar indicador</button><button id="btnEditarMetas" class="ghost">Lançar dados do mês</button>' : ''}
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 style="margin:0 0 10px">🎯 Meta da equipe — ${state.metaAno}</h2>
+      <h2 style="margin:0 0 10px">Meta da equipe — ${state.metaAno}</h2>
       <div class="kpis">
-        <div class="kpi"><div class="v" style="color:${atingEquipe===null?'var(--muted)':atingEquipe>=1?'var(--ok)':atingEquipe>=0.95?'var(--warn)':'var(--err)'}">${pctTxt(atingEquipe)}</div><div class="l">📊 Atingimento médio da equipe</div></div>
-        <div class="kpi"><div class="v">${processosTotais.toLocaleString('pt-BR')}</div><div class="l">📋 Processos totais · ${mesesLancados} ${mesesLancados===1?'mês':'meses'}</div></div>
-        <div class="kpi"><div class="v" style="color:${errosTotais>0?'var(--warn)':'var(--ok)'}">${errosTotais}</div><div class="l">⚠️ Erros internos · ${errosPorMes}/mês em média</div></div>
-        <div class="kpi"><div class="v" style="color:${taxaErroGlobal===null?'var(--muted)':taxaErroGlobal<=0.02?'var(--ok)':'var(--warn)'}">${taxaErroGlobal===null?'—':(taxaErroGlobal*100).toFixed(2)+'%'}</div><div class="l">📉 Taxa de erro global</div></div>
-        <div class="kpi"><div class="v" style="color:${naMeta===ativosComDado&&ativosComDado>0?'var(--ok)':'var(--warn)'}">${naMeta} / ${ativosComDado}</div><div class="l">👥 Colaboradores na meta (≥95%)</div></div>
+        <div class="kpi"><div class="v" style="color:${atingEquipe===null?'var(--muted)':atingEquipe>=1?'var(--ok)':atingEquipe>=0.95?'var(--warn)':'var(--err)'}">${pctTxt(atingEquipe)}</div><div class="l">Atingimento médio da equipe</div></div>
+        <div class="kpi"><div class="v">${processosTotais.toLocaleString('pt-BR')}</div><div class="l">Processos totais · ${mesesLancados} ${mesesLancados===1?'mês':'meses'}</div></div>
+        <div class="kpi"><div class="v" style="color:${errosTotais>0?'var(--warn)':'var(--ok)'}">${errosTotais}</div><div class="l">Erros internos · ${errosPorMes}/mês em média</div></div>
+        <div class="kpi"><div class="v" style="color:${taxaErroGlobal===null?'var(--muted)':taxaErroGlobal<=0.02?'var(--ok)':'var(--warn)'}">${taxaErroGlobal===null?'—':(taxaErroGlobal*100).toFixed(2)+'%'}</div><div class="l">Taxa de erro global</div></div>
+        <div class="kpi"><div class="v" style="color:${naMeta===ativosComDado&&ativosComDado>0?'var(--ok)':'var(--warn)'}">${naMeta} / ${ativosComDado}</div><div class="l">Colaboradores na meta (≥95%)</div></div>
       </div>
       <div class="grid-cad" style="margin-top:4px">
         <div>
           <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
             <b>Progresso da meta da equipe</b>
-            <span style="color:var(--muted)">${atingEquipe===null ? '—' : atingEquipe>=1 ? '✅ meta atingida' : `faltam ${((1-atingEquipe)*100).toFixed(1)}% para 100%`}</span>
+            <span style="color:var(--muted)">${atingEquipe===null ? '—' : atingEquipe>=1 ? 'meta atingida' : `faltam ${((1-atingEquipe)*100).toFixed(1)}% para 100%`}</span>
           </div>
           <div class="hbar" style="height:14px"><div style="width:${atingEquipe===null?0:Math.min(100,Math.round(atingEquipe*100))}%;background:${atingEquipe>=1?'var(--ok)':'var(--accent)'}"></div></div>
           <p style="color:var(--muted);font-size:12px;margin-top:6px">
@@ -3924,7 +4142,7 @@ async function renderMetas() {
           <div style="font-size:11px;color:var(--muted)">${meses.map(m=>mesLabel(m).slice(0,3)).join(' · ')}</div>
         </div>
       </div>
-      <h2 style="margin:18px 0 8px;font-size:14px">📅 Acompanhamento mensal da meta da equipe — ${state.metaAno}</h2>
+      <h2 style="margin:18px 0 8px;font-size:14px">Acompanhamento mensal da meta da equipe — ${state.metaAno}</h2>
       <table><thead><tr><th>Mês</th><th>Processos</th><th>Erros</th><th>Taxa de erro</th><th>Atingimento</th></tr></thead>
       <tbody>${acompMensal.map(r => `<tr>
         <td>${mesLabel(r.mes)}</td>
@@ -3935,7 +4153,7 @@ async function renderMetas() {
       </tr>`).join('')}</tbody></table>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 style="margin:0 0 4px">🏆 Ranking individual — nota ponderada (todos os indicadores × peso)</h2>
+      <h2 style="margin:0 0 4px">Ranking individual — nota ponderada (todos os indicadores × peso)</h2>
       <p style="color:var(--muted);font-size:12px;margin-bottom:10px">Colaboradores na meta (≥95%): <b>${naMeta} / ${ativosComDado}</b></p>
       <table><thead><tr><th>#</th><th>Colaborador</th><th>Atingimento</th><th>Último mês</th><th>Tendência</th><th>Processos</th><th>Erros</th><th>Status</th></tr></thead>
       <tbody>${ranking.map((a,i) => `<tr>
@@ -3950,7 +4168,7 @@ async function renderMetas() {
     ${dashInd ? `
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <h2 style="margin:0">📊 Dash individual</h2>
+        <h2 style="margin:0">Dash individual</h2>
         <select id="metaColaborador">${ranking.map(a=>`<option value="${esc(a.nome)}" ${state.metaColaborador===a.nome?'selected':''}>${esc(a.nome)}</option>`).join('')}</select>
       </div>
       <div class="kpis">
@@ -4005,7 +4223,7 @@ async function renderMetas() {
         : dashInd.media>=0.90 ? 'Atenção: perto do limite da meta. Acompanhar de perto.'
         : 'Abaixo da meta — priorizar plano de ação/treinamento com este colaborador.'
       }</p>
-      ${state.role === 'admin' ? '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="btnPesos" class="ghost">⚖️ Configurar indicadores e pesos</button><button id="btnLancarInd" class="ghost">✏️ Lançar resultado individual</button></div>' : ''}
+      ${state.role === 'admin' ? '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="btnPesos" class="ghost">Configurar indicadores e pesos</button><button id="btnLancarInd" class="ghost">Lançar resultado individual</button></div>' : ''}
     </div>` : ''}
     ${(kpis||[]).map(k => {
       const meta = Number(k.meta_percentual);
@@ -4056,6 +4274,44 @@ async function renderMetas() {
   if (bLI) bLI.onclick = () => openLancarIndividual(kpis, dashInd);
   const bE = document.getElementById('btnEditarMetas');
   if (bE) bE.onclick = () => openLancarIndicadores(kpis, porInd);
+  const bNI = document.getElementById('btnNovoIndicador');
+  if (bNI) bNI.onclick = () => openCadastrarIndicador(renderMetas);
+}
+
+// Cadastro de indicador novo — usado tanto aqui em Metas & Indicadores quanto no formulário de
+// "Registrar apontamento" (Qualidade/Retrabalho). Uma vez criado, fica disponível nos dois
+// lugares (individual, por colaborador, e da equipe), porque os dois usam a mesma tabela.
+async function openCadastrarIndicador(aoSalvar) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:440px">
+    <h2>Cadastrar indicador</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Fica disponível tanto na meta individual de cada colaborador quanto na meta da equipe.</p>
+    <div><label>Nome do indicador</label><input id="niNome" placeholder="Ex.: Atendimento pós-venda sem erro"></div>
+    <div style="margin-top:10px"><label>Meta (%)</label><input id="niMeta" type="number" min="0" max="100" step="1" value="95"></div>
+    <div class="msg" id="niMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="niCancel" class="ghost">Cancelar</button><button id="niSalvar">Cadastrar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('niCancel').onclick = () => div.remove();
+  $('niSalvar').onclick = async () => {
+    const nome = $('niNome').value.trim();
+    if (!nome) { $('niMsg').textContent = 'Digite o nome do indicador.'; return; }
+    const meta = Number($('niMeta').value || 0) / 100;
+    $('niSalvar').disabled = true; $('niMsg').textContent = 'Cadastrando...';
+    const { data: maxOrd } = await sb.from('indicadores_kpi').select('ordem').order('ordem', { ascending: false }).limit(1).maybeSingle();
+    const { error } = await sb.from('indicadores_kpi').insert({ nome, meta_percentual: meta, ordem: (maxOrd?.ordem || 0) + 1, ativo: true });
+    if (error) {
+      $('niMsg').textContent = error.message.includes('duplicate') ? 'Já existe um indicador com esse nome.' : error.message;
+      $('niSalvar').disabled = false;
+      return;
+    }
+    div.remove();
+    if (aoSalvar) aoSalvar();
+  };
 }
 
 async function openPesosColaborador(kpis, colab) {
@@ -4069,7 +4325,7 @@ async function openPesosColaborador(kpis, colab) {
       .eq('analista_id', analista.id).eq('ano', state.metaAno).eq('trimestre', trim);
     const porInd = {}; (cfgs||[]).forEach(c => porInd[c.indicador_id] = c);
     div.innerHTML = `<div class="modal" style="width:620px">
-      <h2>⚖️ Indicadores e pesos — ${esc(colab.nome)}</h2>
+      <h2>Indicadores e pesos — ${esc(colab.nome)}</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px">Os pesos mudam a cada trimestre. Marque só os indicadores que valem para este colaborador; a soma dos pesos deve dar 100%.</p>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         ${[1,2,3,4].map(t=>`<button class="ghost pc-trim ${t===trim?'active':''}" data-t="${t}">${t}º Trim ${state.metaAno}</button>`).join('')}
@@ -4134,7 +4390,7 @@ async function openLancarIndividual(kpis, colab) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:620px">
-    <h2>✏️ Lançar resultado — ${esc(colab.nome)}</h2>
+    <h2>Lançar resultado — ${esc(colab.nome)}</h2>
     <div style="margin-bottom:12px"><label>Mês de referência</label><input id="liMes" type="month" value="${mesPadrao}"></div>
     <div id="liCampos"></div>
     <div class="msg" id="liMsg"></div>
@@ -4151,18 +4407,20 @@ async function openLancarIndividual(kpis, colab) {
       sb.from('meta_colaborador_mensal').select('*').eq('analista_id', analista.id).eq('mes', m + '-01'),
     ]);
     const porInd = {}; (atuais||[]).forEach(r => porInd[r.indicador_id] = r);
-    const ativos = (cfgs||[]).map(c => ({ ...c, nome: (kpis.find(k=>k.id===c.indicador_id)||{}).nome }));
+    const ativos = (cfgs||[]).map(c => ({ ...c, ...(kpis.find(k=>k.id===c.indicador_id)||{}), indicador_id: c.indicador_id, alvo: c.alvo, peso: c.peso }));
     div.querySelector('#liCampos').innerHTML = ativos.length ? ativos.map(c => {
       const r = porInd[c.indicador_id] || {};
+      const procAuto = !!c.esteira_tipo;
       return `<div style="border-top:1px solid var(--border);padding:10px 0">
         <div style="font-size:12.5px;margin-bottom:6px"><b>${esc(c.nome)}</b> <span style="color:var(--muted)">· alvo ${(c.alvo*100).toFixed(0)}% · peso ${(c.peso*100).toFixed(0)}%</span></div>
+        <p style="color:var(--muted);font-size:11.5px;margin-bottom:6px">Erros: contados automaticamente a partir dos apontamentos de Qualidade/Retrabalho marcados com este indicador.${procAuto ? ' Processos: contados automaticamente pela Esteira.' : ' Processos: lance manualmente o volume do mês.'}</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}"></div>
-          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}"></div>
+          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}" ${procAuto?'disabled':''}></div>
+          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}" disabled></div>
         </div>
         <div style="margin-top:6px"><label>Descrição / observação</label><textarea class="li-desc" data-id="${c.indicador_id}" rows="2">${esc(r.descricao)}</textarea></div>
       </div>`;
-    }).join('') : '<p style="color:var(--warn);font-size:12.5px">Nenhum indicador configurado para este colaborador neste trimestre. Use "⚖️ Configurar indicadores e pesos" primeiro.</p>';
+    }).join('') : '<p style="color:var(--warn);font-size:12.5px">Nenhum indicador configurado para este colaborador neste trimestre. Use "Configurar indicadores e pesos" primeiro.</p>';
   };
   await campos();
   div.querySelector('#liMes').onchange = campos;
@@ -4175,6 +4433,9 @@ async function openLancarIndividual(kpis, colab) {
       const err = div.querySelector(`.li-err[data-id="${id}"]`);
       const desc = div.querySelector(`.li-desc[data-id="${id}"]`);
       if (inp.value === '' && err.value === '') return;
+      // Processos/Erros calculados automaticamente ficam desabilitados no formulário, mas o valor
+      // exibido já é o correto (vindo do banco) — reenviar não sobrescreve nada, só a Descrição
+      // realmente muda aqui quando o campo está travado.
       linhas.push({ analista_id: analista.id, indicador_id: id, mes,
         quantidade_processos: Number(inp.value||0), quantidade_erros: Number(err.value||0),
         descricao: desc.value || null, atualizado_em: new Date().toISOString() });
@@ -4191,7 +4452,7 @@ async function openLancarIndicadores(kpis, porInd) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:640px">
-    <h2>✏️ Lançar dados do mês</h2>
+    <h2>Lançar dados do mês</h2>
     <div style="margin-bottom:12px"><label>Mês de referência</label><input id="liMes" type="month" value="${mesPadrao}"></div>
     <div id="liCampos"></div>
     <div class="msg" id="liMsg"></div>
@@ -4248,10 +4509,10 @@ async function renderFechamento() {
   shell(`
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-        <h2 style="margin:0">💰 Fechamento mensal</h2>
+        <h2 style="margin:0">Fechamento mensal</h2>
         <input type="month" id="fechMes" value="${state.fechMes}">
-        <button id="btnCsv" class="ghost">⬇ Exportar planilha de fechamento</button>
-        ${state.role !== 'leitura' ? '<button id="btnImportarFech" class="ghost">⬆ Importar planilha</button>' : ''}
+        <button id="btnCsv" class="ghost">${ICONE_DOWNLOAD}Exportar planilha de fechamento</button>
+        ${state.role !== 'leitura' ? `<button id="btnImportarFech" class="ghost">${ICONE_UPLOAD}Importar planilha</button>` : ''}
         <span style="color:var(--muted);font-size:13px">${(rows||[]).length} processos faturados no mês</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
@@ -4325,7 +4586,7 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
       <option value="false" ${a?.ativa===false?'selected':''}>Inativa (some das listas novas)</option></select></div>`;
   }
   div.innerHTML = `<div class="modal" style="width:460px">
-    <h2>✎ Editar ${CAD_LABEL[tipo]}</h2>
+    <h2>Editar ${CAD_LABEL[tipo]}</h2>
     <div><label>Nome</label><input id="edNome" value="${esc(nomeAtual)}"></div>
     ${extraHtml}
     <div class="msg" id="edMsg"></div>
@@ -4349,13 +4610,52 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
   };
 }
 
+// Baseado na planilha real de referência (sheet "Cadastro") — cobre o laudo em si (topo) e o
+// checklist de documentos dos dois proponentes. O fluxo de pagamento (Fluxo 1..6 na planilha,
+// cada um com Tipo/Quantidade/Valor de parcela e Comprometimento) não entra aqui: é a tabela
+// dinâmica "Fluxo de pagamento" já embutida no laudo, não um campo avulso.
+const CAMPOS_LAUDO_REFERENCIA = [
+  ['Nº da análise', 'texto'],
+  ['CPF/CNPJ do 1º proponente', 'texto'], ['Nome do 1º proponente', 'texto'],
+  ['CPF/CNPJ do 2º proponente', 'texto'], ['Nome do 2º proponente', 'texto'],
+  ['Imobiliária', 'texto'],
+  ['Renda apurada', 'numero'], ['Tipo de renda', 'texto'],
+  ['Score do 1º proponente', 'numero'], ['Score do 2º proponente', 'numero'],
+  ['Apontamentos', 'area'],
+  ['VGV de venda', 'numero'], ['VGV de contrato', 'numero'], ['Comissão (%)', 'numero'],
+  ['Entrada', 'numero'], ['Valor da proposta', 'numero'], ['Parcela', 'numero'],
+  ['Data da análise', 'data'],
+  ['Parecer NEO', 'texto'], ['Parecer Comitê', 'texto'], ['Observações', 'area'],
+  ['RG/CPF ou CNH do 2º proponente', 'texto'],
+  ['Certidão de estado civil — 1º proponente', 'texto'], ['Certidão de estado civil — 2º proponente', 'texto'],
+  ['Comprovante de endereço — 1º proponente', 'texto'], ['Comprovante de endereço — 2º proponente', 'texto'],
+  ['Documentos da análise de crédito — 1º proponente', 'texto'], ['Documentos da análise de crédito — 2º proponente', 'texto'],
+  ['Observação/pendência', 'area'],
+];
+
 async function openIdentidadeEmpreendedora(id, nome) {
-  const { data: e } = await sb.from('empreendedoras').select('logo_path,capa_path,cor_secundaria').eq('id', id).single();
+  const { data: e } = await sb.from('empreendedoras').select('logo_path,capa_path,cor_secundaria,slug,site').eq('id', id).single();
+  const { data: modelo } = await sb.from('laudos_credito_modelos').select('id,nome,tem_fluxo_pagamento').eq('empreendedora_id', id).maybeSingle();
+  const { data: camposLaudo } = modelo
+    ? await sb.from('laudos_credito_campos').select('id,ordem,rotulo,tipo,obrigatorio').eq('modelo_id', modelo.id).order('ordem')
+    : { data: [] };
   const div = document.createElement('div');
   div.className = 'modal-bg';
   const urlDe = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
-  div.innerHTML = `<div class="modal" style="width:480px">
-    <h2>🎨 Identidade visual — ${esc(nome)}</h2>
+  const linkPortal = `${location.origin}/portal/${e?.slug || '<slug>'}`;
+  const linhaCampoLaudo = (c) => `<div class="laudo-campo-linha" data-id="${c.id || ''}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+    <input class="lcRotulo" placeholder="Nome do campo (ex.: Renda apurada)" value="${esc(c.rotulo || '')}" style="flex:1;font-size:12.5px;padding:6px 8px">
+    <select class="lcTipo" style="width:112px;font-size:12.5px;padding:6px 4px">
+      <option value="texto" ${(!c.tipo || c.tipo === 'texto') ? 'selected' : ''}>Texto</option>
+      <option value="numero" ${c.tipo === 'numero' ? 'selected' : ''}>Número</option>
+      <option value="data" ${c.tipo === 'data' ? 'selected' : ''}>Data</option>
+      <option value="area" ${c.tipo === 'area' ? 'selected' : ''}>Texto longo</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap"><input type="checkbox" class="lcObrig" ${c.obrigatorio ? 'checked' : ''}>obrig.</label>
+    <button type="button" class="ghost lcRemover" style="padding:5px 9px">${ICONE_LIXEIRA}</button>
+  </div>`;
+  div.innerHTML = `<div class="modal" style="width:560px">
+    <h2>Identidade visual — ${esc(nome)}</h2>
     <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Essa marca aparece no Portal do Cliente para todos os empreendimentos de <b>${esc(nome)}</b>.</p>
     <div><label>Logo (PNG/SVG, fundo transparente)</label>
       ${e?.logo_path ? `<div style="margin:6px 0"><img src="${urlDe(e.logo_path)}" style="max-height:60px;max-width:100%;background:#f2f2f2;border-radius:6px;padding:6px"></div>` : ''}
@@ -4368,17 +4668,79 @@ async function openIdentidadeEmpreendedora(id, nome) {
     <div style="margin-top:10px"><label>Cor secundária (opcional)</label>
       <input type="color" id="idCor" value="${e?.cor_secundaria || '#0D3D3D'}" style="width:60px;height:34px;padding:2px">
     </div>
+    <div style="margin-top:10px"><label>Link exclusivo do portal (opcional)</label>
+      <input id="idSlug" value="${esc(e?.slug || '')}" placeholder="ex.: sdi">
+      <p style="color:var(--muted);font-size:11px;margin-top:3px">Preenchendo, a tela de login (antes mesmo de entrar) já mostra a logo e a cor desta incorporadora. Link: <code>${esc(linkPortal)}</code></p>
+    </div>
+    <div style="margin-top:10px"><label>Site da incorporadora</label>
+      <input id="idSite" value="${esc(e?.site || '')}" placeholder="https://www.exemplo.com.br">
+      <p style="color:var(--muted);font-size:11px;margin-top:3px">Cola o link e clica em Salvar — o sistema puxa sozinho a logo e a cor de lá. A cor acima é só pra ajuste manual, se o resultado automático vier feio.</p>
+    </div>
     <div class="msg" id="idMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
       <button id="idCancel" class="ghost">Cancelar</button><button id="idSalvar">Salvar</button>
     </div>
+    <hr style="margin:16px 0;border-color:var(--linha)">
+    <b style="font-size:13px">Campos do laudo de crédito</b>
+    <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px">
+      Cada incorporadora tem seu próprio modelo de laudo — defina abaixo os campos que aparecem
+      quando o analista preenche o laudo de crédito de um empreendimento de ${esc(nome)}.
+      Isso vale automaticamente pra todos os empreendimentos dela.
+    </p>
+    <div id="idCamposLista">${(camposLaudo || []).map(linhaCampoLaudo).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <button type="button" id="idAddCampo" class="ghost">+ Adicionar campo</button>
+      ${!(camposLaudo || []).length ? '<button type="button" id="idUsarReferencia" class="ghost">Usar modelo de referência</button>' : ''}
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12.5px">
+      <input type="checkbox" id="idTemFluxo" ${modelo?.tem_fluxo_pagamento !== false ? 'checked' : ''}>
+      Este laudo inclui tabela de fluxo de pagamento (parcelas)
+    </label>
+    <div class="msg" id="idCamposMsg"></div>
+    <div style="display:flex;justify-content:end;margin-top:10px">
+      <button type="button" id="idSalvarCampos" class="ghost">Salvar campos do laudo</button>
+    </div>
   </div>`;
   document.body.appendChild(div);
   const $ = (i) => div.querySelector('#' + i);
+  const siteOriginal = e?.site || '';
   $('idCancel').onclick = () => div.remove();
   $('idSalvar').onclick = async () => {
-    $('idSalvar').disabled = true; $('idMsg').textContent = 'Salvando...';
-    const rec = { cor_secundaria: $('idCor').value };
+    $('idSalvar').disabled = true; $('idMsg').style.color = ''; $('idMsg').textContent = 'Salvando...';
+    const siteAtual = $('idSite').value.trim();
+    // Site novo ou trocado: busca a identidade sozinho antes de salvar o resto. Se o site nao
+    // mudou, nao mexe de novo — preserva ajuste manual que a pessoa tenha feito na cor/logo.
+    if (siteAtual && siteAtual !== siteOriginal) {
+      $('idMsg').textContent = 'Lendo o site, aguarde...';
+      const { data: achou, error: errBusca } = await sb.functions.invoke('extrair-identidade-site', {
+        body: { url: siteAtual, empreendedoraId: id, schema: EH_STAGING ? 'staging' : 'public' },
+      });
+      if (errBusca || achou?.error) {
+        $('idMsg').style.color = 'var(--err)';
+        $('idMsg').textContent = (achou?.error || errBusca.message) + ' Você pode preencher logo/cor manualmente abaixo.';
+        $('idSalvar').disabled = false;
+      } else {
+        div.remove();
+        await openIdentidadeEmpreendedora(id, nome);
+        const msgEl = document.querySelector('.modal-bg #idMsg');
+        if (msgEl) {
+          msgEl.style.color = 'var(--ok)';
+          msgEl.textContent = achou.encontrado.logo && achou.encontrado.cor ? 'Salvo — logo e cor encontradas automaticamente!'
+            : achou.encontrado.logo ? 'Salvo — logo encontrada. Não achei uma cor de marca; ajuste manualmente se quiser.'
+            : achou.encontrado.cor ? 'Salvo — cor encontrada. Não achei uma logo; suba manualmente se quiser.'
+            : 'Salvo, mas não consegui identificar logo nem cor nesse site. Ajuste manualmente abaixo.';
+        }
+        return;
+      }
+    }
+    // O seletor de cor sempre tem ALGUM valor (não dá pra representar "nenhuma cor" num
+    // <input type="color">) — então só grava se a pessoa realmente escolheu algo diferente do
+    // padrão do formulário, ou se já existia uma cor de verdade antes. Sem isso, salvar por
+    // qualquer outro motivo (ex.: só trocar o link do portal) gravava o cinza-padrão como se
+    // fosse a cor de marca encontrada — que foi exatamente o que aconteceu com a Global Realty.
+    const corEscolhida = $('idCor').value;
+    const corParaSalvar = (corEscolhida.toLowerCase() !== '#0d3d3d' || e?.cor_secundaria) ? corEscolhida : null;
+    const rec = { cor_secundaria: corParaSalvar, slug: $('idSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || null, site: siteAtual || null };
     try {
       const logoFile = $('idLogo').files[0];
       if (logoFile) {
@@ -4403,6 +4765,62 @@ async function openIdentidadeEmpreendedora(id, nome) {
       $('idMsg').textContent = err.message || 'Erro ao salvar.';
       $('idSalvar').disabled = false;
     }
+  };
+
+  const listaCampos = $('idCamposLista');
+  const addLinhaCampo = (c = {}) => { listaCampos.insertAdjacentHTML('beforeend', linhaCampoLaudo(c)); wireLinhaCampo(listaCampos.lastElementChild); };
+  const wireLinhaCampo = (linha) => { linha.querySelector('.lcRemover').onclick = () => linha.remove(); };
+  listaCampos.querySelectorAll('.laudo-campo-linha').forEach(wireLinhaCampo);
+  $('idAddCampo').onclick = () => addLinhaCampo();
+  $('idUsarReferencia')?.addEventListener('click', () => {
+    listaCampos.innerHTML = '';
+    CAMPOS_LAUDO_REFERENCIA.forEach(([rotulo, tipo]) => addLinhaCampo({ rotulo, tipo }));
+  });
+  $('idSalvarCampos').onclick = async () => {
+    const btn = $('idSalvarCampos');
+    btn.disabled = true; $('idCamposMsg').style.color = ''; $('idCamposMsg').textContent = 'Salvando...';
+    try {
+      let modeloId = modelo?.id;
+      if (!modeloId) {
+        const { data: novoModelo, error: errModelo } = await sb.from('laudos_credito_modelos')
+          .insert({ empreendedora_id: id, tem_fluxo_pagamento: $('idTemFluxo').checked }).select('id').single();
+        if (errModelo) throw errModelo;
+        modeloId = novoModelo.id;
+      } else {
+        const { error: errUpd } = await sb.from('laudos_credito_modelos').update({ tem_fluxo_pagamento: $('idTemFluxo').checked }).eq('id', modeloId);
+        if (errUpd) throw errUpd;
+      }
+      const linhas = [...listaCampos.querySelectorAll('.laudo-campo-linha')];
+      const idsAtuais = new Set();
+      let ordem = 0;
+      for (const linha of linhas) {
+        const rotulo = linha.querySelector('.lcRotulo').value.trim();
+        if (!rotulo) continue;
+        const rec = {
+          modelo_id: modeloId, ordem: ordem++, rotulo,
+          tipo: linha.querySelector('.lcTipo').value,
+          obrigatorio: linha.querySelector('.lcObrig').checked,
+        };
+        const campoId = linha.dataset.id;
+        if (campoId) {
+          idsAtuais.add(campoId);
+          const { error } = await sb.from('laudos_credito_campos').update(rec).eq('id', campoId);
+          if (error) throw error;
+        } else {
+          const { error } = await sb.from('laudos_credito_campos').insert(rec);
+          if (error) throw error;
+        }
+      }
+      // campos que existiam antes e foram removidos da lista na tela: apaga no banco também
+      const idsRemovidos = (camposLaudo || []).map(c => c.id).filter(cid => !idsAtuais.has(cid));
+      if (idsRemovidos.length) await sb.from('laudos_credito_campos').delete().in('id', idsRemovidos);
+      $('idCamposMsg').style.color = 'var(--ok)';
+      $('idCamposMsg').textContent = 'Campos do laudo salvos!';
+    } catch (err) {
+      $('idCamposMsg').style.color = 'var(--err)';
+      $('idCamposMsg').textContent = err.message || 'Erro ao salvar os campos.';
+    }
+    btn.disabled = false;
   };
 }
 
@@ -4434,11 +4852,11 @@ async function openExcluirCadastro(tipo, id, nome) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:480px">
-    <h2>🗑️ Excluir ${CAD_LABEL[tipo]}</h2>
+    <h2>Excluir ${CAD_LABEL[tipo]}</h2>
     <p style="font-size:13.5px;margin-bottom:10px">Excluir <b>${esc(nome)}</b>?</p>
     ${temVinculo ? `<div class="msg" style="background:var(--warn-soft);border-color:var(--warn)">
-      ⚠️ Este registro está vinculado a ${vinculos.join(' e ')}. Excluir apagaria esse vínculo e o histórico ficaria incompleto.
-      ${podeInativar ? '<br><br>💡 O recomendado é <b>inativar</b>: some das listas novas, mas o histórico continua correto.' : ''}
+      Este registro está vinculado a ${vinculos.join(' e ')}. Excluir apagaria esse vínculo e o histórico ficaria incompleto.
+      ${podeInativar ? '<br><br>O recomendado é <b>inativar</b>: some das listas novas, mas o histórico continua correto.' : ''}
     </div>` : '<p style="color:var(--muted);font-size:12.5px">Nenhum processo vinculado — exclusão segura.</p>'}
     <div class="msg" id="exMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px;flex-wrap:wrap">
@@ -4492,7 +4910,7 @@ async function renderUsuariosEquipe() {
               <b>Leitura</b> — só visualiza (bloqueado no banco, não só na tela)
             </p>
           </div>
-          ${state.role === 'admin' ? '<button id="btnAbrirConvite">✉️ Convidar usuário</button>' : ''}
+          ${state.role === 'admin' ? '<button id="btnAbrirConvite">Convidar usuário</button>' : ''}
         </div>
         ${state.role === 'admin' ? `
         <div id="conviteBox" class="invite-box hidden">
@@ -4503,7 +4921,7 @@ async function renderUsuariosEquipe() {
           <button id="btnCriarUser">Criar acesso</button>
           <span id="nuMsg" class="msg" style="margin:0;flex-basis:100%"></span>
         </div>` : ''}
-        <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">💡 O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum. Usuários do Portal do Cliente ficam em Portal do Cliente → Usuários.</p>
+        <p style="color:var(--muted);font-size:12px;margin:10px 0 6px">O <b>colaborador vinculado</b> define de quem são os apontamentos que a pessoa enxerga em Qualidade/Retrabalho. Sem vínculo, um analista não vê nenhum. Usuários do Portal do Cliente ficam em Portal do Cliente → Usuários.</p>
         <div class="table-scroll"><table class="users-table"><thead><tr><th>Usuário</th><th>Nível de acesso</th><th>Colaborador vinculado</th><th>Desde</th><th>Ações</th></tr></thead>
         <tbody>${(usuarios||[]).map(u => {
           const isSelf = u.user_id === state.session.user.id;
@@ -4530,9 +4948,9 @@ async function renderUsuariosEquipe() {
           <td style="color:var(--muted);white-space:nowrap">${fmtDt(u.criado_em)}</td>
           <td style="min-width:230px">${state.role === 'admin' && !isSelf ? `
             <div class="row-actions">
-              <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="${esc(u.role)}">🔑 Resetar senha</button>
-              <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
-              <button class="ghost btn-excluir-user danger" data-uid="${u.user_id}" data-email="${esc(u.email)}">🗑 Excluir</button>
+              <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="${esc(u.role)}">Resetar senha</button>
+              <button class="ghost btn-toggle-ativo" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}">${u.ativo===false ? `${ICONE_CHECK}Reativar` : `${ICONE_PAUSA}Inativar`}</button>
+              <button class="ghost btn-excluir-user danger" data-uid="${u.user_id}" data-email="${esc(u.email)}">${ICONE_LIXEIRA}Excluir</button>
             </div>` : ''}</td></tr>`;
         }).join('')}</tbody></table></div>
       </div>`);
@@ -4602,7 +5020,7 @@ async function renderPortalUsuarios() {
             <h2 style="margin-bottom:2px">Usuários do Portal do Cliente</h2>
             <p style="color:var(--muted);font-size:12.5px">Cada acesso é vinculado a uma empreendedora (incorporadora/loteadora) e só enxerga os empreendimentos e processos dela.</p>
           </div>
-          ${state.role === 'admin' ? '<button id="btnAbrirConvitePortal">✉️ Cadastrar usuário do portal</button>' : ''}
+          ${state.role === 'admin' ? '<button id="btnAbrirConvitePortal">Cadastrar usuário do portal</button>' : ''}
         </div>
         ${state.role === 'admin' ? `
         <div id="convitePortalBox" class="invite-box hidden">
@@ -4626,9 +5044,9 @@ async function renderPortalUsuarios() {
           <td style="color:var(--muted);white-space:nowrap">${fmtDt(u.criado_em)}</td>
           <td style="min-width:230px">${state.role === 'admin' ? `
             <div class="row-actions">
-              <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="cliente">🔑 Resetar senha</button>
-              <button class="ghost btn-toggle-ativo-portal" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}">${u.ativo===false ? '✅ Reativar' : '⏸ Inativar'}</button>
-              <button class="ghost btn-excluir-user-portal danger" data-uid="${u.user_id}" data-email="${esc(u.email)}">🗑 Excluir</button>
+              <button class="ghost btn-resetar-senha" data-uid="${u.user_id}" data-email="${esc(u.email)}" data-role="cliente">Resetar senha</button>
+              <button class="ghost btn-toggle-ativo-portal" data-uid="${u.user_id}" data-ativo="${u.ativo!==false}">${u.ativo===false ? `${ICONE_CHECK}Reativar` : `${ICONE_PAUSA}Inativar`}</button>
+              <button class="ghost btn-excluir-user-portal danger" data-uid="${u.user_id}" data-email="${esc(u.email)}">${ICONE_LIXEIRA}Excluir</button>
             </div>` : ''}</td></tr>`).join('') || '<tr><td colspan="4">Nenhum usuário do portal cadastrado ainda.</td></tr>'}</tbody></table></div>
       </div>`);
   const btnAbrir = document.getElementById('btnAbrirConvitePortal');
@@ -4696,14 +5114,14 @@ async function renderPortalEmpreendimentos() {
           <p style="color:var(--muted);font-size:12.5px">Controle quais empreendimentos aparecem no Portal do Cliente para usuários com acesso.</p>
         </div>
       </div>
-      <input class="portal-emp-busca" placeholder="🔎 Buscar empreendimento ou empreendedora..." value="${esc(state.portalEmpBusca)}" style="width:100%;margin:10px 0">
+      <input class="portal-emp-busca" placeholder="Buscar empreendimento ou empreendedora..." value="${esc(state.portalEmpBusca)}" style="width:100%;margin:10px 0">
       <div class="table-scroll"><table class="users-table"><thead><tr><th>Empreendimento</th><th>Empreendedora</th><th>Portal</th><th>Ações</th></tr></thead>
       <tbody>${(empsFiltrados||[]).map(e => `<tr>
         <td><b>${esc(e.nome)}</b></td>
         <td><span style="color:var(--muted)">${esc(e.empreendedora?.nome || '—')}</span></td>
-        <td><div class="toggle-status" data-id="${e.id}" data-status="${e.portal_ativo===true?'ativo':'inativo'}" style="cursor:pointer;padding:4px 8px;border-radius:4px;background:${e.portal_ativo===true?'var(--ok)':'var(--muted)'}22;color:${e.portal_ativo===true?'var(--ok)':'var(--muted)'}"><strong>${e.portal_ativo===true?'🟢 Ativo':'⚫ Inativo'}</strong></div></td>
+        <td><div class="toggle-status" data-id="${e.id}" data-status="${e.portal_ativo===true?'ativo':'inativo'}" style="cursor:pointer;padding:4px 8px;border-radius:4px;background:${e.portal_ativo===true?'var(--ok)':'var(--muted)'}22;color:${e.portal_ativo===true?'var(--ok)':'var(--muted)'}"><strong>${e.portal_ativo===true?'Ativo':'Inativo'}</strong></div></td>
         <td style="min-width:200px"><div class="row-actions">
-          <button class="ghost btn-config-portal" data-id="${e.id}" data-n="${esc(e.nome)}" title="Configurar acesso">⚙️ Configurar</button>
+          <button class="ghost btn-config-portal" data-id="${e.id}" data-n="${esc(e.nome)}" title="Configurar acesso">Configurar</button>
         </div></td></tr>`).join('') || '<tr><td colspan="4"><p style="color:var(--muted);padding:10px 0">Nenhum empreendimento encontrado.</p></td></tr>'}</tbody></table></div>
     </div>`);
 
@@ -4751,7 +5169,7 @@ async function renderPortalDocumentosAdmin() {
 
     ${empId ? `
     <div class="card">
-      <h2>📁 Novo documento</h2>
+      <h2>Novo documento</h2>
       <div class="grid2">
         <div><label>Título</label><input id="pdTitulo" placeholder="Ex.: Memorial descritivo"></div>
         <div><label>Categoria</label><input id="pdCategoria" placeholder="Ex.: Jurídico" value="Geral"></div>
@@ -4773,18 +5191,18 @@ async function renderPortalDocumentosAdmin() {
         <tbody>${(docs || []).map(d => `<tr>
           <td><b>${esc(d.titulo)}</b>${d.descricao ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(d.descricao)}</span>` : ''}</td>
           <td>${esc(d.categoria)}</td>
-          <td>${d.tipo === 'link' ? '🔗 Link' : '📄 Arquivo'}</td>
+          <td>${d.tipo === 'link' ? 'Link' : 'Arquivo'}</td>
           <td><input type="checkbox" class="pdVis" data-id="${d.id}" ${d.visivel_portal ? 'checked' : ''}></td>
           <td style="color:var(--muted);white-space:nowrap">${fmtDt(d.criado_em)}</td>
           <td style="text-align:right"><div class="row-actions">
             <button class="ghost pdAbrir" data-path="${esc(d.storage_path || '')}" data-url="${esc(d.url || '')}">Abrir</button>
-            <button class="ghost pdExcluir danger" data-id="${d.id}" data-path="${esc(d.storage_path || '')}" style="color:var(--err)">🗑</button>
+            <button class="ghost pdExcluir danger" data-id="${d.id}" data-path="${esc(d.storage_path || '')}" style="color:var(--err)">${ICONE_LIXEIRA}</button>
           </div></td>
         </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted)">Nenhum documento publicado para este empreendimento.</td></tr>'}</tbody></table></div>
     </div>
 
     <div class="card">
-      <h2>❓ Base de conhecimento no portal</h2>
+      <h2>Base de conhecimento no portal</h2>
       <p style="color:var(--muted);font-size:12.5px">Artigos, modelos e links de apoio. Sem empreendimento definido, o material vale para todos.</p>
       <div class="grid2" style="margin-top:10px">
         <div><label>Título</label><input id="pcaTitulo" placeholder="Ex.: Como acompanhar a análise de crédito"></div>
@@ -4808,7 +5226,7 @@ async function renderPortalDocumentosAdmin() {
           <td>${esc(a.categoria || '—')}</td>
           <td>${a.empreendimento_id ? esc(L.empreendimentos.find(e => e.id === a.empreendimento_id)?.nome || '—') : 'Todos'}</td>
           <td><input type="checkbox" class="pcaVis" data-id="${a.id}" ${a.visivel_portal ? 'checked' : ''}></td>
-          <td style="text-align:right"><button class="ghost pcaExcluir" data-id="${a.id}" style="color:var(--err)">🗑</button></td>
+          <td style="text-align:right"><button class="ghost pcaExcluir" data-id="${a.id}" style="color:var(--err)">${ICONE_LIXEIRA}</button></td>
         </tr>`).join('') || '<tr><td colspan="5" style="color:var(--muted)">Nenhum material publicado ainda.</td></tr>'}</tbody></table></div>
     </div>` : '<div class="card"><p style="color:var(--muted)">Cadastre um empreendimento em Administração → Cadastro operacional antes de publicar documentos.</p></div>'}`);
 
@@ -4907,7 +5325,7 @@ const AUDIT_TABELAS = ['esteira_processos','demandas','clientes','empreendimento
 const AUDIT_PAGE = 40;
 
 async function renderAuditoria() {
-  const abas = [['acessos', '🔑 Acessos (login/logout)'], ['alteracoes', '✏️ Alterações']];
+  const abas = [['acessos', 'Acessos (login/logout)'], ['alteracoes', 'Alterações']];
   shell(`
     <div style="display:flex;gap:8px;margin-bottom:14px">${abas.map(([k, l]) =>
       `<button class="ghost esteira-tab ${auditState.aba === k ? 'active' : ''}" data-aba="${k}">${l}</button>`).join('')}</div>
@@ -4953,7 +5371,7 @@ async function renderAuditoriaAcessos() {
           <td style="white-space:nowrap">${fmtDtHora(r.criado_em)}</td>
           <td><b>${esc(r.nome || r.email || '—')}</b>${r.nome ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(r.email)}</span>` : ''}</td>
           <td>${esc(r.role || '—')}</td>
-          <td>${r.ambiente === 'portal' ? '🌐 Portal' : '🏢 Equipe'}</td>
+          <td>${r.ambiente === 'portal' ? 'Portal' : 'Equipe'}</td>
           <td><span class="tag ${r.evento === 'login' ? 'CONCLUIDO' : 'PENDENTE'}">${r.evento === 'login' ? '→ Entrou' : '← Saiu'}</span></td>
         </tr>`).join('') || '<tr><td colspan="5" style="color:var(--muted)">Nenhum acesso registrado com esses filtros.</td></tr>'}</tbody></table></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
@@ -5039,7 +5457,7 @@ function abrirCadastroMassa(tipo, L) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:480px">
-    <h2>📋 Cadastrar ${CAD_MASSA_ROTULO[tipo]} em massa</h2>
+    <h2>Cadastrar ${CAD_MASSA_ROTULO[tipo]} em massa</h2>
     <p style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Cole um nome por linha. Linhas em branco são ignoradas.</p>
     ${tipo === 'empreendimentos' ? `<div style="margin-bottom:10px"><label>Empreendedora (vale para todos os itens colados)</label>
       <select id="cmEmpdora" style="width:100%">${L.empreendedoras.map(e => `<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select></div>` : ''}
@@ -5089,19 +5507,19 @@ async function renderCadastroOperacional() {
       return `
       <div class="card">
         <h2>${titulo} <span class="count-badge">${items.length}</span></h2>
-        <input class="cad-busca" data-t="${tipo}" value="${esc(state.cadBusca[tipo]||'')}" placeholder="🔎 Buscar..." style="width:100%;margin:6px 0">
+        <input class="cad-busca" data-t="${tipo}" value="${esc(state.cadBusca[tipo]||'')}" placeholder="Buscar..." style="width:100%;margin:6px 0">
         <div class="cad-list">${vis.map(i => `
           <div class="cad-item">
             <span style="flex:1">${esc(i.nome)}${extra ? extra(i) : ''}</span>
-            ${tipo==='empreendedoras' ? `<button class="ghost cad-identidade" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Identidade visual (Portal do Cliente)">🎨</button>` : ''}
-            <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Editar">✎</button>
-            <button class="ghost cad-del" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+            ${tipo==='empreendedoras' ? `<button class="ghost cad-identidade" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Identidade visual (Portal do Cliente)">${ICONE_PALETA}</button>` : ''}
+            <button class="ghost cad-edit" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Editar">${ICONE_EDITAR}</button>
+            <button class="ghost cad-del" data-t="${tipo}" data-id="${i.id}" data-n="${esc(i.nome_puro ?? i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">${ICONE_FECHAR}</button>
           </div>`).join('') || `<p style="color:var(--muted);font-size:12.5px;padding:8px 0">${state.cadBusca[tipo] ? 'Nada encontrado nessa busca.' : 'Nenhum registro.'}</p>`}</div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
           <input id="new_${tipo}" placeholder="Novo nome..." style="flex:1;min-width:140px">
           ${tipo === 'empreendimentos' ? `<select id="new_emp_ed" style="min-width:140px">${L.empreendedoras.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>` : ''}
           <button class="cad-add" data-t="${tipo}">+ Adicionar</button>
-          ${CAD_MASSA_TIPOS.includes(tipo) ? `<button class="ghost cad-massa" data-t="${tipo}">📋 Cadastrar em massa</button>` : ''}
+          ${CAD_MASSA_TIPOS.includes(tipo) ? `<button class="ghost cad-massa" data-t="${tipo}">Cadastrar em massa</button>` : ''}
         </div>
         <div class="msg cad-msg" data-t="${tipo}" style="margin-top:6px"></div>
       </div>`;
@@ -5115,8 +5533,8 @@ async function renderCadastroOperacional() {
     shell(`
       <div class="grid-cad">
         <div class="card">
-          <h2>👥 Colaboradores <span class="count-badge">${L.analistas.length}</span></h2>
-          <input class="cad-busca" data-t="analistas" value="${esc(state.cadBusca['analistas']||'')}" placeholder="🔎 Buscar colaborador..." style="width:100%;margin:6px 0">
+          <h2>Colaboradores <span class="count-badge">${L.analistas.length}</span></h2>
+          <input class="cad-busca" data-t="analistas" value="${esc(state.cadBusca['analistas']||'')}" placeholder="Buscar colaborador..." style="width:100%;margin:6px 0">
           <div class="cad-list">${analistasVis.map(i => `
             <div class="cad-item" style="flex-wrap:wrap">
               <span style="flex:1;min-width:110px">${esc(i.nome)}</span>
@@ -5126,8 +5544,8 @@ async function renderCadastroOperacional() {
               <select class="col-status" data-id="${i.id}" style="min-width:104px;font-size:12px;margin-left:0">
                 ${['Ativo','Em licença','Desligado','Inativo'].map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${s}</option>`).join('')}
               </select>
-              <button class="ghost cad-edit" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}" title="Renomear">✎</button>
-              <button class="ghost cad-del" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+              <button class="ghost cad-edit" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}" title="Renomear">${ICONE_EDITAR}</button>
+              <button class="ghost cad-del" data-t="analistas" data-id="${i.id}" data-n="${esc(i.nome)}" title="Excluir" style="color:var(--err);margin-left:0">${ICONE_FECHAR}</button>
             </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum colaborador.</p>'}</div>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             <input id="new_analistas" placeholder="Nome do colaborador..." style="flex:1;min-width:140px">
@@ -5139,9 +5557,9 @@ async function renderCadastroOperacional() {
           <div class="msg cad-msg" data-t="analistas" style="margin-top:6px"></div>
           <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">Só cargo <b>analista</b> com status <b>Ativo</b>/<b>Em licença</b> entra em ranking, escala e metas.</p>
         </div>
-        ${bloco('🏢 Empreendedoras', L.empreendedoras, 'empreendedoras')}
-        ${bloco('🏗️ Empreendimentos', L.empreendimentos.map(e => ({...e, nome_puro: e.nome, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
-        ${bloco('📝 Atividades', L.atividades, 'atividades', i => i.ativa === false ? ' <span class="tag PENDENTE">inativa</span>' : '')}
+        ${bloco('Empreendedoras', L.empreendedoras, 'empreendedoras')}
+        ${bloco('Empreendimentos', L.empreendimentos.map(e => ({...e, nome_puro: e.nome, nome: e.nome + (L.empreendedoras.find(x=>x.id===e.empreendedora_id) ? ' · ' + L.empreendedoras.find(x=>x.id===e.empreendedora_id).nome : '')})), 'empreendimentos')}
+        ${bloco('Atividades', L.atividades, 'atividades', i => i.ativa === false ? ' <span class="tag PENDENTE">inativa</span>' : '')}
       </div>`);
 
     const msgDe = (t, texto, erro) => {
@@ -5215,17 +5633,17 @@ async function renderArquivos(tabsHtml) {
       <div class="cad-list">${(arquivos||[]).filter(a=>a.name!=='.emptyFolderPlaceholder').map(a => `
         <div class="cad-item">
           <span style="flex:1">${esc(a.name)} <span style="color:var(--muted2);font-size:11px">· ${bytesFmt(a.metadata?.size)} · ${fmtDt(a.created_at)}</span></span>
-          <button class="ghost arq-baixar" data-bucket="${bucket}" data-nome="${esc(a.name)}" title="Baixar">⬇</button>
-          <button class="ghost arq-substituir" data-bucket="${bucket}" data-nome="${esc(a.name)}" data-accept="${accept}" title="Substituir">🔁</button>
-          <button class="ghost arq-excluir" data-bucket="${bucket}" data-nome="${esc(a.name)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+          <button class="ghost arq-baixar" data-bucket="${bucket}" data-nome="${esc(a.name)}" title="Baixar">${ICONE_DOWNLOAD}</button>
+          <button class="ghost arq-substituir" data-bucket="${bucket}" data-nome="${esc(a.name)}" data-accept="${accept}" title="Substituir">${ICONE_TROCAR}</button>
+          <button class="ghost arq-excluir" data-bucket="${bucket}" data-nome="${esc(a.name)}" title="Excluir" style="color:var(--err);margin-left:0">${ICONE_FECHAR}</button>
         </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum arquivo.</p>'}</div>
     </div>`;
   };
   shell(`
     ${tabsHtml}
     <div class="grid-cad">
-      ${await blocoArquivos('fechamentos-arquivo', '📊 Fechamentos em Excel', '.xlsx,.xls,.csv')}
-      ${await blocoArquivos('apresentacoes-ppt', '📽️ Apresentações em PPT', '.ppt,.pptx')}
+      ${await blocoArquivos('fechamentos-arquivo', 'Fechamentos em Excel', '.xlsx,.xls,.csv')}
+      ${await blocoArquivos('apresentacoes-ppt', 'Apresentações em PPT', '.ppt,.pptx')}
     </div>`);
   const msgDe = (bucket, texto, erro) => {
     const el = document.querySelector(`.arq-msg[data-bucket="${bucket}"]`);
@@ -5273,21 +5691,21 @@ async function renderFluxosAdmin(tabsHtml) {
     ${tabsHtml}
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <h2 style="margin:0">⛓️ Fluxos da Esteira</h2>
+        <h2 style="margin:0">Fluxos da Esteira</h2>
         <select id="fluxoAdminSel">${TIPOS_ESTEIRA.map(([k,l])=>`<option value="${k}" ${state.fluxoAdminTipo===k?'selected':''}>${l}</option>`).join('')}</select>
       </div>
       <p style="color:var(--muted);font-size:12px;margin-top:6px">Aqui você cria, renomeia, reordena e exclui etapas, e configura os botões de transição entre elas.</p>
     </div>
     <div class="grid-cad">
       <div class="card">
-        <h2>📍 Etapas <span class="count-badge">${(etapas||[]).length}</span></h2>
+        <h2>Etapas <span class="count-badge">${(etapas||[]).length}</span></h2>
         <div class="cad-list">${(etapas||[]).map((e,i) => `
           <div class="cad-item">
             <span style="flex:1">${i+1}. ${esc(e.nome)}${e.ativa===false?' <span class="tag PENDENTE">inativa</span>':''}</span>
             <button class="ghost et-subir" data-id="${e.id}" ${i===0?'disabled':''} title="Mover para cima">↑</button>
             <button class="ghost et-descer" data-id="${e.id}" ${i===(etapas.length-1)?'disabled':''} title="Mover para baixo">↓</button>
-            <button class="ghost et-renomear" data-id="${e.id}" data-nome="${esc(e.nome)}" title="Renomear">✎</button>
-            <button class="ghost et-excluir" data-id="${e.id}" data-nome="${esc(e.nome)}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+            <button class="ghost et-renomear" data-id="${e.id}" data-nome="${esc(e.nome)}" title="Renomear">${ICONE_EDITAR}</button>
+            <button class="ghost et-excluir" data-id="${e.id}" data-nome="${esc(e.nome)}" title="Excluir" style="color:var(--err);margin-left:0">${ICONE_FECHAR}</button>
           </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhuma etapa.</p>'}</div>
         <div style="display:flex;gap:8px;margin-top:10px">
           <input id="novaEtapaNome" placeholder="Nome da nova etapa..." style="flex:1">
@@ -5296,11 +5714,11 @@ async function renderFluxosAdmin(tabsHtml) {
         <div class="msg" id="fluxoMsg" style="margin-top:6px"></div>
       </div>
       <div class="card">
-        <h2>➡️ Transições (botões de avançar/devolver)</h2>
+        <h2>Transições (botões de avançar/devolver)</h2>
         <div class="cad-list">${(transicoes||[]).map(t => `
           <div class="cad-item">
             <span style="flex:1">${esc(nomeEtapa(t.etapa_origem_id))} → <b>${esc(t.rotulo)}</b> → ${esc(nomeEtapa(t.etapa_destino_id))}</span>
-            <button class="ghost tr-excluir" data-id="${t.id}" title="Excluir" style="color:var(--err);margin-left:0">✕</button>
+            <button class="ghost tr-excluir" data-id="${t.id}" title="Excluir" style="color:var(--err);margin-left:0">${ICONE_FECHAR}</button>
           </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhuma transição configurada.</p>'}</div>
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
           <select id="novaTrOrigem" style="min-width:150px">${(etapas||[]).map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>
@@ -5385,8 +5803,8 @@ const ESTEIRA_TIPOS = [
   ['repasse', 'Repasse Imobiliário'],
 ];
 const BLOCOS_ESTEIRA = {
-  analise_credito: [['analise', '📄 Análise'], ['reanalise', '🔁 Reanálise']],
-  emissao_contrato: [['geracao', '📄 Contrato novo'], ['reemissao', '🔁 Reemissão de contrato']],
+  analise_credito: [['analise', 'Análise'], ['reanalise', 'Reanálise']],
+  emissao_contrato: [['geracao', 'Contrato novo'], ['reemissao', 'Reemissão de contrato']],
 };
 async function renderEsteira() {
   if (!state.esteiraTipo) state.esteiraTipo = 'emissao_contrato';
@@ -5431,24 +5849,24 @@ async function renderEsteira() {
   shell(`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <h2 style="margin:0">⛓️ Esteira de Produção</h2>
+        <h2 style="margin:0">Esteira de Produção</h2>
         <span style="color:var(--muted);font-size:12.5px">Conclua sua etapa e transfira o processo para o próximo colega, anexando os documentos.</span>
         <div class="spacer"></div>
         ${(state.role === 'admin' || (state.role !== 'leitura' && !['analise_credito','emissao_contrato'].includes(state.esteiraTipo))) ? '<button id="btnNovoEsteira">+ Novo processo</button>' : ''}
-        ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">⚙️ Etapas</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnEtapas" class="ghost">Etapas</button>' : ''}
       </div>
-      ${['analise_credito','emissao_contrato'].includes(state.esteiraTipo) ? `<p style="color:var(--muted);font-size:11.5px;margin-top:8px">💡 Os cards desta esteira são criados automaticamente a partir da Produção (ou da aprovação do crédito). Criação manual é restrita a administradores.</p>` : ''}
+      ${['analise_credito','emissao_contrato'].includes(state.esteiraTipo) ? `<p style="color:var(--muted);font-size:11.5px;margin-top:8px">Os cards desta esteira são criados automaticamente a partir da Produção (ou da aprovação do crédito). Criação manual é restrita a administradores.</p>` : ''}
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         ${ESTEIRA_TIPOS.map(([k,l]) => `<button class="ghost esteira-tab ${state.esteiraTipo===k?'active':''}" data-tipo="${k}">${l}</button>`).join('')}
         <div class="spacer"></div>
-        <button id="btnHistEsteira" class="ghost">🗄️ Histórico de concluídos</button>
+        <button id="btnHistEsteira" class="ghost">Histórico de concluídos</button>
       </div>
       ${blocosDisponiveis ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <button class="ghost esteira-bloco-tab ${!state.esteiraBloco?'active':''}" data-bloco="">Todos</button>
         ${blocosDisponiveis.map(([k,l]) => `<button class="ghost esteira-bloco-tab ${state.esteiraBloco===k?'active':''}" data-bloco="${k}">${l}</button>`).join('')}
       </div>` : ''}
       <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)">
-        ${Object.entries(porAnalistaCount).sort((a,b)=>b[1]-a[1]).map(([n,q]) => `<span>👤 ${esc(n)}: <b style="color:var(--text)">${q}</b></span>`).join('') || '<span>Nenhum processo em aberto nesta esteira.</span>'}
+        ${Object.entries(porAnalistaCount).sort((a,b)=>b[1]-a[1]).map(([n,q]) => `<span>${esc(n)}: <b style="color:var(--text)">${q}</b></span>`).join('') || '<span>Nenhum processo em aberto nesta esteira.</span>'}
       </div>
       <div class="filters" style="align-items:end;margin-top:12px">
         <div style="flex:2;min-width:170px"><label>Buscar</label>
@@ -5473,14 +5891,14 @@ async function renderEsteira() {
           <div class="esteira-cards">
             ${(porEtapa[et.id] || []).map(p => `
               <div class="esteira-card ${p.prioridade==='URGENTE'?'urgente':p.prioridade==='ALTA'?'alta':''}" data-id="${p.id}">
-                <div class="ec-title">${processosComAviso.has(p.id) ? '<span class="tag ERRO" title="Cliente aguardando retorno">💬 cliente</span> ' : ''}${p.bloco==='reanalise' || p.bloco==='reemissao' ? '<span class="tag PENDENTE" title="Reanálise/Reemissão">🔁</span> ' : ''}${esc(p.titulo)}</div>
-                ${p.clientes?.nome ? `<div class="ec-sub">👤 ${esc(p.clientes.nome)}</div>` : ''}
-                ${p.unidade ? `<div class="ec-sub">🏠 ${esc(p.unidade)}</div>` : ''}
+                <div class="ec-title">${processosComAviso.has(p.id) ? '<span class="tag ERRO" title="Cliente aguardando retorno">cliente</span> ' : ''}${p.bloco==='reanalise' || p.bloco==='reemissao' ? '<span class="tag PENDENTE" title="Reanálise/Reemissão"></span> ' : ''}${esc(p.titulo)}</div>
+                ${p.clientes?.nome ? `<div class="ec-sub">${esc(p.clientes.nome)}</div>` : ''}
+                ${p.unidade ? `<div class="ec-sub">${esc(p.unidade)}</div>` : ''}
                 <div class="ec-foot">
                   ${p.analista_atual_id
                     ? `<span class="tag ${p.analistas?.nome===meuNome?'CONCLUIDO':'RECEBIDO'}">${esc(p.analistas.nome)}</span>`
                     : `<span class="tag PENDENTE">Sem responsável</span>`}
-                  ${p.sera_faturado ? `<span class="tag CONCLUIDO" title="Processo será faturado">💰</span>` : ''}
+                  ${p.sera_faturado ? `<span class="tag CONCLUIDO" title="Processo será faturado"></span>` : ''}
                   ${p.prioridade && p.prioridade !== 'NORMAL' ? `<span class="tag ${p.prioridade==='URGENTE'?'ERRO':'PENDENTE'}" style="margin-left:auto">${esc(p.prioridade)}</span>` : ''}
                 </div>
               </div>`).join('') || '<div class="ec-empty">Fila vazia</div>'}
@@ -5540,7 +5958,7 @@ async function openHistoricoEsteira() {
   const render = () => {
     const lista = aplicar();
     div.innerHTML = `<div class="modal" style="width:980px">
-      <h2>🗄️ Histórico de processos concluídos</h2>
+      <h2>Histórico de processos concluídos</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Nada é apagado — todo processo encerrado fica aqui com o histórico completo de etapas.</p>
       <div class="filters" style="align-items:end;margin-bottom:10px">
         <div style="flex:2;min-width:170px"><label>Buscar</label>
@@ -5577,7 +5995,7 @@ async function openHistoricoEsteira() {
       </tr>`).join('') || `<tr><td colspan="7" style="color:var(--muted)">${todos.length ? 'Nenhum processo com esses filtros.' : 'Nenhum processo concluído ainda.'}</td></tr>`}</tbody></table>
       </div>
       <div style="display:flex;justify-content:end;gap:8px;margin-top:14px">
-        <button id="hfExportar" class="ghost">⬇ Exportar</button>
+        <button id="hfExportar" class="ghost">${ICONE_DOWNLOAD}Exportar</button>
         <button id="heFechar" class="ghost">Fechar</button>
       </div>
     </div>`;
@@ -5622,6 +6040,51 @@ const PARECERES_CREDITO = [
   ['aprovado_pendencia_contrato', 'Aprovado com pendência e enviar para emissão de contrato'],
   ['reprovado', 'Reprovado'],
 ];
+// Gera o PDF do laudo de crédito abrindo uma aba de impressão (sem depender de lib de PDF) —
+// o próprio navegador oferece "Salvar como PDF" na janela de impressão que abre.
+function gerarPdfLaudo(dados) {
+  const logoNeoUrl = location.origin + '/assets/logo-neoservice.png';
+  const win = window.open('', '_blank');
+  if (!win) { alert('Não foi possível abrir a janela de impressão — verifique se o navegador bloqueou pop-ups.'); return; }
+  const linhaFluxoTr = (f) => `<tr>
+    <td>${esc(f.tipo_parcela || '—')}</td>
+    <td>${f.quantidade_parcela ?? '—'}</td>
+    <td>${f.valor_parcela != null ? f.valor_parcela.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td>
+    <td>${f.comprometimento != null ? f.comprometimento + '%' : '—'}</td>
+  </tr>`;
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laudo de crédito — ${esc(dados.titulo || '')}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:24px;max-width:840px;margin:0 auto}
+      .cabecalho{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:2px solid #0d3d3d;padding-bottom:12px;margin-bottom:16px}
+      .cabecalho img{max-height:48px;max-width:150px;object-fit:contain}
+      h1{font-size:16px;margin:0 0 2px}
+      .sub{font-size:12px;color:#555;margin:0 0 18px}
+      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 24px;margin-bottom:18px}
+      .campo{border-bottom:1px solid #ddd;padding:6px 0;font-size:12.5px}
+      .campo b{display:block;font-size:10.5px;color:#666;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+      th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+      th{background:#f2f2f2}
+      h2{font-size:13px;margin:18px 0 4px}
+      @media print{body{padding:0}}
+    </style></head><body>
+    <div class="cabecalho">
+      ${dados.empreendedoraLogoUrl ? `<img src="${dados.empreendedoraLogoUrl}" alt="">` : `<span>${esc(dados.empreendedoraNome || '')}</span>`}
+      ${dados.empreendimentoLogoUrl ? `<img src="${dados.empreendimentoLogoUrl}" alt="">` : `<span>${esc(dados.empreendimentoNome || '')}</span>`}
+      <img src="${logoNeoUrl}" alt="Neo Service">
+    </div>
+    <h1>Laudo de crédito e documental</h1>
+    <p class="sub">${esc(dados.empreendedoraNome || '—')} · ${esc(dados.empreendimentoNome || '—')} · ${esc(dados.titulo || '')}</p>
+    <div class="grid">
+      ${dados.campos.map(c => `<div class="campo"><b>${esc(c.rotulo)}</b>${esc(c.valor || '—')}</div>`).join('')}
+    </div>
+    ${dados.temFluxo ? `<h2>Fluxo de pagamento</h2>
+    <table><thead><tr><th>Tipo de parcela</th><th>Qtd. parcelas</th><th>Valor da parcela</th><th>Comprometimento</th></tr></thead>
+    <tbody>${dados.fluxo.length ? dados.fluxo.map(linhaFluxoTr).join('') : '<tr><td colspan="4">Sem linhas informadas.</td></tr>'}</tbody></table>` : ''}
+  </body></html>`);
+  win.document.close();
+  win.onload = () => win.print();
+}
 async function openProcessoEsteira(id, etapas) {
   let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [], demandaOrigem = null;
   if (id) {
@@ -5651,6 +6114,35 @@ async function openProcessoEsteira(id, etapas) {
       } else checklist = cl;
     }
   }
+  // Laudo de crédito: cada incorporadora tem seu próprio modelo de campos (ver
+  // openIdentidadeEmpreendedora). Só busca quando o processo já existe, é de análise de crédito
+  // e tem empreendimento vinculado — sem isso não dá pra saber qual modelo usar.
+  let laudoInfo = null;
+  if (id && p?.esteira_tipo === 'analise_credito' && p.empreendimento_id) {
+    const { data: empInfo } = await sb.from('empreendimentos')
+      .select('nome,logo_path,empreendedora_id,empreendedoras(nome,logo_path)').eq('id', p.empreendimento_id).maybeSingle();
+    if (empInfo?.empreendedora_id) {
+      const { data: modeloLaudo } = await sb.from('laudos_credito_modelos').select('id,tem_fluxo_pagamento').eq('empreendedora_id', empInfo.empreendedora_id).maybeSingle();
+      if (modeloLaudo) {
+        const { data: camposModelo } = await sb.from('laudos_credito_campos').select('id,ordem,rotulo,tipo,obrigatorio').eq('modelo_id', modeloLaudo.id).order('ordem');
+        const { data: laudoExistente } = await sb.from('laudos_credito').select('id').eq('processo_id', id).maybeSingle();
+        let valores = [], fluxo = [];
+        if (laudoExistente) {
+          const [vv, ff] = await Promise.all([
+            sb.from('laudos_credito_valores').select('campo_id,valor').eq('laudo_id', laudoExistente.id),
+            sb.from('laudos_credito_fluxo').select('*').eq('laudo_id', laudoExistente.id).order('ordem'),
+          ]);
+          valores = vv.data || []; fluxo = ff.data || [];
+        }
+        laudoInfo = {
+          empreendimentoNome: empInfo.nome, empreendimentoLogo: empInfo.logo_path,
+          empreendedoraNome: empInfo.empreendedoras?.nome, empreendedoraLogo: empInfo.empreendedoras?.logo_path,
+          modelo: modeloLaudo, campos: camposModelo || [], laudoId: laudoExistente?.id || null,
+          valores, fluxo,
+        };
+      }
+    }
+  }
   const L = state.lookups;
   const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
   const etapaIdx = p ? etapas.findIndex(e => e.id === p.etapa_atual_id) : 0;
@@ -5659,7 +6151,7 @@ async function openProcessoEsteira(id, etapas) {
   // Resumo somente-leitura dos dados que vieram exatamente do que foi cadastrado na Produção —
   // não duplicamos os campos na esteira, só exibimos via join em origem_demanda_id.
   const demandaResumoHtml = (d) => `<div id="epDemandaResumo" class="card" style="margin-bottom:12px;background:var(--panel2)">
-    <b style="font-size:12.5px">📋 Puxado da Produção</b>
+    <b style="font-size:12.5px">Puxado da Produção</b>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 14px;margin-top:6px;font-size:12.5px;color:var(--muted)">
       <div><b>Cliente:</b> ${esc(d.proponente1_nome || '—')}${d.proponente2_nome ? ' e ' + esc(d.proponente2_nome) : ''}</div>
       <div><b>Incorporadora:</b> ${esc(d.empreendedoras?.nome || '—')}</div>
@@ -5670,12 +6162,20 @@ async function openProcessoEsteira(id, etapas) {
       <div><b>Corretor:</b> ${esc(d.corretor || '—')}</div>
     </div>
   </div>`;
+  const urlIdent = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
+  const linhaFluxoHtml = (f = {}) => `<div class="epFluxoLinha" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+    <input class="efTipo" placeholder="Tipo de parcela (ex.: Entrada, Mensal, Chaves...)" value="${esc(f.tipo_parcela || '')}" style="flex:2;min-width:160px">
+    <input class="efQtd" type="number" placeholder="Qtd. parcelas" value="${f.quantidade_parcela ?? ''}" style="flex:1;min-width:90px">
+    <input class="efValor" type="number" step="any" placeholder="Valor parcela" value="${f.valor_parcela ?? ''}" style="flex:1;min-width:90px">
+    <input class="efComprometimento" type="number" step="any" placeholder="Comprometimento %" value="${f.comprometimento ?? ''}" style="flex:1;min-width:90px">
+    <button type="button" class="ghost efRemover" style="padding:5px 9px">${ICONE_LIXEIRA}</button>
+  </div>`;
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal">
-    <h2>${id ? '⛓️ ' + esc(p.titulo) : '⛓️ Novo processo na esteira'}</h2>
+    <h2>${id ? '' + esc(p.titulo) : 'Novo processo na esteira'}</h2>
     ${!id ? `<div class="card" id="epBuscaBox" style="margin-bottom:12px">
-      <b style="font-size:12.5px">📋 Vincular a um processo de Produção (opcional)</b>
+      <b style="font-size:12.5px">Vincular a um processo de Produção (opcional)</b>
       <p style="color:var(--muted);font-size:11.5px;margin:4px 0 8px">Busque pelo nome do proponente ou nº do processo — cliente, incorporadora, unidade, tipo de serviço, imobiliária e corretor vêm automaticamente de lá.</p>
       <div style="display:flex;gap:8px">
         <input id="epBuscaDemanda" placeholder="Nome do proponente ou nº do processo..." style="flex:1">
@@ -5704,15 +6204,15 @@ async function openProcessoEsteira(id, etapas) {
         <option value="sim" ${p?.sera_faturado===true?'selected':''}>SIM</option>
         <option value="nao" ${p?.sera_faturado===false?'selected':''}>NÃO</option></select></div>` : ''}
       <div style="grid-column:1/-1"><label>Recado para o próximo responsável</label><textarea id="epObs" rows="2" placeholder="Informações para quem pegar a próxima etapa" ${ro?'disabled':''}>${esc(p?.obs)}</textarea></div>
-      <div style="grid-column:1/-1"><label>📝 Observações do processo (acompanha todas as etapas)</label><textarea id="epObservacoes" rows="4" placeholder="Anotações que ficam com o processo do início ao fim — crédito e contrato" ${ro?'disabled':''}>${esc(p?.observacoes)}</textarea></div>
+      <div style="grid-column:1/-1"><label>Observações do processo (acompanha todas as etapas)</label><textarea id="epObservacoes" rows="4" placeholder="Anotações que ficam com o processo do início ao fim — crédito e contrato" ${ro?'disabled':''}>${esc(p?.observacoes)}</textarea></div>
     </div>
     ${id ? `
-    <h2 style="margin-top:18px">📎 Documentos e links</h2>
+    <h2 style="margin-top:18px">Documentos e links</h2>
     <div class="anexo-list">${anexos.map(a => `
-      <div class="anexo-item">${a.tipo==='link' ? '🔗' : iconeArquivo(a.nome)}
+      <div class="anexo-item">${a.tipo==='link' ? '' : iconeArquivo(a.nome)}
         <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a>
         <span style="color:var(--muted2);font-size:11px">${esc(a.criado_por||'')}</span>
-        ${!ro ? `<button class="ghost del-anexo" data-id="${a.id}" data-path="${a.tipo==='arquivo'?esc(a.storage_path||''):''}">✕</button>` : ''}
+        ${!ro ? `<button class="ghost del-anexo" data-id="${a.id}" data-path="${a.tipo==='arquivo'?esc(a.storage_path||''):''}">${ICONE_FECHAR}</button>` : ''}
       </div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum documento anexado.</p>'}</div>
     ${!ro ? `
     <div class="upload-box">
@@ -5723,20 +6223,20 @@ async function openProcessoEsteira(id, etapas) {
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <input id="epArquivo" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip" style="flex:1;min-width:200px">
-        <button id="btnUpload" class="ghost">⬆ Enviar documento</button>
+        <button id="btnUpload" class="ghost">${ICONE_UPLOAD}Enviar documento</button>
       </div>
       <p style="color:var(--muted2);font-size:11.5px;margin-top:6px">PDF, Word, Excel, imagens e ZIP · até 50 MB · armazenado de forma privada no sistema</p>
       <div id="upMsg" class="msg" style="margin-top:4px"></div>
     </div>` : ''}
     ${p?.esteira_tipo === 'repasse' ? `
-    <h2 style="margin-top:18px">📋 Checklist documental</h2>
+    <h2 style="margin-top:18px">Checklist documental</h2>
     <div id="repChecklist">${checklist.map(it => `
       <div class="chk">
         <input type="checkbox" class="chk-item" data-id="${it.id}" ${it.ok?'checked':''} ${ro?'disabled':''}>
         <span style="flex:1">${esc(it.item)}${it.responsavel?` <span style="color:var(--muted2);font-size:11px">· ${esc(it.responsavel)}</span>`:''}${it.validade?` <span style="color:var(--muted2);font-size:11px">· validade ${fmtDt(it.validade)}</span>`:''}</span>
       </div>`).join('')}</div>
     ` : ''}
-    <h2 style="margin-top:18px">💬 Conversa com o cliente (Portal)</h2>
+    <h2 style="margin-top:18px">Conversa com o cliente (Portal)</h2>
     <div id="epChatMsgs" style="max-height:220px;overflow-y:auto;margin-bottom:10px">${mensagensProc.map(m => `
       <div style="display:flex;justify-content:${m.autor_tipo==='equipe'?'flex-end':'flex-start'};margin-bottom:8px">
         <div style="max-width:80%;background:${m.autor_tipo==='equipe'?'var(--accent2)':'var(--panel2)'};color:${m.autor_tipo==='equipe'?'#fff':'var(--text)'};border-radius:12px;padding:8px 12px;font-size:13px">
@@ -5748,15 +6248,43 @@ async function openProcessoEsteira(id, etapas) {
       <input id="epChatInput" placeholder="Responder ao cliente..." style="flex:1">
       <button id="epChatEnviar" class="ghost">Enviar</button>
     </div>` : ''}
-    <h2 style="margin-top:18px">🕓 Histórico do processo</h2>
+    <h2 style="margin-top:18px">Histórico do processo</h2>
     <div class="timeline">${historico.map(h => `
       <div class="tl-item"><div class="tl-dot"></div>
         <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}${h.autor ? ` <span style="color:var(--muted2);font-size:11px">· ${esc(h.autor)}</span>` : ''}</div></div>`).join('')}</div>
     ` : ''}
     <div class="msg" id="epMsg"></div>
+    ${laudoInfo ? `
+    <div class="transfer-box" id="epLaudoBox">
+      <b style="font-size:13px">Laudo de crédito e documental</b>
+      <p style="color:var(--muted);font-size:12px;margin:4px 0 8px">Modelo de ${esc(laudoInfo.empreendedoraNome || '—')} · ${esc(laudoInfo.empreendimentoNome || '—')}</p>
+      <div id="epLaudoCampos" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px">
+        ${laudoInfo.campos.map(c => {
+          const v = esc((laudoInfo.valores.find(x => x.campo_id === c.id) || {}).valor || '');
+          const tipoInput = c.tipo === 'numero' ? 'number' : c.tipo === 'data' ? 'date' : 'text';
+          const inputHtml = c.tipo === 'area'
+            ? `<textarea class="epLaudoCampo" data-campo="${c.id}" rows="2" ${ro ? 'disabled' : ''}>${v}</textarea>`
+            : `<input class="epLaudoCampo" data-campo="${c.id}" type="${tipoInput}" ${c.tipo === 'numero' ? 'step="any"' : ''} value="${v}" ${ro ? 'disabled' : ''}>`;
+          return `<div><label>${esc(c.rotulo)}${c.obrigatorio ? ' *' : ''}</label>${inputHtml}</div>`;
+        }).join('') || '<p style="color:var(--muted);font-size:12px">Nenhum campo configurado nesse modelo ainda — configure em Cadastros → Identidade visual da incorporadora.</p>'}
+      </div>
+      ${laudoInfo.modelo.tem_fluxo_pagamento ? `
+      <div style="margin-top:12px">
+        <b style="font-size:12.5px">Fluxo de pagamento</b>
+        <div id="epFluxoLista" style="margin-top:6px">
+          ${(laudoInfo.fluxo.length ? laudoInfo.fluxo : [{}]).map(f => linhaFluxoHtml(f)).join('')}
+        </div>
+        ${!ro ? '<button type="button" id="epFluxoAdd" class="ghost" style="margin-top:2px">+ Adicionar linha</button>' : ''}
+      </div>` : ''}
+      <div class="msg" id="epLaudoMsg" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;justify-content:end;margin-top:10px;flex-wrap:wrap">
+        <button type="button" id="epLaudoPdf" class="ghost">${ICONE_DOWNLOAD}Baixar PDF</button>
+        ${!ro ? '<button type="button" id="epLaudoSalvar">Salvar laudo</button>' : ''}
+      </div>
+    </div>` : ''}
     ${id && !ro && p?.esteira_tipo === 'analise_credito' ? `
     <div class="transfer-box">
-      <b style="font-size:13px">📋 Parecer da análise de crédito</b>
+      <b style="font-size:13px">Parecer da análise de crédito</b>
       <p style="color:var(--muted);font-size:12px;margin:4px 0 8px">Escolha o resultado da sua análise. O processo é encaminhado automaticamente conforme o parecer.</p>
       <select id="epParecer" style="width:100%">
         <option value="">— escolher o parecer —</option>
@@ -5773,7 +6301,7 @@ async function openProcessoEsteira(id, etapas) {
     </div>` : ''}
     ${id && !ro && p?.esteira_tipo !== 'analise_credito' ? `
     <div class="transfer-box">
-      <b style="font-size:13px">➡️ Concluir minha etapa e transferir</b>
+      <b style="font-size:13px">Concluir minha etapa e transferir</b>
       <div style="margin-top:8px"><label>Enviar para (responsável pela próxima etapa)</label><select id="epProxAnalista">
         <option value="">Deixar na fila (qualquer um pega)</option>
         ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
@@ -5785,10 +6313,10 @@ async function openProcessoEsteira(id, etapas) {
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:14px;justify-content:end;flex-wrap:wrap">
       <button id="epCancel" class="ghost">Fechar</button>
-      ${id ? '<button id="btnEmailProcesso" class="ghost">✉️ Gerar e-mail</button>' : ''}
-      ${id && state.role === 'admin' ? '<button id="btnExcluirProc" class="ghost" style="color:var(--err)">🗑️ Excluir processo</button>' : ''}
-      ${id && !ro && !['CONCLUIDO','DESISTENCIA'].includes(p?.status) ? '<button id="btnDesistencia" class="ghost" style="color:var(--err)">❌ Desistência do cliente</button>' : ''}
-      ${id && !ro ? '<button id="btnFinalizar" class="ghost">✅ Concluir processo</button>' : ''}
+      ${id ? '<button id="btnEmailProcesso" class="ghost">Gerar e-mail</button>' : ''}
+      ${id && state.role === 'admin' ? `<button id="btnExcluirProc" class="ghost" style="color:var(--err)">${ICONE_LIXEIRA}Excluir processo</button>` : ''}
+      ${id && !ro && !['CONCLUIDO','DESISTENCIA'].includes(p?.status) ? '<button id="btnDesistencia" class="ghost" style="color:var(--err)">Desistência do cliente</button>' : ''}
+      ${id && !ro ? '<button id="btnFinalizar" class="ghost">Concluir processo</button>' : ''}
       ${!ro ? `<button id="epSalvar">${id ? 'Salvar alterações' : 'Criar processo'}</button>` : ''}
     </div>
   </div>`;
@@ -5842,15 +6370,15 @@ async function openProcessoEsteira(id, etapas) {
     const div2 = document.createElement('div');
     div2.className = 'modal-bg';
     div2.innerHTML = `<div class="modal" style="width:520px">
-      <h2>✉️ Assunto do e-mail gerado</h2>
+      <h2>Assunto do e-mail gerado</h2>
       <div><label>Assunto</label><input id="geAssunto" value="${esc(assunto)}" readonly></div>
       <div class="msg" id="geMsg" style="margin-top:8px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:end;margin-top:14px">
         <button id="geFechar" class="ghost">Fechar</button>
-        <button id="geCopiar" class="ghost">📋 Copiar assunto</button>
+        <button id="geCopiar" class="ghost">Copiar assunto</button>
         <button id="geGmail" class="ghost">Abrir no Gmail</button>
-        <button id="geOutlook" class="ghost">📧 Abrir no Outlook Web</button>
-        <button id="geAbrir">💻 Abrir no app de e-mail</button>
+        <button id="geOutlook" class="ghost">Abrir no Outlook Web</button>
+        <button id="geAbrir">Abrir no app de e-mail</button>
       </div>
     </div>`;
     document.body.appendChild(div2);
@@ -5859,7 +6387,7 @@ async function openProcessoEsteira(id, etapas) {
     div2.querySelector('#geOutlook').onclick = () => { window.open(outlookUrl, '_blank'); };
     div2.querySelector('#geGmail').onclick = () => { window.open(gmailUrl, '_blank'); };
     div2.querySelector('#geCopiar').onclick = async () => {
-      try { await navigator.clipboard.writeText(assunto); div2.querySelector('#geMsg').textContent = '✅ Assunto copiado!'; }
+      try { await navigator.clipboard.writeText(assunto); div2.querySelector('#geMsg').textContent = 'Assunto copiado!'; }
       catch { div2.querySelector('#geAssunto').select(); }
     };
   };
@@ -5888,6 +6416,73 @@ async function openProcessoEsteira(id, etapas) {
     ...( $('epBloco') ? { bloco: $('epBloco').value } : {} ),
     ...( $('epFaturado') ? { sera_faturado: $('epFaturado').value === '' ? null : $('epFaturado').value === 'sim' } : {} ),
   });
+
+  if (laudoInfo) {
+    const fluxoLista = $('epFluxoLista');
+    const wireLinhaFluxo = (linha) => { linha.querySelector('.efRemover').onclick = () => linha.remove(); };
+    fluxoLista?.querySelectorAll('.epFluxoLinha').forEach(wireLinhaFluxo);
+    $('epFluxoAdd')?.addEventListener('click', () => {
+      fluxoLista.insertAdjacentHTML('beforeend', linhaFluxoHtml());
+      wireLinhaFluxo(fluxoLista.lastElementChild);
+    });
+    const coletarFluxo = () => fluxoLista ? [...fluxoLista.querySelectorAll('.epFluxoLinha')].map((linha, i) => ({
+      ordem: i,
+      tipo_parcela: linha.querySelector('.efTipo').value.trim() || null,
+      quantidade_parcela: linha.querySelector('.efQtd').value === '' ? null : Number(linha.querySelector('.efQtd').value),
+      valor_parcela: linha.querySelector('.efValor').value === '' ? null : Number(linha.querySelector('.efValor').value),
+      comprometimento: linha.querySelector('.efComprometimento').value === '' ? null : Number(linha.querySelector('.efComprometimento').value),
+    })).filter(l => l.tipo_parcela || l.quantidade_parcela != null || l.valor_parcela != null || l.comprometimento != null) : [];
+    const coletarCampos = () => [...div.querySelectorAll('.epLaudoCampo')].map(el => ({ campo_id: el.dataset.campo, valor: el.value.trim() }));
+    const montarDadosPdf = () => {
+      const valoresAtuais = coletarCampos();
+      return {
+        empreendimentoNome: laudoInfo.empreendimentoNome, empreendedoraNome: laudoInfo.empreendedoraNome,
+        empreendimentoLogoUrl: urlIdent(laudoInfo.empreendimentoLogo), empreendedoraLogoUrl: urlIdent(laudoInfo.empreendedoraLogo),
+        titulo: p.titulo,
+        campos: laudoInfo.campos.map(c => ({ rotulo: c.rotulo, valor: (valoresAtuais.find(v => v.campo_id === c.id) || {}).valor || '' })),
+        temFluxo: laudoInfo.modelo.tem_fluxo_pagamento, fluxo: coletarFluxo(),
+      };
+    };
+    $('epLaudoPdf').onclick = () => gerarPdfLaudo(montarDadosPdf());
+    const btnLaudoSalvar = $('epLaudoSalvar');
+    if (btnLaudoSalvar) btnLaudoSalvar.onclick = async () => {
+      const valoresAtuais = coletarCampos();
+      const faltando = laudoInfo.campos.filter(c => c.obrigatorio && !(valoresAtuais.find(v => v.campo_id === c.id) || {}).valor);
+      if (faltando.length) { $('epLaudoMsg').textContent = `Preencha o campo obrigatório "${faltando[0].rotulo}".`; return; }
+      btnLaudoSalvar.disabled = true; $('epLaudoMsg').style.color = ''; $('epLaudoMsg').textContent = 'Salvando...';
+      try {
+        let laudoId = laudoInfo.laudoId;
+        if (!laudoId) {
+          const { data: novoLaudo, error: errLaudo } = await sb.from('laudos_credito')
+            .insert({ processo_id: id, modelo_id: laudoInfo.modelo.id, criado_por: state.session?.user?.id }).select('id').single();
+          if (errLaudo) throw errLaudo;
+          laudoId = novoLaudo.id;
+        } else {
+          await sb.from('laudos_credito').update({ atualizado_em: new Date().toISOString() }).eq('id', laudoId);
+        }
+        const linhasValores = valoresAtuais.filter(v => v.valor).map(v => ({ laudo_id: laudoId, campo_id: v.campo_id, valor: v.valor }));
+        if (linhasValores.length) {
+          const { error: errValores } = await sb.from('laudos_credito_valores').upsert(linhasValores, { onConflict: 'laudo_id,campo_id' });
+          if (errValores) throw errValores;
+        }
+        if (laudoInfo.modelo.tem_fluxo_pagamento) {
+          await sb.from('laudos_credito_fluxo').delete().eq('laudo_id', laudoId);
+          const linhasFluxo = coletarFluxo().map(l => ({ ...l, laudo_id: laudoId }));
+          if (linhasFluxo.length) {
+            const { error: errFluxo } = await sb.from('laudos_credito_fluxo').insert(linhasFluxo);
+            if (errFluxo) throw errFluxo;
+          }
+        }
+        laudoInfo.laudoId = laudoId;
+        $('epLaudoMsg').style.color = 'var(--ok)';
+        $('epLaudoMsg').textContent = 'Laudo salvo!';
+      } catch (err) {
+        $('epLaudoMsg').style.color = 'var(--err)';
+        $('epLaudoMsg').textContent = err.message || 'Erro ao salvar o laudo.';
+      }
+      btnLaudoSalvar.disabled = false;
+    };
+  }
 
   const parecerSelect = $('epParecer');
   const contratoBox = $('epContratoBox');
@@ -6037,7 +6632,7 @@ async function openProcessoEsteira(id, etapas) {
           });
         } else {
           await sb.from('esteira_historico').insert({ processo_id: id,
-            evento: `⚠️ Não foi possível atribuir erro automático: não há registro de quem validou "${etapas[destinoIdx]?.nome}".`,
+            evento: `Não foi possível atribuir erro automático: não há registro de quem validou "${etapas[destinoIdx]?.nome}".`,
             autor: 'sistema' });
         }
       }
@@ -6066,7 +6661,7 @@ async function openProcessoEsteira(id, etapas) {
     }).eq('id', id);
     if (error) { $('epMsg').textContent = error.message; return; }
     await sb.from('esteira_historico').insert({ processo_id: id,
-      evento: '❌ Desistência do cliente' + (motivo ? ` · Motivo: ${motivo}` : ''), autor: state.session?.user?.email });
+      evento: 'Desistência do cliente' + (motivo ? ` · Motivo: ${motivo}` : ''), autor: state.session?.user?.email });
     div.remove(); renderEsteira();
   };
   const btnExcluirProc = $('btnExcluirProc');
@@ -6109,22 +6704,22 @@ async function openProcessoEsteira(id, etapas) {
 }
 function iconeArquivo(nome) {
   const ext = (nome.split('.').pop() || '').toLowerCase();
-  if (ext === 'pdf') return '📕';
-  if (['doc','docx'].includes(ext)) return '📘';
-  if (['xls','xlsx','csv'].includes(ext)) return '📗';
-  if (['png','jpg','jpeg','gif'].includes(ext)) return '🖼️';
-  if (ext === 'zip') return '🗜️';
-  return '📄';
+  if (ext === 'pdf') return '';
+  if (['doc','docx'].includes(ext)) return '';
+  if (['xls','xlsx','csv'].includes(ext)) return '';
+  if (['png','jpg','jpeg','gif'].includes(ext)) return '';
+  if (ext === 'zip') return '';
+  return '';
 }
 
 async function openGerenciarEtapas(etapas) {
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:480px">
-    <h2>⚙️ Etapas da Esteira</h2>
+    <h2>Etapas da Esteira</h2>
     <div id="etapasList">${etapas.map(e => `
       <div class="cad-item">${e.ordem}. ${esc(e.nome)}
-        <button class="ghost del-etapa" data-id="${e.id}">✕</button></div>`).join('')}</div>
+        <button class="ghost del-etapa" data-id="${e.id}">${ICONE_FECHAR}</button></div>`).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <input id="novaEtapa" placeholder="Nome da nova etapa" style="flex:1">
       <button id="btnAddEtapa" class="ghost">Adicionar</button>
@@ -6176,13 +6771,13 @@ async function renderRepasse() {
 
   shell(`
     <div class="kpis" style="margin-bottom:16px">
-      <div class="kpi"><div class="v">${(rowsAll||[]).length}</div><div class="l">👤 Clientes em repasse</div></div>
-      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">⏳ Operações em andamento</div></div>
-      <div class="kpi"><div class="v">${concluidas}</div><div class="l">✅ Operações concluídas</div></div>
-      <div class="kpi"><div class="v" style="color:${canceladas?'var(--err)':'var(--text)'}">${canceladas}</div><div class="l">✕ Operações canceladas</div></div>
-      <div class="kpi"><div class="v" style="font-size:22px">${moeda(vgv)}</div><div class="l">💰 VGV (valor geral de venda)</div></div>
-      <div class="kpi"><div class="v" style="font-size:22px">${moeda(totalFinanciado)}</div><div class="l">🏦 Total financiado</div></div>
-      <div class="kpi"><div class="v" style="font-size:22px">${moeda(ticketMedio)}</div><div class="l">📊 Ticket médio</div></div>
+      <div class="kpi"><div class="v">${(rowsAll||[]).length}</div><div class="l">Clientes em repasse</div></div>
+      <div class="kpi"><div class="v">${emAndamento}</div><div class="l">Operações em andamento</div></div>
+      <div class="kpi"><div class="v">${concluidas}</div><div class="l">Operações concluídas</div></div>
+      <div class="kpi"><div class="v" style="color:${canceladas?'var(--err)':'var(--text)'}">${canceladas}</div><div class="l">Operações canceladas</div></div>
+      <div class="kpi"><div class="v" style="font-size:22px">${moeda(vgv)}</div><div class="l">VGV (valor geral de venda)</div></div>
+      <div class="kpi"><div class="v" style="font-size:22px">${moeda(totalFinanciado)}</div><div class="l">Total financiado</div></div>
+      <div class="kpi"><div class="v" style="font-size:22px">${moeda(ticketMedio)}</div><div class="l">Ticket médio</div></div>
       <div class="kpi"><div class="v" style="font-size:20px">${moeda(comissaoPrevista)}</div><div class="l">Comissão prevista</div></div>
       <div class="kpi"><div class="v" style="font-size:20px;color:var(--ok)">${moeda(comissaoRecebida)}</div><div class="l">Comissão recebida</div></div>
     </div>
@@ -6197,7 +6792,7 @@ async function renderRepasse() {
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <h2 style="margin:0">🏦 Gestão de Repasse — cadastro único do cliente ${termo ? `— ${rows.length} resultado(s)` : ''}</h2>
+        <h2 style="margin:0">Gestão de Repasse — cadastro único do cliente ${termo ? `— ${rows.length} resultado(s)` : ''}</h2>
         ${state.role !== 'leitura' ? '<button id="btnNovoCli">+ Novo cliente</button>' : ''}
       </div>
       ${(rows||[]).length ? `<table><thead><tr><th>Cliente</th><th>CPF</th><th>Empreendimento</th><th>Unidade</th><th>Banco</th><th>Responsável</th><th>Status</th><th></th></tr></thead>
@@ -6233,7 +6828,7 @@ async function renderRepasse() {
     const div = document.createElement('div');
     div.className = 'modal-bg';
     div.innerHTML = `<div class="modal" style="width:820px">
-      <h2>${id ? '🏦 ' + esc(c.nome) : '🏦 Novo cliente'}</h2>
+      <h2>${id ? '' + esc(c.nome) : 'Novo cliente'}</h2>
       <h2 style="font-size:13px;color:var(--muted);margin-top:0">Dados pessoais</h2>
       <div class="grid2">
         <div><label>Nome completo</label><input id="cNome" value="${esc(c.nome)}" ${ro}></div>
@@ -6297,10 +6892,10 @@ async function renderRepasse() {
       <div class="grid2" style="margin-top:6px"><div style="grid-column:1/-1"><label>Observações</label><input id="cObs" value="${esc(c.obs)}" style="width:100%" ${ro}></div></div>
 
       ${id ? `
-      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">👥 Coobrigados (cônjuge, composição de renda, fiador, procurador)</h2>
+      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">Coobrigados (cônjuge, composição de renda, fiador, procurador)</h2>
       <div id="coobList" class="anexo-list">${coobrigados.map(co => `
         <div class="anexo-item"><span style="flex:1"><b>${esc(TIPO_COOBRIGADO[co.tipo]||co.tipo)}</b> — ${esc(co.nome)}${co.cpf?' · '+esc(co.cpf):''}${co.renda?' · R$ '+Number(co.renda).toLocaleString('pt-BR'):''}</span>
-          ${state.role!=='leitura' ? `<button class="ghost coobDel" data-id="${co.id}">✕</button>` : ''}</div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum coobrigado cadastrado.</p>'}</div>
+          ${state.role!=='leitura' ? `<button class="ghost coobDel" data-id="${co.id}">${ICONE_FECHAR}</button>` : ''}</div>`).join('') || '<p style="color:var(--muted);font-size:12.5px">Nenhum coobrigado cadastrado.</p>'}</div>
       ${state.role !== 'leitura' ? `<div class="grid2" style="margin-top:8px">
         <div><label>Tipo</label><select id="coobTipo">${Object.entries(TIPO_COOBRIGADO).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
         <div><label>Nome</label><input id="coobNome"></div>
@@ -6309,11 +6904,11 @@ async function renderRepasse() {
         <div style="grid-column:1/-1"><button id="btnAddCoob" class="ghost">+ Adicionar coobrigado</button></div>
       </div>` : ''}
 
-      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">⛓️ Workflow do repasse</h2>
+      <h2 style="font-size:13px;color:var(--muted);margin-top:18px">Workflow do repasse</h2>
       <p style="color:var(--muted);font-size:12.5px;margin-bottom:8px">Esteira com as 28 etapas, checklist documental e histórico completo ficam dentro do processo.</p>
       <button id="btnAbrirWorkflow" class="ghost">Abrir workflow e checklist →</button>
 
-      <h2 style="margin-top:16px;font-size:13px;color:var(--muted)">🕓 Anotações rápidas</h2>
+      <h2 style="margin-top:16px;font-size:13px;color:var(--muted)">Anotações rápidas</h2>
       <div class="timeline">${eventos.map(e => `
         <div class="tl-item"><div class="tl-dot"></div>
           <div><b>${new Date(e.data).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</b> — ${esc(e.evento)}
@@ -6413,8 +7008,8 @@ async function renderRepasse() {
 const CATEGORIAS_CONHECIMENTO = ['FGTS','HMP','HIS','MCMV','Cartórios','Prefeituras','Receita Federal','Legislação','Procedimentos internos'];
 async function renderBibliotecaRepasse() {
   if (!state.bibliotecaTab) state.bibliotecaTab = 'formularios';
-  const TABS = [['formularios','📁 Formulários por banco'], ['conhecimento','📚 Base de conhecimento'],
-    ['cartorios','🏛️ Cartórios'], ['prefeituras','🏢 Prefeituras & Receita Federal']];
+  const TABS = [['formularios','Formulários por banco'], ['conhecimento','Base de conhecimento'],
+    ['cartorios','Cartórios'], ['prefeituras','Prefeituras & Receita Federal']];
   const tabsHtml = `<div class="admin-tabs">${TABS.map(([k,l]) =>
     `<button class="admin-tab ${state.bibliotecaTab===k?'active':''}" data-tab="${k}">${l}</button>`).join('')}</div>`;
   const ro = state.role === 'leitura';
@@ -6433,7 +7028,7 @@ async function renderBibliotecaRepasse() {
       ${tabsHtml}
       <div class="card">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-          <h2 style="margin:0">📁 Formulários por banco</h2>
+          <h2 style="margin:0">Formulários por banco</h2>
           <select id="bibBanco">${BANCOS_REPASSE.map(b=>`<option ${state.bibliotecaBanco===b?'selected':''}>${b}</option>`).join('')}</select>
           ${!ro ? `<input type="file" id="bibUpload" style="max-width:220px">` : ''}
         </div>
@@ -6442,7 +7037,7 @@ async function renderBibliotecaRepasse() {
           <div class="cad-item" style="flex-wrap:wrap">
             <span style="flex:1">${iconeArquivo(base)} <b>${esc(base)}</b> <span class="tag CONCLUIDO">vigente</span>
               <span style="color:var(--muted2);font-size:11px"> · atualizado ${fmtDt(versoes[0].created_at)}</span></span>
-            <button class="ghost bibBaixar" data-path="${state.bibliotecaBanco}/${esc(versoes[0].name)}">⬇ Baixar</button>
+            <button class="ghost bibBaixar" data-path="${state.bibliotecaBanco}/${esc(versoes[0].name)}">${ICONE_DOWNLOAD}Baixar</button>
             ${versoes.length>1 ? `<span style="color:var(--muted2);font-size:11px">+${versoes.length-1} versão(ões) anterior(es)</span>` : ''}
           </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum formulário enviado para este banco ainda.</p>'}
       </div>`);
@@ -6469,7 +7064,7 @@ async function renderBibliotecaRepasse() {
       ${tabsHtml}
       <div class="card">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-          <h2 style="margin:0">📚 Base de conhecimento</h2>
+          <h2 style="margin:0">Base de conhecimento</h2>
           <select id="conhCatFiltro"><option ${state.conhecimentoCat==='Todas'?'selected':''}>Todas</option>
             ${CATEGORIAS_CONHECIMENTO.map(c=>`<option ${state.conhecimentoCat===c?'selected':''}>${c}</option>`).join('')}</select>
         </div>
@@ -6487,7 +7082,7 @@ async function renderBibliotecaRepasse() {
             <span style="flex:1"><span class="tag RECEBIDO">${esc(a.categoria)}</span> <b>${esc(a.titulo)}</b>
               ${a.conteudo?`<br><span style="color:var(--muted);font-size:12.5px">${esc(a.conteudo)}</span>`:''}
               ${a.url?`<br><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.url)}</a>`:''}</span>
-            ${!ro ? `<button class="ghost conhDel" data-id="${a.id}">✕</button>` : ''}
+            ${!ro ? `<button class="ghost conhDel" data-id="${a.id}">${ICONE_FECHAR}</button>` : ''}
           </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nada cadastrado nesta categoria ainda.</p>'}
       </div>`);
     document.getElementById('conhCatFiltro').onchange = (e) => { state.conhecimentoCat = e.target.value; renderBibliotecaRepasse(); };
@@ -6514,7 +7109,7 @@ async function renderBibliotecaRepasse() {
     shell(`
       ${tabsHtml}
       <div class="card">
-        <h2>🏛️ Cartórios de Registro de Imóveis <span class="count-badge">${(cartorios||[]).length}</span></h2>
+        <h2>Cartórios de Registro de Imóveis <span class="count-badge">${(cartorios||[]).length}</span></h2>
         ${!ro ? `<div class="grid2" style="margin:10px 0">
           <div><label>Nome</label><input id="cartNome"></div>
           <div><label>Cidade</label><input id="cartCidade"></div>
@@ -6531,10 +7126,10 @@ async function renderBibliotecaRepasse() {
         ${(cartorios||[]).length ? cartorios.map(c => `
           <div class="cad-item" style="align-items:flex-start;flex-wrap:wrap">
             <span style="flex:1"><b>${esc(c.nome)}</b> ${c.cidade?`— ${esc(c.cidade)}/${esc(c.estado)}`:''}${c.aceita_digital?' <span class="tag CONCLUIDO">aceita digital</span>':''}
-              ${c.telefone?`<br><span style="color:var(--muted);font-size:12px">📞 ${esc(c.telefone)}</span>`:''}
-              ${c.tempo_medio?`<br><span style="color:var(--muted);font-size:12px">⏱ ${esc(c.tempo_medio)}</span>`:''}
+              ${c.telefone?`<br><span style="color:var(--muted);font-size:12px">${esc(c.telefone)}</span>`:''}
+              ${c.tempo_medio?`<br><span style="color:var(--muted);font-size:12px">${esc(c.tempo_medio)}</span>`:''}
               ${c.observacoes?`<br><span style="color:var(--muted);font-size:12px">${esc(c.observacoes)}</span>`:''}</span>
-            ${!ro ? `<button class="ghost cartDel" data-id="${c.id}">✕</button>` : ''}
+            ${!ro ? `<button class="ghost cartDel" data-id="${c.id}">${ICONE_FECHAR}</button>` : ''}
           </div>`).join('') : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum cartório cadastrado ainda — adicione os que sua equipe mais usa.</p>'}
       </div>`);
     const btnAddCart = document.getElementById('btnAddCart');
@@ -6565,7 +7160,7 @@ async function renderBibliotecaRepasse() {
       ${tabsHtml}
       <div class="grid-cad">
         <div class="card">
-          <h2>🏢 Prefeituras <span class="count-badge">${(prefeituras||[]).length}</span></h2>
+          <h2>Prefeituras <span class="count-badge">${(prefeituras||[]).length}</span></h2>
           ${!ro ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
             <input id="prefMunicipio" placeholder="Município" style="flex:1;min-width:120px">
             <input id="prefEstado" placeholder="UF" style="width:60px">
@@ -6576,11 +7171,11 @@ async function renderBibliotecaRepasse() {
           ${(prefeituras||[]).length ? prefeituras.map(p => `
             <div class="cad-item"><span style="flex:1"><b>${esc(p.municipio)}</b>${p.estado?'/'+esc(p.estado):''}
               ${p.link_itbi?` · <a href="${esc(p.link_itbi)}" target="_blank" rel="noopener">ITBI</a>`:''}</span>
-              ${!ro?`<button class="ghost prefDel" data-id="${p.id}">✕</button>`:''}</div>`).join('')
+              ${!ro?`<button class="ghost prefDel" data-id="${p.id}">${ICONE_FECHAR}</button>`:''}</div>`).join('')
             : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhuma prefeitura cadastrada ainda.</p>'}
         </div>
         <div class="card">
-          <h2>🏦 Receita Federal & Atalhos <span class="count-badge">${(atalhos||[]).length}</span></h2>
+          <h2>Receita Federal & Atalhos <span class="count-badge">${(atalhos||[]).length}</span></h2>
           ${!ro ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
             <input id="atNome" placeholder="Nome do atalho" style="flex:1;min-width:120px">
             <input id="atUrl" placeholder="https://..." style="flex:1;min-width:150px">
@@ -6588,7 +7183,7 @@ async function renderBibliotecaRepasse() {
           </div>` : ''}
           ${(atalhos||[]).length ? atalhos.map(a => `
             <div class="cad-item"><span style="flex:1"><span class="tag RECEBIDO">${esc(a.categoria)}</span> <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nome)}</a></span>
-              ${!ro?`<button class="ghost atDel" data-id="${a.id}">✕</button>`:''}</div>`).join('')
+              ${!ro?`<button class="ghost atDel" data-id="${a.id}">${ICONE_FECHAR}</button>`:''}</div>`).join('')
             : '<p style="color:var(--muted);font-size:12.5px;padding:8px 0">Nenhum atalho cadastrado.</p>'}
         </div>
       </div>`);
@@ -6666,26 +7261,27 @@ function renderDefinirSenha(email, msg = '') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <div class="hero-badge">✉️ CONVITE</div>
+      <img class="hero-mark" src="assets/logo-neoservice-branco.png" alt="Neo Service">
       <h1>Bem-vindo(a) à<br>Secretaria de Vendas<br><span>Neo Service.</span></h1>
       <p class="hero-sub">Você foi convidado(a) para acessar o painel interno da equipe. Crie sua senha para começar.</p>
     </div>
     <div class="login-panel">
       <div class="card" id="login-card">
-        <div class="login-icon">🔑</div>
+        <img class="login-mark" src="assets/logo-neoservice.png" alt="Neo Service">
         <h2>Criar sua senha</h2>
         <div class="login-brandline">${esc(email || '')}</div>
         <div class="sub">Escolha uma senha para acessar o sistema</div>
         <label>Nova senha</label>
-        <div class="input-ic"><span>🔒</span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"><button type="button" class="pwd-toggle" data-target="novaSenha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <label>Confirmar senha</label>
-        <div class="input-ic"><span>🔒</span><input id="confSenha" type="password" placeholder="repita a senha"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="confSenha" type="password" placeholder="repita a senha"><button type="button" class="pwd-toggle" data-target="confSenha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <button id="btnDefinirSenha">Criar senha e entrar →</button>
         <div class="msg">${esc(msg)}</div>
       </div>
     </div>
     <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
   </div>`;
+  wirePwdToggles();
   btnDefinirSenha.onclick = async () => {
     const s1 = novaSenha.value, s2 = confSenha.value;
     if (!s1 || s1.length < 6) { renderDefinirSenha(email, 'A senha precisa ter pelo menos 6 caracteres.'); return; }
@@ -6748,10 +7344,10 @@ function renderCompletarCadastro(session, perfil) {
   app.innerHTML = `
   <div class="login-wrap" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px">
     <div class="card" style="width:100%;max-width:460px">
-      <h2 style="margin:0 0 4px">👋 Complete seu cadastro</h2>
+      <h2 style="margin:0 0 4px">Complete seu cadastro</h2>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px">${ehCliente ? 'Como devemos te chamar por aqui?' : 'Precisamos de alguns dados antes do primeiro acesso.'}</p>
       ${!podeEditar ? `<div class="msg" style="background:var(--warn-soft);border-color:var(--warn);margin-bottom:12px">
-        ⚠️ O acesso ao sistema exige e-mail corporativo (<b>${DOMINIO_CORPORATIVO}</b>).<br>
+        O acesso ao sistema exige e-mail corporativo (<b>${DOMINIO_CORPORATIVO}</b>).<br>
         Você entrou com <b>${esc(session.user.email)}</b>. Peça ao administrador um convite para o seu e-mail corporativo.
       </div>` : ''}
       <div><label>Nome completo</label><input id="ccNome" value="${esc(perfil?.nome_completo)}" placeholder="Ex.: Maria Aparecida de Souza" ${!podeEditar?'disabled':''}></div>
@@ -6790,35 +7386,51 @@ let portalCanal = null;
 // Itens do menu lateral do portal. Não existe item "Assinaturas" de propósito: o acompanhamento de
 // assinatura é etapa da esteira e já aparece dentro de cada processo — item separado seria redundante.
 const PORTAL_NAV = [
-  ['inicio', '🏠', 'Meus Empreendimentos'],
-  ['processos', '📊', 'Processos'],
-  ['pendencias', '📄', 'Pendências'],
-  ['boletos', '💳', 'Boleto de Ato'],
-  ['repasse', '🏦', 'Repasse'],
-  ['relatorios', '📈', 'Relatórios'],
-  ['interacoes', '💬', 'Central de Interações'],
-  ['documentos', '📁', 'Documentos'],
-  ['conhecimento', '❓', 'Base de Conhecimento'],
+  ['inicio', '', 'Meus Empreendimentos'],
+  ['processos', '', 'Processos'],
+  ['pendencias', '', 'Pendências'],
+  ['boletos', '', 'Boleto de Ato'],
+  ['repasse', '', 'Repasse'],
+  ['relatorios', '', 'Relatórios'],
+  ['interacoes', '', 'Central de Interações'],
+  ['documentos', '', 'Documentos'],
+  ['conhecimento', '', 'Base de Conhecimento'],
 ];
 // Repasse só entra no menu quando a incorporadora tem ao menos um processo de repasse vinculado.
 let portalTemRepasse = false;
+// A partir da cor única cadastrada pra incorporadora, deriva os 3 tons do degradê da barra
+// lateral do portal (mesma lógica de profundidade que o degradê fixo da Neo já usava).
+function ajustarHex(hex, pct) {
+  const h = (hex || '').replace('#', '');
+  const norm = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const num = parseInt(norm, 16);
+  if (Number.isNaN(num)) return null;
+  let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+  const ajustar = (c) => Math.max(0, Math.min(255, Math.round(pct > 0 ? c + (255 - c) * pct : c + c * pct)));
+  r = ajustar(r); g = ajustar(g); b = ajustar(b);
+  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+}
 function portalShell(perfil, inner, marca, topo, viewAtiva) {
   if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
   const logoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
   const nome = perfil.nome_completo || perfil.nome || perfil.email || '';
   const iniciais = nome ? nome.trim().charAt(0).toUpperCase() : '?';
   const ativa = viewAtiva || 'inicio';
+  const corMarca = marca?.cor_secundaria;
+  const corVars = corMarca
+    ? `--accent2:${esc(corMarca)};--portal-c1:${esc(ajustarHex(corMarca, -0.55) || corMarca)};--portal-c2:${esc(ajustarHex(corMarca, -0.25) || corMarca)};--portal-c3:${esc(corMarca)}`
+    : '';
   app.innerHTML = `
-  <div class="portal-shell"${marca?.cor_secundaria ? ` style="--accent2:${esc(marca.cor_secundaria)}"` : ''}>
+  <div class="portal-shell"${corVars ? ` style="${corVars}"` : ''}>
     <aside class="portal-sidebar">
       <div class="portal-sidebar-brand">
-        ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<span class="logo" style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">${ICONE_PREDIO}</span>`}
-        <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b><small>NEO SERVICE</small></div>
+        ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<img src="assets/logo-neoservice-branco.png" alt="Neo Service" style="height:22px;width:auto">`}
+        <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b></div>
       </div>
       ${PORTAL_NAV.filter(([v]) => v !== 'repasse' || portalTemRepasse)
-        .map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}">${ic} ${esc(label)}</button>`).join('')}
+        .map(([v,ic,label]) => `<button class="portal-nav-item ${v===ativa?'active':''}" data-nav="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${esc(label)}</button>`).join('')}
       <div class="portal-sidebar-foot">
-        <div class="who">👤 ${esc(nome)}</div>
+        <div class="who"><span class="side-ic">${ICONES.portalUsuarios}</span>${esc(nome)}</div>
         <button id="pcSair">Sair</button>
       </div>
     </aside>
@@ -6914,11 +7526,19 @@ async function renderPortalCliente(perfil) {
   const totalProc = Math.max(1, (processos||[]).length);
   const pctAndamento = Math.round(emAndamento / totalProc * 100);
   const donutDeg = Math.round(emAndamento / totalProc * 360);
-  portalShell(perfil, `
+  const semEmpreendimentos = !(emps||[]).length;
+  portalShell(perfil, semEmpreendimentos ? `
+    <div class="card" style="text-align:center;padding:64px 28px">
+      <div style="width:56px;height:56px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 18px">
+        ${svgIcon('<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M3 21h18M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"/>')}
+      </div>
+      <h2 style="font-size:17px;margin-bottom:6px">Sua área ainda está sendo preparada</h2>
+      <p style="color:var(--muted);font-size:13.5px;max-width:420px;margin:0 auto">Assim que o primeiro empreendimento for vinculado à sua conta, você acompanha aqui, em tempo real, cada etapa dos seus processos — da análise de crédito à emissão de contrato.</p>
+    </div>` : `
     <div class="pkpis">
-      <div class="pkpi"><div class="pkpi-ic">🏗️</div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
-      <div class="pkpi"><div class="pkpi-ic">⛓️</div><div><div class="pkpi-v">${emAndamento}</div><div class="pkpi-l">EM ANDAMENTO</div></div></div>
-      <div class="pkpi ok"><div class="pkpi-ic">✅</div><div><div class="pkpi-v">${concluidos}</div><div class="pkpi-l">CONCLUÍDOS</div></div></div>
+      <div class="pkpi"><div class="pkpi-ic"></div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
+      <div class="pkpi"><div class="pkpi-ic"></div><div><div class="pkpi-v">${emAndamento}</div><div class="pkpi-l">EM ANDAMENTO</div></div></div>
+      <div class="pkpi ok"><div class="pkpi-ic"></div><div><div class="pkpi-v">${concluidos}</div><div class="pkpi-l">CONCLUÍDOS</div></div></div>
     </div>
     <h2 style="font-size:15px;margin-bottom:12px">Evolução dos processos</h2>
     <div class="pfunil">${funilPassos.map(([nome, n]) => `
@@ -6959,8 +7579,8 @@ async function renderPortalCliente(perfil) {
     <tbody>${mesesCredito.map(m => `
       <tr><td><b>${esc(fmtMes(m.data))}</b></td><td>${m.recebidos}</td><td>${m.reprovados}</td><td>${m.pendencia}</td><td>${m.contrato}</td></tr>`).join('')
       || '<tr><td colspan="5" style="color:var(--muted)">Nenhum processo de análise de crédito nos últimos 6 meses.</td></tr>'}</tbody></table></div>`,
-    marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! 👋`,
-             subtitulo: 'Aqui está o resumo do andamento dos seus processos.' });
+    marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! `,
+             subtitulo: semEmpreendimentos ? 'Bem-vindo(a) ao seu portal exclusivo.' : 'Aqui está o resumo do andamento dos seus processos.' });
   document.querySelectorAll('.portal-emp-row').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalCliente(perfil));
 }
@@ -7029,7 +7649,7 @@ async function renderPortalProcesso(perfil, processoId, empId, voltar) {
       <div class="stepper">${linhasEtapa.map(({e,concluida,atual,v,tempoTxt}) => `
         <div class="step-row ${concluida?'done':atual?'current':'pending'}">
           <div class="step-line"></div>
-          <div class="step-dot">${concluida?'✓':atual?'●':''}</div>
+          <div class="step-dot">${concluida?'':atual?'●':''}</div>
           <div class="step-body">
             <b>${esc(e.nome)}</b>
             <div class="step-meta">
@@ -7043,7 +7663,7 @@ async function renderPortalProcesso(perfil, processoId, empId, voltar) {
       <p style="color:var(--muted2);font-size:11px;margin-top:14px">SLA por etapa ainda não configurado — assim que houver um prazo padrão definido para cada etapa, aparece aqui também.</p>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 style="font-size:14px">💬 Falar com a equipe</h2>
+      <h2 style="font-size:14px">Falar com a equipe</h2>
       <p style="color:var(--muted);font-size:12px;margin-bottom:10px">Precisa cobrar um retorno? Manda aqui — quem está com o processo na esteira recebe o aviso.</p>
       <div id="pcChatMsgs" style="max-height:280px;overflow-y:auto;margin-bottom:10px">${(mensagens||[]).map(m => `
         <div style="display:flex;justify-content:${m.autor_tipo==='cliente'?'flex-end':'flex-start'};margin-bottom:8px">
@@ -7264,7 +7884,7 @@ async function renderPortalBoletos(perfil) {
         <td>${esc(p.unidade || '—')}</td>
         <td><span class="tag ${pago ? 'CONCLUIDO' : 'PENDENTE'}">${esc(situacao)}</span></td>
         <td>${anexoPorProcesso[p.id]
-          ? `<button class="ghost pcBoleto" data-path="${esc(anexoPorProcesso[p.id].storage_path || '')}" data-url="${esc(anexoPorProcesso[p.id].url || '')}">⬇ Baixar</button>`
+          ? `<button class="ghost pcBoleto" data-path="${esc(anexoPorProcesso[p.id].storage_path || '')}" data-url="${esc(anexoPorProcesso[p.id].url || '')}">${ICONE_DOWNLOAD}Baixar</button>`
           : '<span style="color:var(--muted2)">não anexado</span>'}</td>
         <td style="text-align:right"><button class="ghost pcAbrirProc" data-id="${p.id}" data-emp="${p.empreendimento_id || ''}">Acompanhar →</button></td>
       </tr>`).join('')}</tbody></table></div></div>`
@@ -7525,14 +8145,14 @@ async function renderPortalDocumentos(perfil) {
           ${ctx.emps.map(e => `<option value="${e.id}" ${portalFiltro.emp === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></div>
     </div>
     ${Object.keys(porEmp).length ? Object.entries(porEmp).map(([empId, itens]) => `
-      <h2 style="font-size:15px;margin:18px 0 10px">🏗️ ${esc(ctx.nomeEmp[empId] || 'Empreendimento')}</h2>
+      <h2 style="font-size:15px;margin:18px 0 10px">${esc(ctx.nomeEmp[empId] || 'Empreendimento')}</h2>
       <div class="card"><div class="table-scroll"><table class="users-table">
         <thead><tr><th>Documento</th><th>Categoria</th><th>Publicado em</th><th></th></tr></thead>
         <tbody>${itens.map(d => `<tr>
           <td><b>${esc(d.titulo)}</b>${d.descricao ? `<br><span style="color:var(--muted);font-size:11.5px">${esc(d.descricao)}</span>` : ''}</td>
           <td>${esc(d.categoria)}</td>
           <td style="color:var(--muted);white-space:nowrap">${fmtDt(d.criado_em)}</td>
-          <td style="text-align:right"><button class="ghost pcDoc" data-path="${esc(d.storage_path || '')}" data-url="${esc(d.url || '')}">${d.tipo === 'link' ? '🔗 Abrir' : '⬇ Baixar'}</button></td>
+          <td style="text-align:right"><button class="ghost pcDoc" data-path="${esc(d.storage_path || '')}" data-url="${esc(d.url || '')}">${d.tipo === 'link' ? `${ICONE_LINK}Abrir` : `${ICONE_DOWNLOAD}Baixar`}</button></td>
         </tr>`).join('')}</tbody></table></div></div>`).join('')
       : portalVazio('Nenhum documento publicado para os seus empreendimentos ainda.')}`,
     marca, { titulo: 'Documentos', subtitulo: 'Arquivos e links publicados pela equipe para cada empreendimento.' }, 'documentos');
@@ -7548,7 +8168,7 @@ async function renderPortalConhecimento(perfil) {
   const visiveis = (artigos || []).filter(a => !portalFiltro.emp || !a.empreendimento_id || a.empreendimento_id === portalFiltro.emp);
   const porCategoria = {};
   visiveis.forEach(a => { (porCategoria[a.categoria || 'Geral'] = porCategoria[a.categoria || 'Geral'] || []).push(a); });
-  const icone = { artigo: '📄', pdf: '📕', link: '🔗', modelo: '🧾', video: '🎬' };
+  const icone = { artigo: '', pdf: '', link: '', modelo: '', video: '' };
   portalShell(perfil, `
     <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
       <div style="flex:1;min-width:200px"><label>Empreendimento</label>
@@ -7560,7 +8180,7 @@ async function renderPortalConhecimento(perfil) {
       ${itens.map(a => `<div class="card" style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start">
           <div style="flex:1;min-width:200px">
-            <b>${icone[a.tipo] || '📄'} ${esc(a.titulo)}</b>
+            <b>${icone[a.tipo] || ''} ${esc(a.titulo)}</b>
             ${a.empreendimento_id ? `<div style="color:var(--muted2);font-size:11.5px;margin-top:2px">${esc(ctx.nomeEmp[a.empreendimento_id] || '')}</div>` : ''}
             ${a.conteudo ? `<p style="color:var(--muted);font-size:13px;margin-top:8px;white-space:pre-wrap">${esc(a.conteudo)}</p>` : ''}
           </div>
