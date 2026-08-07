@@ -3436,7 +3436,7 @@ async function renderImplantacao() {
         <h2 style="margin:0">Produtos em Implantação — Lançamentos</h2>
         <span style="color:var(--muted);font-size:12.5px">Carteira de implantação: avanço, pendências e prazo de lançamento.</span>
         <div class="spacer"></div>
-        ${state.role !== 'leitura' ? '<button id="btnNovaImpl">+ Novo produto</button>' : ''}
+        ${state.role !== 'leitura' ? `<button id="btnImportarImpl" class="ghost">${ICONE_UPLOAD}Importar planilha</button><button id="btnNovaImpl">+ Novo produto</button>` : ''}
       </div>
     </div>
     <div class="kpis">
@@ -3511,6 +3511,82 @@ async function renderImplantacao() {
   if (bLF) bLF.onclick = () => { state.implantacaoFiltro = null; renderImplantacao(); };
   const bN = document.getElementById('btnNovaImpl');
   if (bN) bN.onclick = () => openImplantacao(null);
+  const bImp = document.getElementById('btnImportarImpl');
+  if (bImp) bImp.onclick = () => abrirImportarImplantacao(renderImplantacao);
+}
+
+// Importa a carteira de Produtos em Implantação em lote a partir de uma planilha (nunca fica
+// gravada em nenhum arquivo do projeto — só lida no navegador e enviada direto pro banco).
+function abrirImportarImplantacao(aoTerminar) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:520px">
+    <h2>Importar planilha — Produtos em Implantação</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">
+      Colunas aceitas (primeira linha = cabeçalho): <b>Empreendedora</b>, <b>Empreendimento</b>
+      (obrigatórios), Tipo, Fase, Sistemas, Link do sistema, Unidades, Previsão de lançamento,
+      Documentação recebida em, SLA (dias úteis), Observações.
+    </p>
+    <input id="impIArquivo" type="file" accept=".xlsx,.xls,.csv" style="width:100%;margin-bottom:10px">
+    <div class="msg" id="impIMsg"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:end">
+      <button id="impICancelar" class="ghost">Fechar</button>
+      <button id="impIConfirmar">Importar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  div.querySelector('#impICancelar').onclick = () => div.remove();
+  div.querySelector('#impIConfirmar').onclick = async () => {
+    const f = div.querySelector('#impIArquivo').files[0];
+    const msg = div.querySelector('#impIMsg');
+    if (!f) { msg.textContent = 'Selecione um arquivo primeiro.'; return; }
+    msg.style.color = ''; msg.textContent = 'Lendo planilha...';
+    const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const normKeys = (obj) => Object.fromEntries(Object.entries(obj).map(([k,v]) => [k.trim().replace(/\s+/g,' '), v]));
+    let linhas = [];
+    for (const nomeAba of wb.SheetNames) {
+      const tentativa = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { defval: '' }).map(normKeys);
+      if (tentativa.some(l => String(l['Empreendimento'] || '').trim())) { linhas = tentativa; break; }
+    }
+    if (!linhas.length) { msg.textContent = 'Não encontrei nenhuma aba com a coluna "Empreendimento" preenchida nesta planilha.'; return; }
+    const paraData = (v) => {
+      if (!v) return null;
+      if (v instanceof Date) return v.toISOString().slice(0,10);
+      const s = String(v).trim();
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (m) { const [,d,mo,y] = m; return `${(+y.length===2?'20'+y:y)}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+      const dt = new Date(s); return isNaN(dt) ? null : dt.toISOString().slice(0,10);
+    };
+    let ok = 0, semDados = 0;
+    const registros = [];
+    for (const l of linhas) {
+      const empreendedora = String(l['Empreendedora'] || '').trim();
+      const empreendimento = String(l['Empreendimento'] || '').trim();
+      if (!empreendedora || !empreendimento) { semDados++; continue; }
+      registros.push({
+        empreendedora, empreendimento,
+        tipo: String(l['Tipo'] || '').trim() || null,
+        fase: String(l['Fase'] || '').trim() || null,
+        sistemas: String(l['Sistemas'] || '').trim() || null,
+        link_sistema: String(l['Link do sistema'] || '').trim() || null,
+        unidades: Number(l['Unidades'] || 0) || 0,
+        previsao_lancamento: paraData(l['Previsão de lançamento']),
+        documentacao_recebida_em: paraData(l['Documentação recebida em']),
+        sla_dias_uteis: l['SLA (dias úteis)'] !== '' ? Number(l['SLA (dias úteis)']) || null : null,
+        observacoes: String(l['Observações'] || '').trim() || null,
+      });
+      ok++;
+    }
+    if (!registros.length) { msg.textContent = 'Nenhuma linha com Empreendedora e Empreendimento preenchidos — nada foi importado.'; return; }
+    msg.textContent = `Importando ${registros.length} linha(s)...`;
+    const { error } = await sb.from('implantacoes').insert(registros);
+    if (error) { msg.style.color = 'var(--err)'; msg.textContent = 'Erro ao importar: ' + error.message; return; }
+    msg.style.color = 'var(--ok)';
+    msg.textContent = `${ok} produto(s) importado(s)${semDados ? ` · ${semDados} linha(s) ignorada(s) por falta de Empreendedora/Empreendimento` : ''}.`;
+    setTimeout(() => { div.remove(); aoTerminar(); }, 1600);
+  };
 }
 
 async function openImplantacao(id) {
