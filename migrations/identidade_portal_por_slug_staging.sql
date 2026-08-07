@@ -15,3 +15,15 @@ create or replace view staging.empreendedoras_marca as
 select slug, nome, logo_path, cor_secundaria from staging.empreendedoras where slug is not null;
 
 grant select on staging.empreendedoras_marca to anon, authenticated;
+
+-- ACHADO ao ligar a função de borda "extrair-identidade-site": o papel service_role nunca tinha
+-- recebido USAGE no schema staging (só em public, que o Supabase configura automaticamente ao
+-- criar o projeto). staging é schema customizado, então isso não veio de graça — toda função de
+-- borda que precisar mexer em dado de staging vai esbarrar nisso até este grant existir.
+grant usage on schema staging to service_role;
+grant all on all tables in schema staging to service_role;
+grant all on all sequences in schema staging to service_role;
+grant execute on all functions in schema staging to service_role;
+alter default privileges in schema staging grant all on tables to service_role;
+alter default privileges in schema staging grant all on sequences to service_role;
+alter default privileges in schema staging grant execute on functions to service_role;
