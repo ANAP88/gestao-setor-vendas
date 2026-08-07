@@ -4033,7 +4033,7 @@ async function renderMetas() {
         <span style="color:var(--muted);font-size:12.5px">Indicadores fixos do setor — base das apresentações mensais.</span>
         <div class="spacer"></div>
         <select id="metaAno">${anos.map(a=>`<option ${a===state.metaAno?'selected':''}>${a}</option>`).join('')}</select>
-        ${state.role === 'admin' ? '<button id="btnEditarMetas" class="ghost">Lançar dados do mês</button>' : ''}
+        ${state.role === 'admin' ? '<button id="btnNovoIndicador" class="ghost">+ Cadastrar indicador</button><button id="btnEditarMetas" class="ghost">Lançar dados do mês</button>' : ''}
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
@@ -4198,6 +4198,44 @@ async function renderMetas() {
   if (bLI) bLI.onclick = () => openLancarIndividual(kpis, dashInd);
   const bE = document.getElementById('btnEditarMetas');
   if (bE) bE.onclick = () => openLancarIndicadores(kpis, porInd);
+  const bNI = document.getElementById('btnNovoIndicador');
+  if (bNI) bNI.onclick = () => openCadastrarIndicador(renderMetas);
+}
+
+// Cadastro de indicador novo — usado tanto aqui em Metas & Indicadores quanto no formulário de
+// "Registrar apontamento" (Qualidade/Retrabalho). Uma vez criado, fica disponível nos dois
+// lugares (individual, por colaborador, e da equipe), porque os dois usam a mesma tabela.
+async function openCadastrarIndicador(aoSalvar) {
+  const div = document.createElement('div');
+  div.className = 'modal-bg';
+  div.innerHTML = `<div class="modal" style="width:440px">
+    <h2>Cadastrar indicador</h2>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px">Fica disponível tanto na meta individual de cada colaborador quanto na meta da equipe.</p>
+    <div><label>Nome do indicador</label><input id="niNome" placeholder="Ex.: Atendimento pós-venda sem erro"></div>
+    <div style="margin-top:10px"><label>Meta (%)</label><input id="niMeta" type="number" min="0" max="100" step="1" value="95"></div>
+    <div class="msg" id="niMsg"></div>
+    <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
+      <button id="niCancel" class="ghost">Cancelar</button><button id="niSalvar">Cadastrar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  const $ = (i) => div.querySelector('#' + i);
+  $('niCancel').onclick = () => div.remove();
+  $('niSalvar').onclick = async () => {
+    const nome = $('niNome').value.trim();
+    if (!nome) { $('niMsg').textContent = 'Digite o nome do indicador.'; return; }
+    const meta = Number($('niMeta').value || 0) / 100;
+    $('niSalvar').disabled = true; $('niMsg').textContent = 'Cadastrando...';
+    const { data: maxOrd } = await sb.from('indicadores_kpi').select('ordem').order('ordem', { ascending: false }).limit(1).maybeSingle();
+    const { error } = await sb.from('indicadores_kpi').insert({ nome, meta_percentual: meta, ordem: (maxOrd?.ordem || 0) + 1, ativo: true });
+    if (error) {
+      $('niMsg').textContent = error.message.includes('duplicate') ? 'Já existe um indicador com esse nome.' : error.message;
+      $('niSalvar').disabled = false;
+      return;
+    }
+    div.remove();
+    if (aoSalvar) aoSalvar();
+  };
 }
 
 async function openPesosColaborador(kpis, colab) {
@@ -4561,7 +4599,14 @@ async function openIdentidadeEmpreendedora(id, nome) {
         return;
       }
     }
-    const rec = { cor_secundaria: $('idCor').value, slug: $('idSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || null, site: siteAtual || null };
+    // O seletor de cor sempre tem ALGUM valor (não dá pra representar "nenhuma cor" num
+    // <input type="color">) — então só grava se a pessoa realmente escolheu algo diferente do
+    // padrão do formulário, ou se já existia uma cor de verdade antes. Sem isso, salvar por
+    // qualquer outro motivo (ex.: só trocar o link do portal) gravava o cinza-padrão como se
+    // fosse a cor de marca encontrada — que foi exatamente o que aconteceu com a Global Realty.
+    const corEscolhida = $('idCor').value;
+    const corParaSalvar = (corEscolhida.toLowerCase() !== '#0d3d3d' || e?.cor_secundaria) ? corEscolhida : null;
+    const rec = { cor_secundaria: corParaSalvar, slug: $('idSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || null, site: siteAtual || null };
     try {
       const logoFile = $('idLogo').files[0];
       if (logoFile) {
