@@ -4610,13 +4610,40 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
   };
 }
 
+const CAMPOS_LAUDO_REFERENCIA = [
+  ['CPF/CNPJ do 1º proponente', 'texto'], ['Nome do 1º proponente', 'texto'],
+  ['CPF/CNPJ do 2º proponente', 'texto'], ['Nome do 2º proponente', 'texto'],
+  ['Imobiliária', 'texto'], ['Unidade', 'texto'],
+  ['Renda apurada', 'numero'], ['Tipo de renda', 'texto'],
+  ['Score do 1º proponente', 'numero'], ['Score do 2º proponente', 'numero'],
+  ['Apontamentos', 'area'],
+  ['VGV de venda', 'numero'], ['VGV de contrato', 'numero'], ['Comissão (%)', 'numero'],
+  ['Entrada', 'numero'], ['Comprometimento', 'numero'],
+  ['Parecer NEO', 'texto'], ['Parecer Comitê', 'texto'], ['Analista responsável', 'texto'],
+  ['Observações', 'area'],
+];
+
 async function openIdentidadeEmpreendedora(id, nome) {
   const { data: e } = await sb.from('empreendedoras').select('logo_path,capa_path,cor_secundaria,slug,site').eq('id', id).single();
+  const { data: modelo } = await sb.from('laudos_credito_modelos').select('id,nome,tem_fluxo_pagamento').eq('empreendedora_id', id).maybeSingle();
+  const { data: camposLaudo } = modelo
+    ? await sb.from('laudos_credito_campos').select('id,ordem,rotulo,tipo,obrigatorio').eq('modelo_id', modelo.id).order('ordem')
+    : { data: [] };
   const div = document.createElement('div');
   div.className = 'modal-bg';
   const urlDe = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
   const linkPortal = `${location.origin}/portal/${e?.slug || '<slug>'}`;
-  div.innerHTML = `<div class="modal" style="width:480px">
+  const linhaCampoLaudo = (c) => `<div class="laudo-campo-linha" data-id="${c.id || ''}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+    <input class="lcRotulo" placeholder="Nome do campo (ex.: Renda apurada)" value="${esc(c.rotulo || '')}" style="flex:1;font-size:12.5px;padding:6px 8px">
+    <select class="lcTipo" style="width:112px;font-size:12.5px;padding:6px 4px">
+      <option value="texto" ${(!c.tipo || c.tipo === 'texto') ? 'selected' : ''}>Texto</option>
+      <option value="numero" ${c.tipo === 'numero' ? 'selected' : ''}>Número</option>
+      <option value="area" ${c.tipo === 'area' ? 'selected' : ''}>Texto longo</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap"><input type="checkbox" class="lcObrig" ${c.obrigatorio ? 'checked' : ''}>obrig.</label>
+    <button type="button" class="ghost lcRemover" style="padding:5px 9px">${ICONE_LIXEIRA}</button>
+  </div>`;
+  div.innerHTML = `<div class="modal" style="width:560px">
     <h2>Identidade visual — ${esc(nome)}</h2>
     <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Essa marca aparece no Portal do Cliente para todos os empreendimentos de <b>${esc(nome)}</b>.</p>
     <div><label>Logo (PNG/SVG, fundo transparente)</label>
@@ -4641,6 +4668,26 @@ async function openIdentidadeEmpreendedora(id, nome) {
     <div class="msg" id="idMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
       <button id="idCancel" class="ghost">Cancelar</button><button id="idSalvar">Salvar</button>
+    </div>
+    <hr style="margin:16px 0;border-color:var(--linha)">
+    <b style="font-size:13px">Campos do laudo de crédito</b>
+    <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px">
+      Cada incorporadora tem seu próprio modelo de laudo — defina abaixo os campos que aparecem
+      quando o analista preenche o laudo de crédito de um empreendimento de ${esc(nome)}.
+      Isso vale automaticamente pra todos os empreendimentos dela.
+    </p>
+    <div id="idCamposLista">${(camposLaudo || []).map(linhaCampoLaudo).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <button type="button" id="idAddCampo" class="ghost">+ Adicionar campo</button>
+      ${!(camposLaudo || []).length ? '<button type="button" id="idUsarReferencia" class="ghost">Usar modelo de referência</button>' : ''}
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12.5px">
+      <input type="checkbox" id="idTemFluxo" ${modelo?.tem_fluxo_pagamento !== false ? 'checked' : ''}>
+      Este laudo inclui tabela de fluxo de pagamento (parcelas)
+    </label>
+    <div class="msg" id="idCamposMsg"></div>
+    <div style="display:flex;justify-content:end;margin-top:10px">
+      <button type="button" id="idSalvarCampos" class="ghost">Salvar campos do laudo</button>
     </div>
   </div>`;
   document.body.appendChild(div);
@@ -4707,6 +4754,62 @@ async function openIdentidadeEmpreendedora(id, nome) {
       $('idMsg').textContent = err.message || 'Erro ao salvar.';
       $('idSalvar').disabled = false;
     }
+  };
+
+  const listaCampos = $('idCamposLista');
+  const addLinhaCampo = (c = {}) => { listaCampos.insertAdjacentHTML('beforeend', linhaCampoLaudo(c)); wireLinhaCampo(listaCampos.lastElementChild); };
+  const wireLinhaCampo = (linha) => { linha.querySelector('.lcRemover').onclick = () => linha.remove(); };
+  listaCampos.querySelectorAll('.laudo-campo-linha').forEach(wireLinhaCampo);
+  $('idAddCampo').onclick = () => addLinhaCampo();
+  $('idUsarReferencia')?.addEventListener('click', () => {
+    listaCampos.innerHTML = '';
+    CAMPOS_LAUDO_REFERENCIA.forEach(([rotulo, tipo]) => addLinhaCampo({ rotulo, tipo }));
+  });
+  $('idSalvarCampos').onclick = async () => {
+    const btn = $('idSalvarCampos');
+    btn.disabled = true; $('idCamposMsg').style.color = ''; $('idCamposMsg').textContent = 'Salvando...';
+    try {
+      let modeloId = modelo?.id;
+      if (!modeloId) {
+        const { data: novoModelo, error: errModelo } = await sb.from('laudos_credito_modelos')
+          .insert({ empreendedora_id: id, tem_fluxo_pagamento: $('idTemFluxo').checked }).select('id').single();
+        if (errModelo) throw errModelo;
+        modeloId = novoModelo.id;
+      } else {
+        const { error: errUpd } = await sb.from('laudos_credito_modelos').update({ tem_fluxo_pagamento: $('idTemFluxo').checked }).eq('id', modeloId);
+        if (errUpd) throw errUpd;
+      }
+      const linhas = [...listaCampos.querySelectorAll('.laudo-campo-linha')];
+      const idsAtuais = new Set();
+      let ordem = 0;
+      for (const linha of linhas) {
+        const rotulo = linha.querySelector('.lcRotulo').value.trim();
+        if (!rotulo) continue;
+        const rec = {
+          modelo_id: modeloId, ordem: ordem++, rotulo,
+          tipo: linha.querySelector('.lcTipo').value,
+          obrigatorio: linha.querySelector('.lcObrig').checked,
+        };
+        const campoId = linha.dataset.id;
+        if (campoId) {
+          idsAtuais.add(campoId);
+          const { error } = await sb.from('laudos_credito_campos').update(rec).eq('id', campoId);
+          if (error) throw error;
+        } else {
+          const { error } = await sb.from('laudos_credito_campos').insert(rec);
+          if (error) throw error;
+        }
+      }
+      // campos que existiam antes e foram removidos da lista na tela: apaga no banco também
+      const idsRemovidos = (camposLaudo || []).map(c => c.id).filter(cid => !idsAtuais.has(cid));
+      if (idsRemovidos.length) await sb.from('laudos_credito_campos').delete().in('id', idsRemovidos);
+      $('idCamposMsg').style.color = 'var(--ok)';
+      $('idCamposMsg').textContent = 'Campos do laudo salvos!';
+    } catch (err) {
+      $('idCamposMsg').style.color = 'var(--err)';
+      $('idCamposMsg').textContent = err.message || 'Erro ao salvar os campos.';
+    }
+    btn.disabled = false;
   };
 }
 
@@ -5926,6 +6029,51 @@ const PARECERES_CREDITO = [
   ['aprovado_pendencia_contrato', 'Aprovado com pendência e enviar para emissão de contrato'],
   ['reprovado', 'Reprovado'],
 ];
+// Gera o PDF do laudo de crédito abrindo uma aba de impressão (sem depender de lib de PDF) —
+// o próprio navegador oferece "Salvar como PDF" na janela de impressão que abre.
+function gerarPdfLaudo(dados) {
+  const logoNeoUrl = location.origin + '/assets/logo-neoservice.png';
+  const win = window.open('', '_blank');
+  if (!win) { alert('Não foi possível abrir a janela de impressão — verifique se o navegador bloqueou pop-ups.'); return; }
+  const linhaFluxoTr = (f) => `<tr>
+    <td>${esc(f.descricao || '—')}</td>
+    <td>${f.saldo != null ? f.saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td>
+    <td>${f.quantidade_parcela ?? '—'}</td>
+    <td>${f.valor_parcela != null ? f.valor_parcela.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td>
+  </tr>`;
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laudo de crédito — ${esc(dados.titulo || '')}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:24px;max-width:840px;margin:0 auto}
+      .cabecalho{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:2px solid #0d3d3d;padding-bottom:12px;margin-bottom:16px}
+      .cabecalho img{max-height:48px;max-width:150px;object-fit:contain}
+      h1{font-size:16px;margin:0 0 2px}
+      .sub{font-size:12px;color:#555;margin:0 0 18px}
+      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 24px;margin-bottom:18px}
+      .campo{border-bottom:1px solid #ddd;padding:6px 0;font-size:12.5px}
+      .campo b{display:block;font-size:10.5px;color:#666;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+      th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+      th{background:#f2f2f2}
+      h2{font-size:13px;margin:18px 0 4px}
+      @media print{body{padding:0}}
+    </style></head><body>
+    <div class="cabecalho">
+      ${dados.empreendedoraLogoUrl ? `<img src="${dados.empreendedoraLogoUrl}" alt="">` : `<span>${esc(dados.empreendedoraNome || '')}</span>`}
+      ${dados.empreendimentoLogoUrl ? `<img src="${dados.empreendimentoLogoUrl}" alt="">` : `<span>${esc(dados.empreendimentoNome || '')}</span>`}
+      <img src="${logoNeoUrl}" alt="Neo Service">
+    </div>
+    <h1>Laudo de crédito e documental</h1>
+    <p class="sub">${esc(dados.empreendedoraNome || '—')} · ${esc(dados.empreendimentoNome || '—')} · ${esc(dados.titulo || '')}</p>
+    <div class="grid">
+      ${dados.campos.map(c => `<div class="campo"><b>${esc(c.rotulo)}</b>${esc(c.valor || '—')}</div>`).join('')}
+    </div>
+    ${dados.temFluxo ? `<h2>Fluxo de pagamento</h2>
+    <table><thead><tr><th>Descrição</th><th>Saldo</th><th>Qtd. parcelas</th><th>Valor da parcela</th></tr></thead>
+    <tbody>${dados.fluxo.length ? dados.fluxo.map(linhaFluxoTr).join('') : '<tr><td colspan="4">Sem linhas informadas.</td></tr>'}</tbody></table>` : ''}
+  </body></html>`);
+  win.document.close();
+  win.onload = () => win.print();
+}
 async function openProcessoEsteira(id, etapas) {
   let p = null, historico = [], anexos = [], transicoes = [], checklist = [], mensagensProc = [], demandaOrigem = null;
   if (id) {
@@ -5955,6 +6103,35 @@ async function openProcessoEsteira(id, etapas) {
       } else checklist = cl;
     }
   }
+  // Laudo de crédito: cada incorporadora tem seu próprio modelo de campos (ver
+  // openIdentidadeEmpreendedora). Só busca quando o processo já existe, é de análise de crédito
+  // e tem empreendimento vinculado — sem isso não dá pra saber qual modelo usar.
+  let laudoInfo = null;
+  if (id && p?.esteira_tipo === 'analise_credito' && p.empreendimento_id) {
+    const { data: empInfo } = await sb.from('empreendimentos')
+      .select('nome,logo_path,empreendedora_id,empreendedoras(nome,logo_path)').eq('id', p.empreendimento_id).maybeSingle();
+    if (empInfo?.empreendedora_id) {
+      const { data: modeloLaudo } = await sb.from('laudos_credito_modelos').select('id,tem_fluxo_pagamento').eq('empreendedora_id', empInfo.empreendedora_id).maybeSingle();
+      if (modeloLaudo) {
+        const { data: camposModelo } = await sb.from('laudos_credito_campos').select('id,ordem,rotulo,tipo,obrigatorio').eq('modelo_id', modeloLaudo.id).order('ordem');
+        const { data: laudoExistente } = await sb.from('laudos_credito').select('id').eq('processo_id', id).maybeSingle();
+        let valores = [], fluxo = [];
+        if (laudoExistente) {
+          const [vv, ff] = await Promise.all([
+            sb.from('laudos_credito_valores').select('campo_id,valor').eq('laudo_id', laudoExistente.id),
+            sb.from('laudos_credito_fluxo').select('*').eq('laudo_id', laudoExistente.id).order('ordem'),
+          ]);
+          valores = vv.data || []; fluxo = ff.data || [];
+        }
+        laudoInfo = {
+          empreendimentoNome: empInfo.nome, empreendimentoLogo: empInfo.logo_path,
+          empreendedoraNome: empInfo.empreendedoras?.nome, empreendedoraLogo: empInfo.empreendedoras?.logo_path,
+          modelo: modeloLaudo, campos: camposModelo || [], laudoId: laudoExistente?.id || null,
+          valores, fluxo,
+        };
+      }
+    }
+  }
   const L = state.lookups;
   const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
   const etapaIdx = p ? etapas.findIndex(e => e.id === p.etapa_atual_id) : 0;
@@ -5973,6 +6150,14 @@ async function openProcessoEsteira(id, etapas) {
       <div><b>Imobiliária:</b> ${esc(d.imobiliaria || '—')}</div>
       <div><b>Corretor:</b> ${esc(d.corretor || '—')}</div>
     </div>
+  </div>`;
+  const urlIdent = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
+  const linhaFluxoHtml = (f = {}) => `<div class="epFluxoLinha" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+    <input class="efDescricao" placeholder="Descrição (ex.: Entrada, Parcela mensal...)" value="${esc(f.descricao || '')}" style="flex:2;min-width:160px">
+    <input class="efSaldo" type="number" step="any" placeholder="Saldo" value="${f.saldo ?? ''}" style="flex:1;min-width:90px">
+    <input class="efQtd" type="number" placeholder="Qtd. parcelas" value="${f.quantidade_parcela ?? ''}" style="flex:1;min-width:90px">
+    <input class="efValor" type="number" step="any" placeholder="Valor parcela" value="${f.valor_parcela ?? ''}" style="flex:1;min-width:90px">
+    <button type="button" class="ghost efRemover" style="padding:5px 9px">${ICONE_LIXEIRA}</button>
   </div>`;
   const div = document.createElement('div');
   div.className = 'modal-bg';
@@ -6058,6 +6243,33 @@ async function openProcessoEsteira(id, etapas) {
         <div><b>${fmtDt(h.criado_em)}</b> — ${esc(h.evento)}${h.autor ? ` <span style="color:var(--muted2);font-size:11px">· ${esc(h.autor)}</span>` : ''}</div></div>`).join('')}</div>
     ` : ''}
     <div class="msg" id="epMsg"></div>
+    ${laudoInfo ? `
+    <div class="transfer-box" id="epLaudoBox">
+      <b style="font-size:13px">Laudo de crédito e documental</b>
+      <p style="color:var(--muted);font-size:12px;margin:4px 0 8px">Modelo de ${esc(laudoInfo.empreendedoraNome || '—')} · ${esc(laudoInfo.empreendimentoNome || '—')}</p>
+      <div id="epLaudoCampos" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px">
+        ${laudoInfo.campos.map(c => {
+          const v = esc((laudoInfo.valores.find(x => x.campo_id === c.id) || {}).valor || '');
+          const inputHtml = c.tipo === 'area'
+            ? `<textarea class="epLaudoCampo" data-campo="${c.id}" rows="2" ${ro ? 'disabled' : ''}>${v}</textarea>`
+            : `<input class="epLaudoCampo" data-campo="${c.id}" type="${c.tipo === 'numero' ? 'number' : 'text'}" step="any" value="${v}" ${ro ? 'disabled' : ''}>`;
+          return `<div><label>${esc(c.rotulo)}${c.obrigatorio ? ' *' : ''}</label>${inputHtml}</div>`;
+        }).join('') || '<p style="color:var(--muted);font-size:12px">Nenhum campo configurado nesse modelo ainda — configure em Cadastros → Identidade visual da incorporadora.</p>'}
+      </div>
+      ${laudoInfo.modelo.tem_fluxo_pagamento ? `
+      <div style="margin-top:12px">
+        <b style="font-size:12.5px">Fluxo de pagamento</b>
+        <div id="epFluxoLista" style="margin-top:6px">
+          ${(laudoInfo.fluxo.length ? laudoInfo.fluxo : [{}]).map(f => linhaFluxoHtml(f)).join('')}
+        </div>
+        ${!ro ? '<button type="button" id="epFluxoAdd" class="ghost" style="margin-top:2px">+ Adicionar linha</button>' : ''}
+      </div>` : ''}
+      <div class="msg" id="epLaudoMsg" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;justify-content:end;margin-top:10px;flex-wrap:wrap">
+        <button type="button" id="epLaudoPdf" class="ghost">${ICONE_DOWNLOAD}Baixar PDF</button>
+        ${!ro ? '<button type="button" id="epLaudoSalvar">Salvar laudo</button>' : ''}
+      </div>
+    </div>` : ''}
     ${id && !ro && p?.esteira_tipo === 'analise_credito' ? `
     <div class="transfer-box">
       <b style="font-size:13px">Parecer da análise de crédito</b>
@@ -6192,6 +6404,73 @@ async function openProcessoEsteira(id, etapas) {
     ...( $('epBloco') ? { bloco: $('epBloco').value } : {} ),
     ...( $('epFaturado') ? { sera_faturado: $('epFaturado').value === '' ? null : $('epFaturado').value === 'sim' } : {} ),
   });
+
+  if (laudoInfo) {
+    const fluxoLista = $('epFluxoLista');
+    const wireLinhaFluxo = (linha) => { linha.querySelector('.efRemover').onclick = () => linha.remove(); };
+    fluxoLista?.querySelectorAll('.epFluxoLinha').forEach(wireLinhaFluxo);
+    $('epFluxoAdd')?.addEventListener('click', () => {
+      fluxoLista.insertAdjacentHTML('beforeend', linhaFluxoHtml());
+      wireLinhaFluxo(fluxoLista.lastElementChild);
+    });
+    const coletarFluxo = () => fluxoLista ? [...fluxoLista.querySelectorAll('.epFluxoLinha')].map((linha, i) => ({
+      ordem: i,
+      descricao: linha.querySelector('.efDescricao').value.trim() || null,
+      saldo: linha.querySelector('.efSaldo').value === '' ? null : Number(linha.querySelector('.efSaldo').value),
+      quantidade_parcela: linha.querySelector('.efQtd').value === '' ? null : Number(linha.querySelector('.efQtd').value),
+      valor_parcela: linha.querySelector('.efValor').value === '' ? null : Number(linha.querySelector('.efValor').value),
+    })).filter(l => l.descricao || l.saldo != null || l.quantidade_parcela != null || l.valor_parcela != null) : [];
+    const coletarCampos = () => [...div.querySelectorAll('.epLaudoCampo')].map(el => ({ campo_id: el.dataset.campo, valor: el.value.trim() }));
+    const montarDadosPdf = () => {
+      const valoresAtuais = coletarCampos();
+      return {
+        empreendimentoNome: laudoInfo.empreendimentoNome, empreendedoraNome: laudoInfo.empreendedoraNome,
+        empreendimentoLogoUrl: urlIdent(laudoInfo.empreendimentoLogo), empreendedoraLogoUrl: urlIdent(laudoInfo.empreendedoraLogo),
+        titulo: p.titulo,
+        campos: laudoInfo.campos.map(c => ({ rotulo: c.rotulo, valor: (valoresAtuais.find(v => v.campo_id === c.id) || {}).valor || '' })),
+        temFluxo: laudoInfo.modelo.tem_fluxo_pagamento, fluxo: coletarFluxo(),
+      };
+    };
+    $('epLaudoPdf').onclick = () => gerarPdfLaudo(montarDadosPdf());
+    const btnLaudoSalvar = $('epLaudoSalvar');
+    if (btnLaudoSalvar) btnLaudoSalvar.onclick = async () => {
+      const valoresAtuais = coletarCampos();
+      const faltando = laudoInfo.campos.filter(c => c.obrigatorio && !(valoresAtuais.find(v => v.campo_id === c.id) || {}).valor);
+      if (faltando.length) { $('epLaudoMsg').textContent = `Preencha o campo obrigatório "${faltando[0].rotulo}".`; return; }
+      btnLaudoSalvar.disabled = true; $('epLaudoMsg').style.color = ''; $('epLaudoMsg').textContent = 'Salvando...';
+      try {
+        let laudoId = laudoInfo.laudoId;
+        if (!laudoId) {
+          const { data: novoLaudo, error: errLaudo } = await sb.from('laudos_credito')
+            .insert({ processo_id: id, modelo_id: laudoInfo.modelo.id, criado_por: state.session?.user?.id }).select('id').single();
+          if (errLaudo) throw errLaudo;
+          laudoId = novoLaudo.id;
+        } else {
+          await sb.from('laudos_credito').update({ atualizado_em: new Date().toISOString() }).eq('id', laudoId);
+        }
+        const linhasValores = valoresAtuais.filter(v => v.valor).map(v => ({ laudo_id: laudoId, campo_id: v.campo_id, valor: v.valor }));
+        if (linhasValores.length) {
+          const { error: errValores } = await sb.from('laudos_credito_valores').upsert(linhasValores, { onConflict: 'laudo_id,campo_id' });
+          if (errValores) throw errValores;
+        }
+        if (laudoInfo.modelo.tem_fluxo_pagamento) {
+          await sb.from('laudos_credito_fluxo').delete().eq('laudo_id', laudoId);
+          const linhasFluxo = coletarFluxo().map(l => ({ ...l, laudo_id: laudoId }));
+          if (linhasFluxo.length) {
+            const { error: errFluxo } = await sb.from('laudos_credito_fluxo').insert(linhasFluxo);
+            if (errFluxo) throw errFluxo;
+          }
+        }
+        laudoInfo.laudoId = laudoId;
+        $('epLaudoMsg').style.color = 'var(--ok)';
+        $('epLaudoMsg').textContent = 'Laudo salvo!';
+      } catch (err) {
+        $('epLaudoMsg').style.color = 'var(--err)';
+        $('epLaudoMsg').textContent = err.message || 'Erro ao salvar o laudo.';
+      }
+      btnLaudoSalvar.disabled = false;
+    };
+  }
 
   const parecerSelect = $('epParecer');
   const contratoBox = $('epContratoBox');
