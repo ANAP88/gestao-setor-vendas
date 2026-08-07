@@ -4,14 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gestão Setor de Secretaria de Vendas - Neo Service</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#f4f6f9; --bg2:#e9edf3;
   --panel:#ffffff; --panel2:#f6f8fb; --panel3:#eef1f6;
   --text:#101828; --muted:#5b6472; --muted2:#8a93a1;
-  --accent:#1657d6; --accent2:#0e3fa3; --accent-soft:#eaf0fd;
+  --accent:#006A6E; --accent2:#004d50; --accent-soft:#e3f2f1;
   --ok:#0f8a5f; --ok-soft:#e5f6ee;
   --warn:#b5750a; --warn-soft:#fdf1de;
   --err:#c1352b; --err-soft:#fbeaea;
@@ -21,7 +19,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
-  font-family:'Inter',system-ui,sans-serif;
+  font-family:Calibri,Candara,"Segoe UI",Arial,sans-serif;
   background:var(--bg);
   color:var(--text); min-height:100vh; letter-spacing:.1px;
 }
@@ -132,7 +130,7 @@ body:has(#login-page){overflow-x:hidden}
   border-right:1px solid var(--border);
 }
 .login-hero, .login-hero h1, .login-hero .hf b{color:#fff}
-.hero-mark{color:#8fd9cf;font-size:12px;font-weight:700;letter-spacing:2px;margin-bottom:28px}
+.hero-mark{height:30px;width:auto;margin-bottom:32px}
 .footer-ic{display:inline-flex;width:12px;height:12px;vertical-align:-1px;margin-right:5px}
 .footer-ic svg{width:100%;height:100%}
 .login-hero h1{font-size:34px;font-weight:800;line-height:1.25;letter-spacing:-.5px;margin-bottom:14px}
@@ -149,12 +147,7 @@ body:has(#login-page){overflow-x:hidden}
 .hf small{color:#a9bde3;font-size:12px;line-height:1.4;display:block}
 .login-panel{display:flex;align-items:center;justify-content:center;padding:40px}
 #login-card{width:100%;max-width:400px;text-align:left;box-shadow:0 12px 32px -14px rgba(16,24,40,.18)}
-.login-icon{
-  display:inline-flex; align-items:center; justify-content:center; vertical-align:-8px;
-  width:30px;height:30px;border-radius:8px;margin-right:9px;
-  background:var(--accent-soft); color:var(--accent);
-}
-.login-icon svg{width:16px;height:16px}
+.login-mark{height:26px;width:auto;margin-bottom:16px}
 #login-card h2{font-size:20px;font-weight:800;margin-bottom:2px}
 .login-brandline{color:var(--accent);font-weight:700;font-size:13.5px;margin-bottom:2px}
 #login-card .sub{color:var(--muted);font-size:12.5px;margin-bottom:20px}
@@ -424,10 +417,8 @@ aside{
   position:sticky;top:0;height:100vh;overflow-y:auto;
 }
 .side-brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;border-bottom:1px solid rgba(255,255,255,.18);margin-bottom:10px}
-.side-brand .logo{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;color:#fff}
-.side-brand .logo svg{width:18px;height:18px}
-.side-brand b{font-size:13.5px;display:block;color:#fff}
-.side-brand small{color:rgba(255,255,255,.7);font-size:10.5px}
+.side-brand img{height:20px;width:auto}
+.side-brand b{font-size:12.5px;display:block;color:#fff}
 .side-group{font-size:10px;color:rgba(255,255,255,.55);text-transform:uppercase;font-weight:800;letter-spacing:.8px;padding:12px 10px 4px}
 button.side-item{
   display:flex;align-items:center;gap:10px;width:100%;text-align:left;

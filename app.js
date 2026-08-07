@@ -155,7 +155,7 @@ function renderLogin(msg = '', tipo = 'erro') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <div class="hero-mark">NEO SERVICE</div>
+      <img class="hero-mark" src="assets/logo-neoservice-branco.png" alt="Neo Service">
       <h1>Gestão que organiza.<br>Informação que move<br><span>resultados.</span></h1>
       <p class="hero-sub">Painel de gestão operacional da equipe Secretaria de Vendas.</p>
       <div class="hero-features">
@@ -164,7 +164,8 @@ function renderLogin(msg = '', tipo = 'erro') {
     </div>
     <div class="login-panel">
       <div class="card" id="login-card">
-        <h2><span class="login-icon">${ICONE_PREDIO}</span>Gestão Operacional</h2>
+        <img class="login-mark" src="assets/logo-neoservice.png" alt="Neo Service">
+        <h2>Gestão Operacional</h2>
         <div class="login-brandline">Secretaria de Vendas</div>
         <div class="sub">Painel interno da equipe</div>
         <label>E-mail corporativo</label>
@@ -373,7 +374,7 @@ function shell(inner) {
     AMBIENTE DE TESTE — nada aqui afeta o sistema real da equipe</div>` : ''}
   <div class="layout" style="${EH_STAGING ? 'margin-top:26px' : ''}">
     <aside>
-      <div class="side-brand"><span class="logo">${ICONE_PREDIO}</span><div><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b><small>Neo Service</small></div></div>
+      <div class="side-brand"><img src="assets/logo-neoservice-branco.png" alt="Neo Service"><b>Secretaria de Vendas${EH_STAGING?' (TESTE)':''}</b></div>
       ${pilaresVisiveis.map(([grp, items]) => `
         <div class="side-group">${grp}</div>
         ${items.map(([v, ic, l]) => `<button class="side-item ${state.view===v?'active':''}" data-v="${v}"><span class="side-ic">${ICONES[v] || ic}</span>${l}</button>`).join('')}
@@ -6712,20 +6713,20 @@ function renderDefinirSenha(email, msg = '') {
   app.innerHTML = `
   <div id="login-page">
     <div class="login-hero">
-      <div class="hero-badge">CONVITE</div>
+      <img class="hero-mark" src="assets/logo-neoservice-branco.png" alt="Neo Service">
       <h1>Bem-vindo(a) à<br>Secretaria de Vendas<br><span>Neo Service.</span></h1>
       <p class="hero-sub">Você foi convidado(a) para acessar o painel interno da equipe. Crie sua senha para começar.</p>
     </div>
     <div class="login-panel">
       <div class="card" id="login-card">
-        <div class="login-icon"></div>
+        <img class="login-mark" src="assets/logo-neoservice.png" alt="Neo Service">
         <h2>Criar sua senha</h2>
         <div class="login-brandline">${esc(email || '')}</div>
         <div class="sub">Escolha uma senha para acessar o sistema</div>
         <label>Nova senha</label>
-        <div class="input-ic"><span></span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"></div>
         <label>Confirmar senha</label>
-        <div class="input-ic"><span></span><input id="confSenha" type="password" placeholder="repita a senha"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="confSenha" type="password" placeholder="repita a senha"></div>
         <button id="btnDefinirSenha">Criar senha e entrar →</button>
         <div class="msg">${esc(msg)}</div>
       </div>
@@ -6858,7 +6859,7 @@ function portalShell(perfil, inner, marca, topo, viewAtiva) {
   <div class="portal-shell"${marca?.cor_secundaria ? ` style="--accent2:${esc(marca.cor_secundaria)}"` : ''}>
     <aside class="portal-sidebar">
       <div class="portal-sidebar-brand">
-        ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<span class="logo" style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center">${ICONE_PREDIO}</span>`}
+        ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<img src="assets/logo-neoservice-branco.png" alt="Neo Service" style="height:22px;width:auto">`}
         <div class="txt"><b>${marca ? esc(marca.nome) : 'Portal do Cliente'}</b><small>NEO SERVICE</small></div>
       </div>
       ${PORTAL_NAV.filter(([v]) => v !== 'repasse' || portalTemRepasse)
