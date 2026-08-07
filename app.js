@@ -7091,7 +7091,15 @@ async function renderPortalCliente(perfil) {
   const totalProc = Math.max(1, (processos||[]).length);
   const pctAndamento = Math.round(emAndamento / totalProc * 100);
   const donutDeg = Math.round(emAndamento / totalProc * 360);
-  portalShell(perfil, `
+  const semEmpreendimentos = !(emps||[]).length;
+  portalShell(perfil, semEmpreendimentos ? `
+    <div class="card" style="text-align:center;padding:64px 28px">
+      <div style="width:56px;height:56px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 18px">
+        ${svgIcon('<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M3 21h18M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"/>')}
+      </div>
+      <h2 style="font-size:17px;margin-bottom:6px">Sua área ainda está sendo preparada</h2>
+      <p style="color:var(--muted);font-size:13.5px;max-width:420px;margin:0 auto">Assim que o primeiro empreendimento for vinculado à sua conta, você acompanha aqui, em tempo real, cada etapa dos seus processos — da análise de crédito à emissão de contrato.</p>
+    </div>` : `
     <div class="pkpis">
       <div class="pkpi"><div class="pkpi-ic"></div><div><div class="pkpi-v">${(emps||[]).length}</div><div class="pkpi-l">EMPREENDIMENTOS</div></div></div>
       <div class="pkpi"><div class="pkpi-ic"></div><div><div class="pkpi-v">${emAndamento}</div><div class="pkpi-l">EM ANDAMENTO</div></div></div>
@@ -7137,7 +7145,7 @@ async function renderPortalCliente(perfil) {
       <tr><td><b>${esc(fmtMes(m.data))}</b></td><td>${m.recebidos}</td><td>${m.reprovados}</td><td>${m.pendencia}</td><td>${m.contrato}</td></tr>`).join('')
       || '<tr><td colspan="5" style="color:var(--muted)">Nenhum processo de análise de crédito nos últimos 6 meses.</td></tr>'}</tbody></table></div>`,
     marca, { titulo: `Olá, ${(perfil.nome_completo || perfil.nome || perfil.email || '').split(' ')[0]}! `,
-             subtitulo: 'Aqui está o resumo do andamento dos seus processos.' });
+             subtitulo: semEmpreendimentos ? 'Bem-vindo(a) ao seu portal exclusivo.' : 'Aqui está o resumo do andamento dos seus processos.' });
   document.querySelectorAll('.portal-emp-row').forEach(el => el.onclick = () => renderPortalEmpreendimento(perfil, el.dataset.id));
   portalRealtime(['esteira_processos','esteira_historico'], () => renderPortalCliente(perfil));
 }
