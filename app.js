@@ -154,9 +154,9 @@ const ICONE_SETA_BAIXO = ic('<path d="m6 9 6 6 6-6"/>');
 // Fundo do hero de login: arcos sobrepostos (tons de verde da marca) + esboço de prédio bem discreto,
 // no mesmo espírito do fundo já usado no login do Portal do Incorporador (PL_SKYLINE_BG).
 const HERO_BG = `<svg viewBox="0 0 700 900" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
-  <circle cx="760" cy="120" r="480" fill="#1d7a76" opacity=".35"/>
-  <circle cx="640" cy="520" r="400" fill="#2a9490" opacity=".28"/>
-  <circle cx="540" cy="880" r="260" fill="#6be0d3" opacity=".16"/>
+  <circle class="hb-c1" cx="760" cy="120" r="480" fill="#1d7a76" opacity=".35"/>
+  <circle class="hb-c2" cx="640" cy="520" r="400" fill="#2a9490" opacity=".28"/>
+  <circle class="hb-c3" cx="540" cy="880" r="260" fill="#6be0d3" opacity=".16"/>
   <g fill="none" stroke="#fff" stroke-width="1.2" opacity=".14">
     <path d="M40 780 40 620 120 560 200 620 200 780Z"/>
     <path d="M70 560 120 500 170 560"/>
