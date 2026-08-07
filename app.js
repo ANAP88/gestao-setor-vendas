@@ -266,6 +266,9 @@ const PL_ESTEIRA = [
 ];
 const ICONE_CHECK_MINI = svgIcon('<path d="M20 6 9 17l-5-5"/>');
 const PL_SKYLINE_BG = `<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice">
+  <circle class="hb-c1" cx="680" cy="80" r="260" fill="#1d7a76" opacity=".08"/>
+  <circle class="hb-c2" cx="120" cy="500" r="220" fill="#2a9490" opacity=".07"/>
+  <circle class="hb-c3" cx="720" cy="520" r="140" fill="#6be0d3" opacity=".08"/>
   <g fill="none" stroke="#0d3d3d" stroke-width="1.2" opacity=".18">
     <rect x="70" y="260" width="90" height="300"/><rect x="180" y="180" width="70" height="380"/>
     <rect x="270" y="320" width="60" height="240"/><rect x="600" y="220" width="80" height="340"/>

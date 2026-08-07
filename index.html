@@ -204,9 +204,6 @@ body:has(#pl-page){overflow-x:hidden}
 }
 .pl-left-bg{position:absolute;inset:0;opacity:.55;pointer-events:none}
 .pl-left-bg svg{width:100%;height:100%}
-.pl-left-content{animation:plEntrar .8s cubic-bezier(.16,1,.3,1) both}
-@keyframes plEntrar{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-@media (prefers-reduced-motion: reduce){.pl-left-content,.pl-card{animation:none}}
 .pl-left-content{position:relative;max-width:560px}
 .pl-mark{height:24px;width:auto;margin-bottom:26px}
 .pl-cobrand{display:flex;align-items:center;gap:12px;margin-bottom:26px}
@@ -242,7 +239,7 @@ body:has(#pl-page){overflow-x:hidden}
 .pl-step.done .pl-step-st{color:#1d7a76}
 .pl-step.now .pl-step-st{color:#d9820b}
 .pl-right{display:flex;align-items:center;justify-content:center;padding:40px;background:#fff}
-.pl-card{width:100%;max-width:430px;background:#fff;border:1px solid #eceff1;border-radius:18px;padding:40px 36px;box-shadow:0 20px 50px -20px rgba(16,24,40,.16);animation:plEntrar .8s cubic-bezier(.16,1,.3,1) .15s both}
+.pl-card{width:100%;max-width:430px;background:#fff;border:1px solid #eceff1;border-radius:18px;padding:40px 36px;box-shadow:0 20px 50px -20px rgba(16,24,40,.16)}
 .pl-card-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:-6px;margin-right:8px;color:var(--accent)}
 .pl-card-icon svg{width:20px;height:20px}
 .pl-card h2{font-size:21px;font-weight:800;text-align:center;color:#0f2129;margin-bottom:3px}
