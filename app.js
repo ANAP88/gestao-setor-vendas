@@ -3805,6 +3805,7 @@ function openSolicitarExclusaoApontamento(apontamentoId) {
 async function openApontamento() {
   const L = state.lookups;
   const equipe = L.analistas.filter(a => !['Inativo','Desligado'].includes(a.status));
+  const { data: indicadores } = await sb.from('indicadores_kpi').select('id,nome').eq('ativo', true).order('ordem');
   const div = document.createElement('div');
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:560px">
@@ -3816,6 +3817,9 @@ async function openApontamento() {
         <option value="cliente">Cliente apontou</option></select></div>
       <div><label>Analista responsável</label><select id="apAnalista"><option value="">—</option>
         ${equipe.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join('')}</select></div>
+      <div style="grid-column:1/-1"><label>Indicador afetado (opcional)</label><select id="apIndicador"><option value="">— nenhum / não se aplica —</option>
+        ${(indicadores||[]).map(i=>`<option value="${i.id}">${esc(i.nome)}</option>`).join('')}</select>
+        <p style="color:var(--muted);font-size:11px;margin-top:3px">Quando marcado, esse apontamento entra automaticamente na contagem de erros da meta desse indicador.</p></div>
       <div><label>Categoria do erro</label><select id="apCat">
         ${Object.keys(CATEGORIAS_ERRO).map(c=>`<option>${c}</option>`).join('')}
         <option value="__custom__">Digitar categoria manualmente…</option></select></div>
@@ -3870,6 +3874,7 @@ async function openApontamento() {
       demanda_id: demandaId,
       categoria, subcategoria,
       analista_id: div.querySelector('#apAnalista').value || null,
+      indicador_id: div.querySelector('#apIndicador').value || null,
       origem: div.querySelector('#apOrigem').value,
       descricao: div.querySelector('#apDesc').value || null,
       registrado_por: state.session?.user?.id,
@@ -4244,16 +4249,18 @@ async function openLancarIndividual(kpis, colab) {
       sb.from('meta_colaborador_mensal').select('*').eq('analista_id', analista.id).eq('mes', m + '-01'),
     ]);
     const porInd = {}; (atuais||[]).forEach(r => porInd[r.indicador_id] = r);
-    const ativos = (cfgs||[]).map(c => ({ ...c, nome: (kpis.find(k=>k.id===c.indicador_id)||{}).nome }));
+    const ativos = (cfgs||[]).map(c => ({ ...c, ...(kpis.find(k=>k.id===c.indicador_id)||{}), indicador_id: c.indicador_id, alvo: c.alvo, peso: c.peso }));
     div.querySelector('#liCampos').innerHTML = ativos.length ? ativos.map(c => {
       const r = porInd[c.indicador_id] || {};
+      const auto = !!c.esteira_tipo;
       return `<div style="border-top:1px solid var(--border);padding:10px 0">
         <div style="font-size:12.5px;margin-bottom:6px"><b>${esc(c.nome)}</b> <span style="color:var(--muted)">· alvo ${(c.alvo*100).toFixed(0)}% · peso ${(c.peso*100).toFixed(0)}%</span></div>
+        ${auto ? `<p style="color:var(--muted);font-size:11.5px;margin-bottom:6px">Calculado automaticamente a partir da Esteira (processos) e de Qualidade/Retrabalho (erros) — não precisa lançar aqui.</p>` : ''}
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}"></div>
-          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}"></div>
+          <div style="flex:1;min-width:110px"><label>Processos</label><input class="li-qtd" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_processos ?? ''}" ${auto?'disabled':''}></div>
+          <div style="flex:1;min-width:110px"><label>Erros</label><input class="li-err" data-id="${c.indicador_id}" type="number" min="0" value="${r.quantidade_erros ?? ''}" ${auto?'disabled':''}></div>
         </div>
-        <div style="margin-top:6px"><label>Descrição / observação</label><textarea class="li-desc" data-id="${c.indicador_id}" rows="2">${esc(r.descricao)}</textarea></div>
+        <div style="margin-top:6px"><label>Descrição / observação</label><textarea class="li-desc" data-id="${c.indicador_id}" rows="2" ${auto?'disabled':''}>${esc(r.descricao)}</textarea></div>
       </div>`;
     }).join('') : '<p style="color:var(--warn);font-size:12.5px">Nenhum indicador configurado para este colaborador neste trimestre. Use "Configurar indicadores e pesos" primeiro.</p>';
   };
@@ -4264,6 +4271,7 @@ async function openLancarIndividual(kpis, colab) {
     const mes = div.querySelector('#liMes').value + '-01';
     const linhas = [];
     div.querySelectorAll('.li-qtd').forEach(inp => {
+      if (inp.disabled) return;
       const id = inp.dataset.id;
       const err = div.querySelector(`.li-err[data-id="${id}"]`);
       const desc = div.querySelector(`.li-desc[data-id="${id}"]`);
