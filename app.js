@@ -6981,14 +6981,30 @@ const PORTAL_NAV = [
 ];
 // Repasse só entra no menu quando a incorporadora tem ao menos um processo de repasse vinculado.
 let portalTemRepasse = false;
+// A partir da cor única cadastrada pra incorporadora, deriva os 3 tons do degradê da barra
+// lateral do portal (mesma lógica de profundidade que o degradê fixo da Neo já usava).
+function ajustarHex(hex, pct) {
+  const h = (hex || '').replace('#', '');
+  const norm = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const num = parseInt(norm, 16);
+  if (Number.isNaN(num)) return null;
+  let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+  const ajustar = (c) => Math.max(0, Math.min(255, Math.round(pct > 0 ? c + (255 - c) * pct : c + c * pct)));
+  r = ajustar(r); g = ajustar(g); b = ajustar(b);
+  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+}
 function portalShell(perfil, inner, marca, topo, viewAtiva) {
   if (portalCanal) { sb.removeChannel(portalCanal); portalCanal = null; }
   const logoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
   const nome = perfil.nome_completo || perfil.nome || perfil.email || '';
   const iniciais = nome ? nome.trim().charAt(0).toUpperCase() : '?';
   const ativa = viewAtiva || 'inicio';
+  const corMarca = marca?.cor_secundaria;
+  const corVars = corMarca
+    ? `--accent2:${esc(corMarca)};--portal-c1:${esc(ajustarHex(corMarca, -0.55) || corMarca)};--portal-c2:${esc(ajustarHex(corMarca, -0.25) || corMarca)};--portal-c3:${esc(corMarca)}`
+    : '';
   app.innerHTML = `
-  <div class="portal-shell"${marca?.cor_secundaria ? ` style="--accent2:${esc(marca.cor_secundaria)}"` : ''}>
+  <div class="portal-shell"${corVars ? ` style="${corVars}"` : ''}>
     <aside class="portal-sidebar">
       <div class="portal-sidebar-brand">
         ${logoUrl ? `<img src="${logoUrl}" alt="">` : `<img src="assets/logo-neoservice-branco.png" alt="Neo Service" style="height:22px;width:auto">`}
