@@ -3665,6 +3665,12 @@ async function renderQualidade() {
   const abertos = visiveis.filter(a => !a.resolvido).length;
   const porOrigem = { cliente: visiveis.filter(a=>a.origem==='cliente').length,
                       validacao_interna: visiveis.filter(a=>a.origem==='validacao_interna').length };
+  const FILTROS_QUAL = {
+    aberto: a => !a.resolvido,
+    cliente: a => a.origem === 'cliente',
+    validacao_interna: a => a.origem === 'validacao_interna',
+  };
+  const tabelaFiltrada = state.qualFiltro ? visiveis.filter(FILTROS_QUAL[state.qualFiltro]) : visiveis;
 
   shell(`
     <div class="card" style="margin-bottom:14px">
@@ -3677,10 +3683,10 @@ async function renderQualidade() {
       </div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${visiveis.length}</div><div class="l">Apontamentos no mês</div></div>
-      <div class="kpi"><div class="v" style="color:${abertos?'var(--warn)':'var(--ok)'}">${abertos}</div><div class="l">Em aberto</div></div>
-      <div class="kpi"><div class="v" style="color:var(--err)">${porOrigem.cliente}</div><div class="l">Apontados pelo cliente</div></div>
-      <div class="kpi"><div class="v">${porOrigem.validacao_interna}</div><div class="l">Pegos na validação interna</div></div>
+      <div class="kpi kpi-clicavel ${!state.qualFiltro?'active':''}" data-qfiltro=""><div class="v">${visiveis.length}</div><div class="l">Apontamentos no mês</div></div>
+      <div class="kpi kpi-clicavel ${state.qualFiltro==='aberto'?'active':''}" data-qfiltro="aberto"><div class="v" style="color:${abertos?'var(--warn)':'var(--ok)'}">${abertos}</div><div class="l">Em aberto</div></div>
+      <div class="kpi kpi-clicavel ${state.qualFiltro==='cliente'?'active':''}" data-qfiltro="cliente"><div class="v" style="color:var(--err)">${porOrigem.cliente}</div><div class="l">Apontados pelo cliente</div></div>
+      <div class="kpi kpi-clicavel ${state.qualFiltro==='validacao_interna'?'active':''}" data-qfiltro="validacao_interna"><div class="v">${porOrigem.validacao_interna}</div><div class="l">Pegos na validação interna</div></div>
       ${souGestao ? `<div class="kpi"><div class="v" style="color:${(solicitacoesPendentes||[]).length?'var(--err)':'var(--ok)'}">${(solicitacoesPendentes||[]).length}</div><div class="l">Exclusões aguardando aprovação</div></div>` : ''}
     </div>
     ${souGestao && (solicitacoesPendentes||[]).length ? `<div class="card" style="margin-bottom:14px;border:1px solid var(--err)">
@@ -3721,9 +3727,12 @@ async function renderQualidade() {
       </div>` : ''}
     </div>
     <div class="card">
-      <h2>Apontamentos de ${mesLabel(state.qualMes)}</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">Apontamentos de ${mesLabel(state.qualMes)}</h2>
+        ${state.qualFiltro ? `<span class="tag PENDENTE">Filtro ativo — ${tabelaFiltrada.length} de ${visiveis.length}</span><button id="btnLimparFiltroQual" class="ghost" style="padding:2px 10px">Limpar filtro</button>` : ''}
+      </div>
       <table><thead><tr><th>Data</th><th>Processo</th><th>Analista</th><th>Origem</th><th>Categoria</th><th>Detalhe</th><th>Descrição</th><th>Status</th><th></th></tr></thead>
-      <tbody>${visiveis.map((a,i) => `<tr>
+      <tbody>${tabelaFiltrada.map((a,i) => `<tr>
         <td>${fmtDt(a.criado_em)}</td>
         <td>${esc(a.demandas?.numero ?? '—')}${a.demandas?.proponente1_nome ? '<br><span style="color:var(--muted);font-size:11px">'+esc(a.demandas.proponente1_nome)+'</span>' : ''}</td>
         <td>${esc(nomeExib(a.analistas?.nome || '—', i+1))}</td>
@@ -3739,7 +3748,13 @@ async function renderQualidade() {
         </td>
       </tr>`).join('') || '<tr><td colspan="9">Nenhum apontamento registrado neste mês.</td></tr>'}</tbody></table>
     </div>`);
-  document.getElementById('qualMes').onchange = (e) => { state.qualMes = e.target.value; renderQualidade(); };
+  document.getElementById('qualMes').onchange = (e) => { state.qualMes = e.target.value; state.qualFiltro = null; renderQualidade(); };
+  document.querySelectorAll('[data-qfiltro]').forEach(el => el.onclick = () => {
+    state.qualFiltro = el.dataset.qfiltro || null;
+    renderQualidade();
+  });
+  const bLF = document.getElementById('btnLimparFiltroQual');
+  if (bLF) bLF.onclick = () => { state.qualFiltro = null; renderQualidade(); };
   const bN = document.getElementById('btnNovoApont');
   if (bN) bN.onclick = () => openApontamento();
   document.querySelectorAll('.btn-resolver').forEach(b => b.onclick = async () => {
