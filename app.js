@@ -101,6 +101,19 @@ function dotLabel(s) {
   return DOT_COR[e] ? `${dot(e)}${esc(t.slice(e.length).trim())}` : esc(t);
 }
 
+// Liga o botão de "mostrar senha" de qualquer campo de senha renderizado (login, portal, trocar senha).
+function wirePwdToggles(escopo = document) {
+  escopo.querySelectorAll('.pwd-toggle').forEach(btn => {
+    btn.onclick = () => {
+      const inp = document.getElementById(btn.dataset.target);
+      if (!inp) return;
+      const mostrar = inp.type === 'password';
+      inp.type = mostrar ? 'text' : 'password';
+      btn.innerHTML = mostrar ? ICONE_OLHO_FECHADO_MINI : ICONE_OLHO_MINI;
+    };
+  });
+}
+
 // P0-1: Sanitizar strings para PostgREST (escape de caracteres perigosos)
 function escaparBuscaPostgREST(termo) {
   if (!termo) return '';
@@ -135,6 +148,8 @@ const ICONE_CADEADO_MINI = svgIcon('<rect x="5" y="11" width="14" height="8" rx=
 const ICONE_ESCUDO = svgIcon('<path d="M12 3 4 6v6c0 4.5 3.4 7.7 8 9 4.6-1.3 8-4.5 8-9V6Z"/>');
 const ICONE_CHAVE = ic('<circle cx="7" cy="15" r="4"/><path d="M10 12 20 2M17 5l2 2M14 8l2 2"/>');
 const ICONE_OLHO = ic('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>');
+const ICONE_OLHO_MINI = svgIcon('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>').replace('width="18" height="18"', 'width="15" height="15"');
+const ICONE_OLHO_FECHADO_MINI = svgIcon('<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/><path d="M2 2l20 20"/>').replace('width="18" height="18"', 'width="15" height="15"');
 const ICONE_APRESENTACAO = ic('<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>');
 const ICONE_DOWNLOAD = ic('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>');
 const ICONE_UPLOAD = ic('<path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/>');
@@ -186,7 +201,7 @@ function renderLogin(msg = '', tipo = 'erro') {
         <label>E-mail corporativo</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="email" type="email" autocomplete="username" placeholder="seu.email@neoservice.com.br"></div>
         <label>Senha</label>
-        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="senha" type="password" autocomplete="current-password" placeholder="••••••••••"><button type="button" class="pwd-toggle" data-target="senha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <div class="login-row">
           <label class="chk-inline"><input type="checkbox" id="manterConectado" checked> Manter conectado</label>
           <a href="#" id="linkEsqueci">Esqueci minha senha</a>
@@ -199,6 +214,7 @@ function renderLogin(msg = '', tipo = 'erro') {
     </div>
     <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
   </div>`;
+  wirePwdToggles();
   const valida = () => {
     if (!email.value.trim() || !senha.value) { renderLogin('Preencha e-mail e senha.'); return false; }
     if (senha.value.length < 6) { renderLogin('A senha precisa ter pelo menos 6 caracteres.'); return false; }
@@ -286,7 +302,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
         <label>E-mail</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="plEmail" type="email" autocomplete="username" placeholder="seu.email@incorporadora.com.br"></div>
         <label>Senha</label>
-        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="plSenha" type="password" autocomplete="current-password" placeholder="Sua senha"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="plSenha" type="password" autocomplete="current-password" placeholder="Sua senha"><button type="button" class="pwd-toggle" data-target="plSenha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <div class="pl-row">
           <label class="chk-inline"><input type="checkbox" id="plManter" checked> Manter conectado</label>
           <a href="#" id="plEsqueci">Esqueci minha senha</a>
@@ -306,6 +322,7 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
       </div>
     </div>
   </div>`;
+  wirePwdToggles();
   const valida = () => {
     if (!plEmail.value.trim() || !plSenha.value) { renderLoginPortal('Preencha e-mail e senha.'); return false; }
     return true;
@@ -427,8 +444,8 @@ function abrirTrocarSenha() {
   div.className = 'modal-bg';
   div.innerHTML = `<div class="modal" style="width:400px">
     <h2>Trocar minha senha</h2>
-    <div><label>Nova senha</label><input id="tsSenha1" type="password" placeholder="Mínimo 6 caracteres"></div>
-    <div style="margin-top:10px"><label>Confirmar nova senha</label><input id="tsSenha2" type="password"></div>
+    <div><label>Nova senha</label><div class="input-ic"><span>${ICONE_CADEADO}</span><input id="tsSenha1" type="password" placeholder="Mínimo 6 caracteres"><button type="button" class="pwd-toggle" data-target="tsSenha1" tabindex="-1">${ICONE_OLHO_MINI}</button></div></div>
+    <div style="margin-top:10px"><label>Confirmar nova senha</label><div class="input-ic"><span>${ICONE_CADEADO}</span><input id="tsSenha2" type="password"><button type="button" class="pwd-toggle" data-target="tsSenha2" tabindex="-1">${ICONE_OLHO_MINI}</button></div></div>
     <div class="msg" id="tsMsg" style="margin-top:8px"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
       <button id="tsCancel" class="ghost">Fechar</button>
@@ -436,6 +453,7 @@ function abrirTrocarSenha() {
     </div>
   </div>`;
   document.body.appendChild(div);
+  wirePwdToggles(div);
   div.querySelector('#tsCancel').onclick = () => div.remove();
   div.querySelector('#tsSalvar').onclick = async () => {
     const s1 = div.querySelector('#tsSenha1').value, s2 = div.querySelector('#tsSenha2').value;
@@ -6736,15 +6754,16 @@ function renderDefinirSenha(email, msg = '') {
         <div class="login-brandline">${esc(email || '')}</div>
         <div class="sub">Escolha uma senha para acessar o sistema</div>
         <label>Nova senha</label>
-        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="novaSenha" type="password" placeholder="mín. 6 caracteres"><button type="button" class="pwd-toggle" data-target="novaSenha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <label>Confirmar senha</label>
-        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="confSenha" type="password" placeholder="repita a senha"></div>
+        <div class="input-ic"><span>${ICONE_CADEADO}</span><input id="confSenha" type="password" placeholder="repita a senha"><button type="button" class="pwd-toggle" data-target="confSenha" tabindex="-1">${ICONE_OLHO_MINI}</button></div>
         <button id="btnDefinirSenha">Criar senha e entrar →</button>
         <div class="msg">${esc(msg)}</div>
       </div>
     </div>
     <div class="login-copyright">Neo Service © ${new Date().getFullYear()} · Sistema interno · Uso exclusivo da equipe</div>
   </div>`;
+  wirePwdToggles();
   btnDefinirSenha.onclick = async () => {
     const s1 = novaSenha.value, s2 = confSenha.value;
     if (!s1 || s1.length < 6) { renderDefinirSenha(email, 'A senha precisa ter pelo menos 6 caracteres.'); return; }

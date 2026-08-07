@@ -166,6 +166,13 @@ body:has(#login-page){overflow-x:hidden}
 .input-ic span{position:absolute;left:12px;top:50%;transform:translate(0,-50%);opacity:.6;display:flex}
 .input-ic span svg{width:15px;height:15px}
 .input-ic input{width:100%;padding-left:36px}
+.pwd-toggle{
+  position:absolute;right:8px;top:50%;transform:translate(0,-50%);
+  background:none;border:0;padding:5px;cursor:pointer;color:var(--muted);opacity:.7;
+  display:flex;align-items:center;justify-content:center;
+}
+.pwd-toggle:hover{opacity:1}
+.input-ic:has(.pwd-toggle) input{padding-right:34px}
 .login-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-bottom:16px;flex-wrap:wrap;gap:6px}
 .chk-inline{display:flex;align-items:center;gap:6px;color:var(--muted);text-transform:none;font-size:12px;font-weight:500}
 .chk-inline input{width:auto;accent-color:var(--accent2)}
