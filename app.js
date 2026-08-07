@@ -6,7 +6,11 @@ import { CONFIG } from './config.js';
 // (mesmo banco, dados copiados, isolado do que a equipe usa de verdade).
 const EH_STAGING = location.hostname !== 'secretaria-vendas-gestao.netlify.app';
 // Porta de entrada exclusiva para incorporadoras: /portal na URL (ou ?portal, por compatibilidade com links já enviados)
-const EH_PORTAL_LOGIN = location.pathname.replace(/\/$/, '') === '/portal' || new URLSearchParams(location.search).has('portal');
+const PORTAL_PATH = location.pathname.replace(/\/$/, '');
+const EH_PORTAL_LOGIN = PORTAL_PATH === '/portal' || PORTAL_PATH.startsWith('/portal/') || new URLSearchParams(location.search).has('portal');
+// Link exclusivo por incorporadora (/portal/<slug>) — antes mesmo do login, a tela já veste a
+// identidade visual dela (logo + cor) misturada com a da Neo Service. Sem slug, é o portal genérico.
+const PORTAL_SLUG = PORTAL_PATH.startsWith('/portal/') ? PORTAL_PATH.slice('/portal/'.length) : (new URLSearchParams(location.search).get('empresa') || null);
 // A sessão do sistema interno e a do Portal ficam em chaves separadas no navegador. Sem isso, abrir
 // o Portal numa aba derrubava a sessão da equipe na outra (as chamadas passavam a sair sem login e
 // o Postgres respondia "permission denied for table ...").
@@ -271,13 +275,30 @@ const PL_SKYLINE_BG = `<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/
     <path d="M0 560 800 560"/>
   </g>
 </svg>`;
-function renderLoginPortal(msg = '', tipo = 'erro') {
+let PORTAL_MARCA = null, PORTAL_MARCA_CARREGADA = false;
+// Link exclusivo por incorporadora (/portal/<slug>): busca logo + cor antes mesmo do login, pra
+// tela já vestir a identidade dela. View pública restrita a 4 colunas não sensíveis — ver migration.
+async function carregarMarcaPortal() {
+  if (PORTAL_MARCA_CARREGADA) return;
+  PORTAL_MARCA_CARREGADA = true;
+  if (!PORTAL_SLUG) return;
+  const { data } = await sb.from('empreendedoras_marca').select('*').eq('slug', PORTAL_SLUG).maybeSingle();
+  PORTAL_MARCA = data || null;
+}
+async function renderLoginPortal(msg = '', tipo = 'erro') {
+  await carregarMarcaPortal();
+  const marca = PORTAL_MARCA;
+  const marcaLogoUrl = marca?.logo_path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(marca.logo_path).data.publicUrl : '';
   app.innerHTML = `
-  <div id="pl-page">
+  <div id="pl-page"${marca?.cor_secundaria ? ` style="--accent:${esc(marca.cor_secundaria)}"` : ''}>
     <div class="pl-left">
       <div class="pl-left-bg">${PL_SKYLINE_BG}</div>
       <div class="pl-left-content">
-        <span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO INCORPORADOR</span>
+        ${marca ? `<div class="pl-cobrand">
+          <img src="assets/logo-neoservice.png" alt="Neo Service">
+          <span class="pl-cobrand-x">×</span>
+          ${marcaLogoUrl ? `<img src="${marcaLogoUrl}" alt="${esc(marca.nome)}">` : `<b>${esc(marca.nome)}</b>`}
+        </div>` : `<span class="pl-badge"><span class="pl-badge-dot"></span>PORTAL DO INCORPORADOR</span>`}
         <h1>Acompanhe seus processos<br><span>em tempo real.</span></h1>
         <p class="pl-left-sub">Tenha acesso a todas as etapas da Secretaria de Vendas em um único lugar, desde o recebimento da venda até a conclusão da operação.</p>
         <div class="pl-features">
@@ -297,8 +318,8 @@ function renderLoginPortal(msg = '', tipo = 'erro') {
     <div class="pl-right">
       <div class="pl-card">
         <div class="pl-card-icon">${ICONE_CADEADO}</div>
-        <h2>Portal do Incorporador</h2>
-        <div class="pl-sub">Acompanhamento Operacional</div>
+        <h2>${marca ? esc(marca.nome) : 'Portal do Incorporador'}</h2>
+        <div class="pl-sub">${marca ? 'Portal do Incorporador · em parceria com Neo Service' : 'Acompanhamento Operacional'}</div>
         <label>E-mail</label>
         <div class="input-ic"><span>${ICONE_EMAIL}</span><input id="plEmail" type="email" autocomplete="username" placeholder="seu.email@incorporadora.com.br"></div>
         <label>Senha</label>
@@ -4474,10 +4495,11 @@ async function openEditarCadastro(tipo, id, nomeAtual, L) {
 }
 
 async function openIdentidadeEmpreendedora(id, nome) {
-  const { data: e } = await sb.from('empreendedoras').select('logo_path,capa_path,cor_secundaria').eq('id', id).single();
+  const { data: e } = await sb.from('empreendedoras').select('logo_path,capa_path,cor_secundaria,slug,site').eq('id', id).single();
   const div = document.createElement('div');
   div.className = 'modal-bg';
   const urlDe = (path) => path ? sb.storage.from('empreendimentos-identidade').getPublicUrl(path).data.publicUrl : '';
+  const linkPortal = `${location.origin}/portal/${e?.slug || '<slug>'}`;
   div.innerHTML = `<div class="modal" style="width:480px">
     <h2>Identidade visual — ${esc(nome)}</h2>
     <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Essa marca aparece no Portal do Cliente para todos os empreendimentos de <b>${esc(nome)}</b>.</p>
@@ -4492,6 +4514,13 @@ async function openIdentidadeEmpreendedora(id, nome) {
     <div style="margin-top:10px"><label>Cor secundária (opcional)</label>
       <input type="color" id="idCor" value="${e?.cor_secundaria || '#0D3D3D'}" style="width:60px;height:34px;padding:2px">
     </div>
+    <div style="margin-top:10px"><label>Link exclusivo do portal (opcional)</label>
+      <input id="idSlug" value="${esc(e?.slug || '')}" placeholder="ex.: sdi">
+      <p style="color:var(--muted);font-size:11px;margin-top:3px">Preenchendo, a tela de login (antes mesmo de entrar) já mostra a logo e a cor desta incorporadora. Link: <code>${esc(linkPortal)}</code></p>
+    </div>
+    <div style="margin-top:10px"><label>Site da incorporadora (opcional, só referência)</label>
+      <input id="idSite" value="${esc(e?.site || '')}" placeholder="https://www.exemplo.com.br">
+    </div>
     <div class="msg" id="idMsg"></div>
     <div style="display:flex;gap:8px;justify-content:end;margin-top:14px">
       <button id="idCancel" class="ghost">Cancelar</button><button id="idSalvar">Salvar</button>
@@ -4502,7 +4531,7 @@ async function openIdentidadeEmpreendedora(id, nome) {
   $('idCancel').onclick = () => div.remove();
   $('idSalvar').onclick = async () => {
     $('idSalvar').disabled = true; $('idMsg').textContent = 'Salvando...';
-    const rec = { cor_secundaria: $('idCor').value };
+    const rec = { cor_secundaria: $('idCor').value, slug: $('idSlug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || null, site: $('idSite').value.trim() || null };
     try {
       const logoFile = $('idLogo').files[0];
       if (logoFile) {
